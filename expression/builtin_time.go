@@ -1887,8 +1887,26 @@ type addTimeFunctionClass struct {
 }
 
 func (c *addTimeFunctionClass) getFunction(args []Expression, ctx context.Context) (builtinFunc, error) {
-	sig := &builtinAddTimeSig{newBaseBuiltinFunc(args, ctx)}
+	bf, err := newBaseBuiltinFuncWithTp(args, ctx, tpTime, tpInt, tpInt)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	tp := bf.tp
+	
+	switch type := args[0].Kind(); type {
+		case types.KindMysqlTime:
+			tp.Tp,tp.Flen,tp.Decimal = mysql.TypeDatetime ,arg[0].GetType().Flen(),6
+			sig := &builtinAddTimeSig{newTimeBuiltinFunc(args,ctx)}
+		case types.KindMysqlDuration:
+			tp.Tp, tp.Flen,tp.Decimal = mysql.TypeDuration ,arg[0].GetType().Flen(),6
+			sig := &builtinAddTimeSig{newDurationBuiltinFunc(args,ctx)}
+		default:
+			tp.Tp, tp.Flen,tp.Decimal = mysql.TypeString, arg[0].GetType().Flen(),6
+			sig := &builtinAddTimeSig{newStringBuiltinFunc(args, ctx)}
+			
+	}
 	return sig.setSelf(sig), errors.Trace(c.verifyArgs(args))
+
 }
 
 type builtinAddTimeSig struct {
