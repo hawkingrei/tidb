@@ -2284,6 +2284,13 @@ type timeLiteralFunctionClass struct {
 	baseFunctionClass
 }
 
+func strToDuration(ctx sessionctx.Context, str string) (d types.Duration, err error) {
+	if !isDuration(str) {
+		return d, types.ErrWrongValue.GenWithStackByArgs(types.TimeStr, str)
+	}
+	return types.ParseDuration(ctx.GetSessionVars().StmtCtx, str, types.GetFsp(str))
+}
+
 func (c *timeLiteralFunctionClass) getFunction(ctx sessionctx.Context, args []Expression) (builtinFunc, error) {
 	if err := c.verifyArgs(args); err != nil {
 		return nil, err
@@ -2296,11 +2303,7 @@ func (c *timeLiteralFunctionClass) getFunction(ctx sessionctx.Context, args []Ex
 	if err != nil {
 		return nil, err
 	}
-	str := dt.GetString()
-	if !isDuration(str) {
-		return nil, types.ErrWrongValue.GenWithStackByArgs(types.TimeStr, str)
-	}
-	duration, err := types.ParseDuration(ctx.GetSessionVars().StmtCtx, str, types.GetFsp(str))
+	duration, err := strToDuration(ctx, dt.GetString())
 	if err != nil {
 		return nil, err
 	}
@@ -5031,6 +5034,12 @@ type timestampLiteralFunctionClass struct {
 	baseFunctionClass
 }
 
+func strToTime(ctx sessionctx.Context, str string) (d types.Time, err error) {
+	if !timestampPattern.MatchString(str) {
+		return d, types.ErrWrongValue.GenWithStackByArgs(types.DateTimeStr, str)
+	}
+	return types.ParseTime(ctx.GetSessionVars().StmtCtx, str, mysql.TypeDatetime, types.GetFsp(str))
+}
 func (c *timestampLiteralFunctionClass) getFunction(ctx sessionctx.Context, args []Expression) (builtinFunc, error) {
 	if err := c.verifyArgs(args); err != nil {
 		return nil, err
@@ -5047,10 +5056,7 @@ func (c *timestampLiteralFunctionClass) getFunction(ctx sessionctx.Context, args
 	if err != nil {
 		return nil, err
 	}
-	if !timestampPattern.MatchString(str) {
-		return nil, types.ErrWrongValue.GenWithStackByArgs(types.DateTimeStr, str)
-	}
-	tm, err := types.ParseTime(ctx.GetSessionVars().StmtCtx, str, mysql.TypeDatetime, types.GetFsp(str))
+	tm, err := strToTime(ctx, str)
 	if err != nil {
 		return nil, err
 	}

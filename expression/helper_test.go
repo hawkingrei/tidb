@@ -171,4 +171,30 @@ func TestCurrentTimestampTimeZone(t *testing.T) {
 		types.FromDate(1970, 1, 1, 8, 20, 34, 0),
 		mysql.TypeTimestamp, types.DefaultFsp),
 		v.GetMysqlTime())
+
+	v, err = GetTimeValue(ctx, &ast.FuncCallExpr{FnName: model.NewCIStr(ast.TimestampLiteral), Args: []ast.ExprNode{ast.NewValueExpr("2019-10-01 01:02:03", "", "")}}, mysql.TypeTimestamp, types.MinFsp)
+	require.NoError(t, err)
+	require.EqualValues(t, types.NewTime(
+		types.FromDate(2019, 10, 1, 1, 2, 3,0),
+		mysql.TypeTimestamp, 1),
+		v.GetMysqlTime())
+	/*
+	v, err = GetTimeValue(ctx, &ast.FuncCallExpr{FnName: model.NewCIStr(ast.TimestampLiteral), Args: []ast.ExprNode{ast.NewValueExpr("2019-10-01 01:02:03", "", "")}}, mysql.TypeDatetime, types.MinFsp)
+	require.NoError(t, err)
+		require.EqualValues(t, types.NewTime(
+		types.FromDate(2019, 10, 1, 1, 2, 3, 0),
+		mysql.TypeTimestamp, types.MinFsp),
+		v.GetMysqlTime())
+
+	v, err = GetTimeValue(ctx, &ast.FuncCallExpr{FnName: model.NewCIStr(ast.TimestampLiteral), Args: []ast.ExprNode{ast.NewValueExpr("2019-10-01 01:02:03", "", "")}}, mysql.TypeInt24, types.MinFsp)
+	require.NoError(t, err)
+		require.EqualValues(t, types.NewTime(
+		types.FromDate(2019, 10, 1, 1, 2, 3, 0),
+		mysql.TypeTimestamp, types.MinFsp),
+		v.GetMysqlTime())
+
+	v, err = GetTimeValue(ctx, &ast.FuncCallExpr{FnName: model.NewCIStr(ast.TimeLiteral), Args: []ast.ExprNode{ast.NewValueExpr("01:02:03", "", "")}}, mysql.TypeDuration, types.MinFsp)
+	require.NoError(t, err)
+	require.Equal(t, "01:02:03", v.GetMysqlDuration().String())
+	*/
 }

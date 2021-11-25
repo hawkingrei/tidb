@@ -103,11 +103,33 @@ func GetTimeValue(ctx sessionctx.Context, v interface{}, tp byte, fsp int8) (d t
 			return d, errDefaultValue
 		}
 	case *ast.FuncCallExpr:
-		if x.FnName.L == ast.CurrentTimestamp {
+		switch x.FnName.L {
+		case ast.CurrentTimestamp:
 			d.SetString(strings.ToUpper(ast.CurrentTimestamp), mysql.DefaultCollationName)
 			return d, nil
+		case ast.TimestampLiteral:
+			str := v.(*ast.FuncCallExpr).Args[0].(*driver.ValueExpr).GetString()
+			if !timestampPattern.MatchString(str) {
+				return d, types.ErrWrongValue.GenWithStackByArgs(types.DateTimeStr, str)
+			}
+			value, err = types.ParseTime(ctx.GetSessionVars().StmtCtx, str, mysql.TypeDatetime, fsp)
+			if err != nil {
+				return d, err
+			}
+		case ast.TimeLiteral:
+			str := v.(*ast.FuncCallExpr).Args[0].(*driver.ValueExpr).GetString()
+			if !isDuration(str) {
+				return d, types.ErrWrongValue.GenWithStackByArgs(types.TimeStr, str)
+			}
+			value, err := types.ParseDuration(ctx.GetSessionVars().StmtCtx, str, fsp)
+			if err != nil {
+				return d, err
+			}
+			d.SetMysqlDuration(value)
+			return d, err
+		default:
+			return d, errDefaultValue
 		}
-		return d, errDefaultValue
 	case *ast.UnaryOperationExpr:
 		// support some expression, like `-1`
 		v, err := EvalAstExpr(ctx, x)

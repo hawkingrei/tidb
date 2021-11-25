@@ -3329,6 +3329,16 @@ DefaultValueExpr:
 	NowSymOptionFraction
 |	SignedLiteral
 |	NextValueForSequence
+|	"TIME" stringLit
+	{
+		expr := ast.NewValueExpr($2, "", "")
+		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr(ast.TimeLiteral), Args: []ast.ExprNode{expr}}
+	}
+|	"TIMESTAMP" stringLit
+	{
+		expr := ast.NewValueExpr($2, "", "")
+		$$ = &ast.FuncCallExpr{FnName: model.NewCIStr(ast.TimestampLiteral), Args: []ast.ExprNode{expr}}
+	}
 
 NowSymOptionFraction:
 	NowSym
