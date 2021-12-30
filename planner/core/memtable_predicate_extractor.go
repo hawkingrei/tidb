@@ -1122,6 +1122,50 @@ func (e *InspectionRuleTableExtractor) Extract(
 	return remained
 }
 
+type InspectinCharacterSetsExtractor struct {
+	extractHelper
+
+	SkipRequest        bool
+	characterSetName   set.StringSet
+	defaultCollateName set.StringSet
+}
+
+func (e *InspectinCharacterSetsExtractor) Extract(
+	_ sessionctx.Context,
+	schema *expression.Schema,
+	names []*types.FieldName,
+	predicates []expression.Expression,
+) (remained []expression.Expression) {
+	// Extract the `type` columns
+	remained, characterSetNameSkipRequest, characterSetName := e.extractCol(schema, names, predicates, "character_set_name", true)
+	remained, addrSkipRequest, defaultCollateName := e.extractCol(schema, names, remained, "default_collate_name", true)
+	e.SkipRequest = characterSetNameSkipRequest || addrSkipRequest
+	if e.SkipRequest {
+		return nil
+	}
+	e.characterSetName = characterSetName
+	e.defaultCollateName = defaultCollateName
+	return remained
+}
+
+func (e *InspectinCharacterSetsExtractor) explainInfo(p *PhysicalMemTable) string {
+	if e.SkipRequest {
+		return "skip_request: true"
+	}
+
+	r := new(bytes.Buffer)
+	if len(e.characterSetName) > 0 {
+		r.WriteString(fmt.Sprintf("character_set_name:[%s]", extractStringFromStringSet(e.characterSetName)))
+	}
+	if r.Len() > 0 && len(e.defaultCollateName) > 0 {
+		r.WriteString(", ")
+	}
+	if len(e.defaultCollateName) > 0 {
+		r.WriteString(fmt.Sprintf("default_collate_name:[%s]", extractStringFromStringSet(e.defaultCollateName)))
+	}
+	return r.String()
+}
+
 func (e *InspectionRuleTableExtractor) explainInfo(p *PhysicalMemTable) string {
 	if e.SkipRequest {
 		return "skip_request: true"
