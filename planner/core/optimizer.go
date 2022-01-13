@@ -16,6 +16,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"math"
 
 	"github.com/pingcap/errors"
@@ -271,6 +272,9 @@ func DoOptimize(ctx context.Context, sctx sessionctx.Context, flag uint64, logic
 	flag |= flagCollectPredicateColumnsPoint
 	flag |= flagSyncWaitStatsLoadPoint
 	logic, err := logicalOptimize(ctx, flag, logic)
+	if !sctx.GetSessionVars().InRestrictedSQL {
+		fmt.Println("[plan]", ToString(logic))
+	}
 	if err != nil {
 		return nil, 0, err
 	}
@@ -291,6 +295,9 @@ func DoOptimize(ctx context.Context, sctx sessionctx.Context, flag uint64, logic
 		refineCETrace(sctx)
 	}
 
+	if !sctx.GetSessionVars().InRestrictedSQL {
+		fmt.Println("[plan]", ToString(finalPlan))
+	}
 	return finalPlan, cost, nil
 }
 
