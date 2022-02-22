@@ -971,6 +971,9 @@ type SessionVars struct {
 	// RegardNULLAsPoint if regard NULL as Point
 	RegardNULLAsPoint bool
 
+	// TiDBEnableNewDDL indicates whether to enable the new DDL framework.
+	TiDBEnableNewDDL bool
+
 	// LocalTemporaryTables is *infoschema.LocalTemporaryTables, use interface to avoid circle dependency.
 	// It's nil if there is no local temporary table.
 	LocalTemporaryTables interface{}
@@ -1251,6 +1254,7 @@ func NewSessionVars() *SessionVars {
 		MPPStoreFailTTL:             DefTiDBMPPStoreFailTTL,
 		Rng:                         utilMath.NewWithTime(),
 		StatsLoadSyncWait:           StatsLoadSyncWait.Load(),
+		TiDBEnableNewDDL:            DefTiDBEnableNewDDL,
 	}
 	vars.KVVars = tikvstore.NewVariables(&vars.Killed)
 	vars.Concurrency = Concurrency{

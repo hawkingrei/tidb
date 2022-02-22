@@ -1406,6 +1406,10 @@ var defaultSysVars = []*SysVar{
 		}
 		return string(info), nil
 	}},
+	{Scope: ScopeGlobal, Name: TiDBEnableNewDDL, Value: BoolToOnOff(DefTiDBEnableNewDDL), Hidden: true, Type: TypeBool, SetGlobal: func(s *SessionVars, val string) error {
+		AllowConcurrentDDL.Store(TiDBOptOn(val))
+		return nil
+	}},
 }
 
 // FeedbackProbability points to the FeedbackProbability in statistics package.
