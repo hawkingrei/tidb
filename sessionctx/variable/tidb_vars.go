@@ -623,6 +623,9 @@ const (
 	// TiDBTxnAssertionLevel indicates how strict the assertion will be, which helps detecting and preventing data &
 	// index inconsistency problems.
 	TiDBTxnAssertionLevel = "tidb_txn_assertion_level"
+
+	// TiDBEnableNewDDL indicates whether to enable the new DDL framework.
+	TiDBEnableNewDDL = "tidb_enable_new_ddl"
 )
 
 // TiDB vars that have only global scope
@@ -821,6 +824,7 @@ const (
 	DefSysdateIsNow                       = false
 	DefTiDBEnableMutationChecker          = false
 	DefTiDBTxnAssertionLevel              = AssertionOffStr
+	DefTiDBEnableNewDDL                   = true
 )
 
 // Process global variables.
@@ -855,4 +859,5 @@ var (
 	StatsLoadSyncWait                     = atomic.NewInt64(DefTiDBStatsLoadSyncWait)
 	StatsLoadPseudoTimeout                = atomic.NewBool(DefTiDBStatsLoadPseudoTimeout)
 	GlobalSysdateIsNow                    = atomic.NewBool(DefSysdateIsNow)
+	AllowConcurrentDDL                    = atomic.NewBool(DefTiDBEnableNewDDL)
 )
