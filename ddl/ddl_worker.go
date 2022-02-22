@@ -349,7 +349,7 @@ func (d *ddl) addConcurrencyDDLJobs(tasks []*limitJobTask) {
 		t := meta.NewMeta(txn)
 		ids, err = t.GenGlobalIDs(len(tasks))
 		if err != nil {
-			log.Error("GenGlobalJobID", zap.Error(err))
+			log.Error("[ddl] GenGlobalJobID", zap.Error(err))
 			return errors.Trace(err)
 		}
 		startTs = txn.StartTS()
@@ -366,7 +366,7 @@ func (d *ddl) addConcurrencyDDLJobs(tasks []*limitJobTask) {
 			job.ID = ids[0]
 			err = d.addDDLJob(job)
 			if err != nil {
-				log.Error("addConcurrencyDDLJobs", zap.Error(err))
+				log.Error("[ddl] addConcurrencyDDLJobs", zap.Error(err))
 			}
 		default:
 			jobTasks := make([]*model.Job, len(tasks))
@@ -379,7 +379,7 @@ func (d *ddl) addConcurrencyDDLJobs(tasks []*limitJobTask) {
 			}
 			err = d.addDDLJobs(jobTasks)
 			if err != nil {
-				log.Error("addConcurrencyDDLJobs", zap.Error(err))
+				log.Error("[ddl] addConcurrencyDDLJobs", zap.Error(err))
 			}
 		}
 	}
@@ -592,7 +592,7 @@ func (w *worker) setDDLLabelForTopSQL(job *model.Job) {
 
 var schemaVersionMu sync.Mutex
 
-func (w *worker) handleDDLJob(d *ddlCtx, job *model.Job, ch chan struct{}) {
+func (w *worker) handleDDLJob(d *ddlCtx, job *model.Job, ch chan struct{}) error {
 	var (
 		schemaVer int64
 		runJobErr error
@@ -601,10 +601,13 @@ func (w *worker) handleDDLJob(d *ddlCtx, job *model.Job, ch chan struct{}) {
 
 	err := w.sessForJob.NewTxn(w.ctx)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	w.sessForJob.PrepareTSFuture(w.ctx)
-	txn, _ := w.sessForJob.Txn(true)
+	txn, err := w.sessForJob.Txn(true)
+	if err != nil {
+		return err
+	}
 	w.sessForJob.GetSessionVars().SetInTxn(true)
 
 	t := meta.NewMeta(txn)
@@ -613,13 +616,16 @@ func (w *worker) handleDDLJob(d *ddlCtx, job *model.Job, ch chan struct{}) {
 			job.State = model.JobStateSynced
 		}
 
-		_ = w.finishDDLJob(t, job)
+		err = w.finishDDLJob(t, job)
+		if err != nil {
+			return err
+		}
 		w.sessForJob.StmtCommit()
 		if t.Diff != nil {
 			schemaVersionMu.Lock()
 			err := t.SetSchemaDiff(d.store)
 			if err != nil {
-				panic(err)
+				return err
 			}
 		}
 		err := txn.Commit(w.ctx)
@@ -627,13 +633,13 @@ func (w *worker) handleDDLJob(d *ddlCtx, job *model.Job, ch chan struct{}) {
 			if t.Diff != nil {
 				schemaVersionMu.Unlock()
 			}
-			panic(err)
+			return err
 		}
 		if t.Diff != nil {
 			schemaVersionMu.Unlock()
 		}
 		asyncNotify(d.ddlJobDoneCh)
-		return
+		return nil
 	}
 
 	d.mu.RLock()
@@ -645,13 +651,13 @@ func (w *worker) handleDDLJob(d *ddlCtx, job *model.Job, ch chan struct{}) {
 	schemaVer, runJobErr = w.runDDLJob(d, t, job)
 	if job.IsCancelled() {
 		txn.Reset()
-		_ = w.finishDDLJob(t, job)
-		w.sessForJob.StmtCommit()
-		err = txn.Commit(w.ctx)
+		err = w.finishDDLJob(t, job)
 		if err != nil {
-			log.Error("txn commit", zap.Error(err))
+			return err
 		}
-		return
+		w.sessForJob.StmtCommit()
+		return txn.Commit(w.ctx)
+
 	}
 
 	if runJobErr != nil && !job.IsRollingback() && !job.IsRollbackDone() {
@@ -667,11 +673,9 @@ func (w *worker) handleDDLJob(d *ddlCtx, job *model.Job, ch chan struct{}) {
 		schemaVer = 0
 	}
 
-	if err = w.updateDDLJob(t, job, runJobErr != nil); err != nil {
-		return
-	}
+	err = w.updateDDLJob(t, job, runJobErr != nil)
 	if err = w.handleUpdateJobError(t, job, err); err != nil {
-		return
+		return err
 	}
 	writeBinlog(d.binlogCli, txn, job)
 
@@ -680,13 +684,13 @@ func (w *worker) handleDDLJob(d *ddlCtx, job *model.Job, ch chan struct{}) {
 		err = t.SetSchemaDiff(d.store)
 		w.sessForJob.StmtCommit()
 		if err != nil {
-			panic(err)
+			return err
 		}
 		schemaVer = t.Diff.Version
 	}
 	err = txn.Commit(w.ctx)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	if t.Diff != nil {
 		schemaVersionMu.Unlock()
@@ -723,6 +727,7 @@ func (w *worker) handleDDLJob(d *ddlCtx, job *model.Job, ch chan struct{}) {
 	} else {
 		asyncNotify(ch)
 	}
+	return nil
 }
 
 // handleDDLJobQueue handles DDL jobs in DDL Job queue.

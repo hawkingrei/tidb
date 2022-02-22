@@ -259,12 +259,17 @@ func (d *ddl) startDispatchLoop() {
 			for !sleep {
 				job, err := d.getGeneralJob(sess)
 				if err != nil {
-					log.Warn("err", zap.Error(err))
+					log.Warn("getGeneralJob", zap.Error(err))
+					break
 				}
 				if job != nil {
 					d.doGeneralDDLJobWorker(job)
 				}
-				reorgJob, _ := d.getReorgJob(sess)
+				reorgJob, err := d.getReorgJob(sess)
+				if err != nil {
+					log.Error("[ddl] getReorgJob", zap.Error(err))
+					break
+				}
 				if reorgJob != nil {
 					d.doReorgDDLJobWoker(reorgJob)
 				}
@@ -276,7 +281,11 @@ func (d *ddl) startDispatchLoop() {
 			if !ok {
 				panic("notifyDDLJobByEtcdChGeneral in trouble")
 			}
-			job, _ := d.getGeneralJob(sess)
+			job, err := d.getGeneralJob(sess)
+			if err != nil {
+				log.Error("[ddl] getGeneralJob", zap.Error(err))
+				continue
+			}
 			if job != nil {
 				d.doGeneralDDLJobWorker(job)
 			}
@@ -284,7 +293,11 @@ func (d *ddl) startDispatchLoop() {
 			if !ok {
 				panic("notifyDDLJobByEtcdChReorg in trouble")
 			}
-			job, _ := d.getReorgJob(sess)
+			job, err := d.getReorgJob(sess)
+			if err != nil {
+				log.Error("[ddl] getReorgJob", zap.Error(err))
+				continue
+			}
 			if job != nil {
 				d.doReorgDDLJobWoker(job)
 			}
@@ -300,8 +313,14 @@ func (d *ddl) doGeneralDDLJobWorker(job *model.Job) {
 		defer func() {
 			d.deleteRunningReorgJobMap(int(job.ID))
 		}()
-		wk, _ := d.generalWorker.get()
-		wk.handleDDLJob(d.ddlCtx, job, d.ddlJobCh)
+		wk, err := d.generalWorker.get()
+		if err != nil {
+			log.Warn("fail to get generalWorker", zap.Error(err))
+			return
+		}
+		if err := wk.handleDDLJob(d.ddlCtx, job, d.ddlJobCh); err != nil {
+			log.Warn("[ddl] handle General DDL job failed", zap.Error(err))
+		}
 		d.generalWorker.put(wk)
 	})
 }
@@ -312,8 +331,14 @@ func (d *ddl) doReorgDDLJobWoker(job *model.Job) {
 		defer func() {
 			d.deleteRunningReorgJobMap(int(job.ID))
 		}()
-		wk, _ := d.addIdxWorker.get()
-		wk.handleDDLJob(d.ddlCtx, job, d.ddlJobCh)
+		wk, err := d.addIdxWorker.get()
+		if err != nil {
+			log.Warn("fail to get addIdxWorker", zap.Error(err))
+			return
+		}
+		if err := wk.handleDDLJob(d.ddlCtx, job, d.ddlJobCh); err != nil {
+			log.Warn("[ddl] handle Reorg DDL job failed", zap.Error(err))
+		}
 		d.addIdxWorker.put(wk)
 	})
 }
@@ -356,14 +381,14 @@ func (d *ddl) addDDLJob(job *model.Job) error {
 
 	sess, err := d.sessPool.get()
 	if err != nil {
-		log.Error("add sessPool", zap.Error(err))
+		log.Error("[ddl] get session from sessPool", zap.Error(err))
 		return err
 	}
 	defer d.sessPool.put(sess)
 
 	_, err = sess.(sqlexec.SQLExecutor).ExecuteInternal(context.Background(), sql)
 	if err != nil {
-		log.Error("add ddl job to table", zap.Error(err))
+		log.Error("[ddl] add ddl job to table", zap.Error(err))
 		return err
 	}
 	//log.Warn("add ddl job to table", zap.String("sql", sql), zap.String("time", time.Since(ts).String()))
@@ -414,11 +439,11 @@ func (w *worker) UpdateDDLReorgHandle(job *model.Job, startKey, endKey kv.Key, p
 		sess, _ = w.sessPool.get()
 		defer w.sessPool.put(sess)
 		if _, err = sess.(sqlexec.SQLExecutor).ExecuteInternal(context.Background(), "begin"); err != nil {
-			log.Error("fail to begin", zap.Error(err))
+			log.Error("[ddl] fail to begin", zap.Error(err))
 		}
 		defer func() {
 			if _, err = sess.(sqlexec.SQLExecutor).ExecuteInternal(context.Background(), "commit"); err != nil {
-				log.Error("fail to begin", zap.Error(err))
+				log.Error("[ddl] fail to begin", zap.Error(err))
 			}
 		}()
 	}
