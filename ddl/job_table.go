@@ -409,7 +409,7 @@ func (w *worker) deleteDDLJob(job *model.Job) error {
 	return nil
 }
 
-func (w *worker) updateDDLJobNew(job *model.Job, updateRawArgs bool) error {
+func (w *worker) updateConconcurrencyDDLJob(job *model.Job, updateRawArgs bool) error {
 	b, err := job.Encode(updateRawArgs)
 	if err != nil {
 		return err

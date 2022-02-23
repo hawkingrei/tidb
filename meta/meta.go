@@ -28,6 +28,7 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/errno"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/metrics"
@@ -1112,11 +1113,13 @@ func (m *Meta) AddHistoryDDLJob(job *model.Job, updateRawArgs bool) error {
 }
 
 func (m *Meta) getHistoryDDLJob(key []byte, id int64) (*model.Job, error) {
+	log.Info("wwz getHistoryDDLJob start")
 	value, err := m.txn.HGet(key, m.jobIDKey(id))
 	if err != nil || value == nil {
+		log.Info("wwz getHistoryDDLJob err != nil", zap.Error(err))
 		return nil, errors.Trace(err)
 	}
-
+	log.Info("wwz getHistoryDDLJob complete")
 	job := &model.Job{}
 	err = job.Decode(value)
 	return job, errors.Trace(err)

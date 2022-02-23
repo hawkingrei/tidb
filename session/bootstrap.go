@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/bindinfo"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/ddl"
@@ -395,12 +396,14 @@ func bootstrap(s Session) {
 	dom := domain.GetDomain(s)
 	for {
 		b, err := checkBootstrapped(s)
+		log.Info("wwz bootstrap checkBootstrapped")
 		if err != nil {
 			logutil.BgLogger().Fatal("check bootstrap error",
 				zap.Error(err))
 		}
 		// For rolling upgrade, we can't do upgrade only in the owner.
 		if b {
+			log.Info("wwz bootstrap upgrade")
 			upgrade(s)
 			logutil.BgLogger().Info("upgrade successful in bootstrap",
 				zap.Duration("take time", time.Since(startTime)))
@@ -410,12 +413,15 @@ func bootstrap(s Session) {
 		// To reduce conflict when multiple TiDB-server start at the same time.
 		// Actually only one server need to do the bootstrap. So we chose DDL owner to do this.
 		if dom.DDL().OwnerManager().IsOwner() {
+			log.Info("wwz bootstrap InitMetaTable")
 			err = meta.InitMetaTable(s.GetStore())
 			if err != nil {
 				logutil.BgLogger().Fatal("check bootstrap error",
 					zap.Error(err))
 			}
+			log.Info("wwz doDDLWorks")
 			doDDLWorks(s)
+			log.Info("wwz doDMLWorks")
 			doDMLWorks(s)
 			logutil.BgLogger().Info("bootstrap successful",
 				zap.Duration("take time", time.Since(startTime)))
@@ -1760,15 +1766,20 @@ func getBootstrapVersion(s Session) (int64, error) {
 func doDDLWorks(s Session) {
 	// Create a test database.
 	mustExecute(s, "CREATE DATABASE IF NOT EXISTS test")
+	log.Info("wwz")
 	// Create system db.
 	mustExecute(s, "CREATE DATABASE IF NOT EXISTS %n", mysql.SystemDB)
+	log.Info("wwz SystemDB")
 	// Create user table.
 	mustExecute(s, CreateUserTable)
+	log.Info("wwz CreateUserTable")
 	// Create privilege tables.
 	mustExecute(s, CreateGlobalPrivTable)
+	log.Info("wwz CreateGlobalPrivTable")
 	mustExecute(s, CreateDBPrivTable)
 	mustExecute(s, CreateTablePrivTable)
 	mustExecute(s, CreateColumnPrivTable)
+	log.Info("wwz CreateColumnPrivTable complete")
 	// Create global system variable table.
 	mustExecute(s, CreateGlobalVariablesTable)
 	// Create TiDB table.
@@ -1817,6 +1828,7 @@ func doDDLWorks(s Session) {
 	mustExecute(s, CreateAnalyzeOptionsTable)
 	// Create stats_history table.
 	mustExecute(s, CreateStatsHistory)
+	log.Info("wwz complete")
 }
 
 // doDMLWorks executes DML statements in bootstrap stage.

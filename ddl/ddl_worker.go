@@ -460,9 +460,9 @@ func (w *worker) updateDDLJob(t *meta.Meta, job *model.Job, meetErr bool) error 
 	}
 	var err error
 	if AllowConcurrentDDL.Load() {
-		err = w.updateDDLJobNew(job, updateRawArgs)
+		err = w.updateConconcurrencyDDLJob(job, updateRawArgs)
 	} else {
-		err = w.updateDDLJobNew(job, updateRawArgs)
+		err = t.UpdateDDLJob(0, job, updateRawArgs)
 	}
 	return errors.Trace(err)
 }
@@ -514,6 +514,7 @@ func (w *worker) finishDDLJob(t *meta.Meta, job *model.Job) (err error) {
 		return errors.Trace(err)
 	}
 	if AllowConcurrentDDL.Load() {
+		log.Info("[ddl] wwz finish DDL job")
 		err = w.deleteDDLJob(job)
 	} else {
 		_, err = t.DeQueueDDLJob()
@@ -530,8 +531,10 @@ func (w *worker) finishDDLJob(t *meta.Meta, job *model.Job) (err error) {
 		// Notice: warnings is used to support non-strict mode.
 		updateRawArgs = false
 	}
+	log.Info("[ddl] wwz writeDDLSeqNum")
 	w.writeDDLSeqNum(job)
 	err = t.AddHistoryDDLJob(job, updateRawArgs)
+	log.Info("[ddl] wwz AddHistoryDDLJob")
 	return errors.Trace(err)
 }
 
@@ -615,17 +618,20 @@ func (w *worker) handleDDLJob(d *ddlCtx, job *model.Job, ch chan struct{}) error
 		return err
 	}
 	w.sessForJob.GetSessionVars().SetInTxn(true)
-
+	log.Info("[ddl] wwz run DDL job", zap.String("job", job.String()))
 	t := meta.NewMeta(txn)
 	if job.IsDone() || job.IsRollbackDone() {
+		log.Info("wwz job IsDone/IsRollbackDone")
 		if !job.IsRollbackDone() {
 			job.State = model.JobStateSynced
 		}
-
+		log.Info("wwz job IsDone/IsRollbackDone finishDDLJob")
 		err = w.finishDDLJob(t, job)
 		if err != nil {
+			log.Error("wwz finishDDLJob error", zap.Error(err))
 			return err
 		}
+		log.Info("wwz job IsDone/IsRollbackDone StmtCommit")
 		w.sessForJob.StmtCommit()
 		if t.Diff != nil {
 			schemaVersionMu.Lock()
@@ -634,6 +640,7 @@ func (w *worker) handleDDLJob(d *ddlCtx, job *model.Job, ch chan struct{}) error
 				return err
 			}
 		}
+		log.Info("wwz job IsDone/IsRollbackDone Commit")
 		err := txn.Commit(w.ctx)
 		if err != nil {
 			if t.Diff != nil {
@@ -644,14 +651,16 @@ func (w *worker) handleDDLJob(d *ddlCtx, job *model.Job, ch chan struct{}) error
 		if t.Diff != nil {
 			schemaVersionMu.Unlock()
 		}
+		log.Info("wwz job IsDone/IsRollbackDone asyncNotify")
 		asyncNotify(d.ddlJobDoneCh)
+		log.Info("wwz job IsDone/IsRollbackDone ddlJobDoneCh")
 		return nil
 	}
-
+	log.Info("[ddl] wwz OnJobRunBefore")
 	d.mu.RLock()
 	d.mu.hook.OnJobRunBefore(job)
 	d.mu.RUnlock()
-
+	log.Info("[ddl] wwz runDDLJob")
 	// If running job meets error, we will save this error in job Error
 	// and retry later if the job is not cancelled.
 	schemaVer, runJobErr = w.runDDLJob(d, t, job)
@@ -678,9 +687,10 @@ func (w *worker) handleDDLJob(d *ddlCtx, job *model.Job, ch chan struct{}) error
 		// Result in the retry duration is up to 2 * lease.
 		schemaVer = 0
 	}
-
+	log.Info("[ddl] wwz updateDDLJob")
 	err = w.updateDDLJob(t, job, runJobErr != nil)
 	if err = w.handleUpdateJobError(t, job, err); err != nil {
+		log.Info("[ddl] wwz handleUpdateJobError")
 		return err
 	}
 	writeBinlog(d.binlogCli, txn, job)
@@ -698,10 +708,11 @@ func (w *worker) handleDDLJob(d *ddlCtx, job *model.Job, ch chan struct{}) error
 	if err != nil {
 		return err
 	}
+	log.Info("[ddl] wwz Commit")
 	if t.Diff != nil {
 		schemaVersionMu.Unlock()
 	}
-
+	log.Info("[ddl] wwz runJobErr")
 	if runJobErr != nil {
 		// wait a while to retry again. If we don't wait here, DDL will retry this job immediately,
 		// which may act like a deadlock.
@@ -727,7 +738,7 @@ func (w *worker) handleDDLJob(d *ddlCtx, job *model.Job, ch chan struct{}) error
 	d.mu.RLock()
 	d.mu.hook.OnJobUpdated(job)
 	d.mu.RUnlock()
-
+	log.Info("[ddl] wwz asyncNotify")
 	if job.IsSynced() || job.IsCancelled() || job.IsRollbackDone() {
 		asyncNotify(d.ddlJobDoneCh)
 	} else {
