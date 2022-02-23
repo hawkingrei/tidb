@@ -39,6 +39,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/parser"
 	"github.com/pingcap/tidb/parser/ast"
 	"github.com/pingcap/tidb/parser/auth"
@@ -2746,10 +2747,10 @@ func BootstrapSession(store kv.Storage) (*domain.Domain, error) {
 			return nil, err
 		}
 	}
-	meta.InitMetaTable(store)
 	ver := getStoreBootstrapVersion(store)
 	if ver == notBootstrapped {
 		runInBootstrapSession(store, bootstrap)
+		log.Info("wwz runInBootstrapSession complete")
 	} else if ver < currentBootstrapVersion {
 		runInBootstrapSession(store, upgrade)
 	}
@@ -2900,6 +2901,7 @@ func GetDomain(store kv.Storage) (*domain.Domain, error) {
 // bootstrap quickly, after bootstrapped, we will reset the lease time.
 // TODO: Using a bootstrap tool for doing this may be better later.
 func runInBootstrapSession(store kv.Storage, bootstrap func(Session)) {
+	log.Info("wwz start runInBootstrapSession")
 	s, err := createSession(store)
 	if err != nil {
 		// Bootstrap fail will cause program exit.
@@ -2907,7 +2909,9 @@ func runInBootstrapSession(store kv.Storage, bootstrap func(Session)) {
 	}
 
 	s.SetValue(sessionctx.Initing, true)
+	log.Info("wwz start bootstrap")
 	bootstrap(s)
+	log.Info("wwz finish bootstrap")
 	finishBootstrap(store)
 	s.ClearValue(sessionctx.Initing)
 
