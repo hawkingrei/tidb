@@ -704,9 +704,11 @@ func analyzeColumnsPushdown(colExec *AnalyzeColumnsExec) *statistics.AnalyzeResu
 		// report unexpected/unreasonable data race error on subIndexWorkerWg when running TestAnalyzeVirtualCol test
 		// case with `-race` flag now.
 		colExec.subIndexWorkerWg = &util.WaitGroupWrapper{}
-		colExec.subIndexWorkerWg.Run(func() {
+		var wg util.WaitGroupWrapper
+		wg.Run(func() {
 			colExec.handleNDVForSpecialIndexes(specialIndexes, idxNDVPushDownCh)
 		})
+		defer wg.Wait()
 		count, hists, topns, fmSketches, extStats, err := colExec.buildSamplingStats(ranges, collExtStats, specialIndexesOffsets, idxNDVPushDownCh)
 		if err != nil {
 			return &statistics.AnalyzeResults{Err: err, Job: colExec.job}
@@ -1135,8 +1137,10 @@ func (e *AnalyzeColumnsExec) handleNDVForSpecialIndexes(indexInfos []*model.Inde
 	resultsCh := make(chan *statistics.AnalyzeResults, len(tasks))
 	e.subIndexWorkerWg.Add(statsConcurrncy)
 	for i := 0; i < statsConcurrncy; i++ {
-		go e.subIndexWorkerForNDV(taskCh, resultsCh, i == 0)
+		go e.subIndexWorkerForNDV(taskCh, resultsCh)
 	}
+	e.subIndexWorkerWg.Wait()
+	close(resultsCh)
 	for _, task := range tasks {
 		taskCh <- task
 	}
@@ -1169,7 +1173,7 @@ func (e *AnalyzeColumnsExec) handleNDVForSpecialIndexes(indexInfos []*model.Inde
 }
 
 // subIndexWorker receive the task for each index and return the result for them.
-func (e *AnalyzeColumnsExec) subIndexWorkerForNDV(taskCh chan *analyzeTask, resultsCh chan *statistics.AnalyzeResults, isFirstToCloseCh bool) {
+func (e *AnalyzeColumnsExec) subIndexWorkerForNDV(taskCh chan *analyzeTask, resultsCh chan *statistics.AnalyzeResults) {
 	var task *analyzeTask
 	defer func() {
 		if r := recover(); r != nil {
@@ -1184,10 +1188,6 @@ func (e *AnalyzeColumnsExec) subIndexWorkerForNDV(taskCh chan *analyzeTask, resu
 			}
 		}
 		e.subIndexWorkerWg.Done()
-		if isFirstToCloseCh {
-			e.subIndexWorkerWg.Wait()
-			close(resultsCh)
-		}
 	}()
 	for {
 		var ok bool
