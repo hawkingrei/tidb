@@ -966,7 +966,7 @@ func (e *AnalyzeColumnsExec) buildSamplingStats(
 	}
 	mergeResultCh := make(chan *samplingMergeResult, statsConcurrency)
 	mergeTaskCh := make(chan []byte, statsConcurrency)
-	e.samplingMergeWg = &sync.WaitGroup{}
+	e.samplingMergeWg = &util.WaitGroupWrapper{}
 	e.samplingMergeWg.Add(statsConcurrency)
 	for i := 0; i < statsConcurrency; i++ {
 		go e.subMergeWorker(mergeResultCh, mergeTaskCh, l, i == 0)
@@ -1039,7 +1039,7 @@ func (e *AnalyzeColumnsExec) buildSamplingStats(
 	fmSketches = make([]*statistics.FMSketch, 0, totalLen)
 	buildResultChan := make(chan error, totalLen)
 	buildTaskChan := make(chan *samplingBuildTask, totalLen)
-	e.samplingBuilderWg = &sync.WaitGroup{}
+	e.samplingBuilderWg = &util.WaitGroupWrapper{}
 	e.samplingBuilderWg.Add(statsConcurrency)
 	sampleCollectors := make([]*statistics.SampleCollector, len(e.colsInfo))
 	for i := 0; i < statsConcurrency; i++ {
