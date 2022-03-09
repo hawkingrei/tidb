@@ -1045,9 +1045,12 @@ func (e *AnalyzeColumnsExec) buildSamplingStats(
 	e.samplingBuilderWg.Add(statsConcurrency)
 	sampleCollectors := make([]*statistics.SampleCollector, len(e.colsInfo))
 	for i := 0; i < statsConcurrency; i++ {
-		go e.subBuildWorker(buildResultChan, buildTaskChan, hists, topns, sampleCollectors, i == 0)
+		go e.subBuildWorker(buildResultChan, buildTaskChan, hists, topns, sampleCollectors)
 	}
-
+	defer func() {
+		e.samplingBuilderWg.Wait()
+		close(buildResultChan)
+	}()
 	for i, col := range e.colsInfo {
 		buildTaskChan <- &samplingBuildTask{
 			id:               col.ID,
@@ -1334,7 +1337,7 @@ type samplingBuildTask struct {
 	slicePos         int
 }
 
-func (e *AnalyzeColumnsExec) subBuildWorker(resultCh chan error, taskCh chan *samplingBuildTask, hists []*statistics.Histogram, topns []*statistics.TopN, collectors []*statistics.SampleCollector, isClosedChanThread bool) {
+func (e *AnalyzeColumnsExec) subBuildWorker(resultCh chan error, taskCh chan *samplingBuildTask, hists []*statistics.Histogram, topns []*statistics.TopN, collectors []*statistics.SampleCollector) {
 	defer func() {
 		if r := recover(); r != nil {
 			buf := make([]byte, 4096)
@@ -1345,10 +1348,6 @@ func (e *AnalyzeColumnsExec) subBuildWorker(resultCh chan error, taskCh chan *sa
 			resultCh <- errAnalyzeWorkerPanic
 		}
 		e.samplingBuilderWg.Done()
-		if isClosedChanThread {
-			e.samplingBuilderWg.Wait()
-			close(resultCh)
-		}
 	}()
 	failpoint.Inject("mockAnalyzeSamplingBuildWorkerPanic", func() {
 		panic("failpoint triggered")
