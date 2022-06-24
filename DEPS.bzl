@@ -1507,6 +1507,10 @@ def go_deps():
         build_file_proto_mode = "disable_global",
         importpath = "github.com/kisielk/errcheck",
         sum = "h1:cErYo+J4SmEjdXZrVXGwLJCE2sB06s23LpkcyWNrT+s=",
+        patch_args = ["-p1"],
+        patches = [
+            "//build/patches:com_github_kisielk_errcheck.patch",
+        ],
         version = "v1.6.1",
     )
     go_repository(

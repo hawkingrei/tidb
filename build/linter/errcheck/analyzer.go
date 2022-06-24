@@ -14,7 +14,14 @@
 
 package errcheck
 
-import "github.com/kisielk/errcheck/errcheck"
+import (
+	"github.com/kisielk/errcheck/errcheck"
+	"github.com/pingcap/tidb/build/linter/util"
+)
 
 // Analyzer is the analyzer struct of errcheck.
 var Analyzer = errcheck.Analyzer
+
+func init() {
+	util.SkipAnalyzer(Analyzer)
+}

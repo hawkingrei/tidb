@@ -302,6 +302,7 @@ func (p *matcherParser) importFile(fileName string, parseMatcher func(string, bo
 	if err != nil {
 		return p.annotatef(err, "cannot open filter file")
 	}
+	//nolint: errcheck
 	defer file.Close()
 
 	oldFileName, oldLineNum := p.fileName, p.lineNum
@@ -318,6 +319,7 @@ func (p *matcherParser) importFile(fileName string, parseMatcher func(string, bo
 	p.fileName, p.lineNum = oldFileName, oldLineNum
 
 	if err := scanner.Err(); err != nil {
+		//nolint: errcheck
 		return p.annotatef(err, "cannot read filter file")
 	}
 	return nil

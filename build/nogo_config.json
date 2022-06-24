@@ -102,8 +102,12 @@
     "exclude_files": {
       "/external/": "no need to vet third party code",
       ".*_generated\\.go$": "ignore generated code",
+      ".*_test\\.go$": "ignore generated code",
+      "util/logutil": "util/logutil code",
       "/src/net/conf.go": "ignore code",
-      "GOROOT/": "ignore code"
+      "GOROOT/": "ignore code",
+      "/parser/": "ignore code"
+
     }
   },
   "exportloopref": {

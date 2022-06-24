@@ -54,7 +54,9 @@ func TracerFinishSpan(ctx context.Context, store appdash.Queryer) {
 		log.Error("fail to open trace file", zap.Error(err))
 		return
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 	fmt.Fprintf(os.Stderr, "Detail BR trace in %s \n", filename)
 	log.Info("Detail BR trace", zap.String("filename", filename))
 	tub := tabby.NewCustom(tabwriter.NewWriter(file, 0, 0, 2, ' ', 0))
