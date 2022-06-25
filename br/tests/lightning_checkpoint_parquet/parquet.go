@@ -47,6 +47,7 @@ func genParquetFile(dir, name string, count int) error {
 	if err != nil {
 		return err
 	}
+	//nolint: errcheck
 	w.Close()
 
 	return nil

@@ -697,6 +697,7 @@ func (bc *Client) fineGrainedBackup(
 				log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
 			}
 			if file != nil {
+				//nolint: errcheck
 				file.Close()
 			}
 			time.Sleep(3 * time.Second)
@@ -953,6 +954,7 @@ func doSendBackup(
 				log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
 			}
 			if file != nil {
+				//nolint: errcheck
 				file.Close()
 			}
 		}

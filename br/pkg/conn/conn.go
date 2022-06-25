@@ -319,6 +319,7 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 				log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
 			}
 			if file != nil {
+				//nolint: errcheck
 				file.Close()
 			}
 		}
@@ -454,6 +455,7 @@ func (mgr *Mgr) Close() {
 			mgr.dom.Close()
 		}
 		tikv.StoreShuttingDown(1)
+		//nolint: errcheck
 		mgr.storage.Close()
 	}
 

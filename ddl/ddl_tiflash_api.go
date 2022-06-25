@@ -235,6 +235,7 @@ func getTiflashHTTPAddr(host string, statusAddr string) (string, error) {
 		return "", errors.Trace(err)
 	}
 	defer func() {
+		//nolint: errcheck
 		resp.Body.Close()
 	}()
 

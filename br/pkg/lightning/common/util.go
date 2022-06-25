@@ -328,7 +328,7 @@ func GetJSON(ctx context.Context, client *http.Client, url string, v interface{}
 	if err != nil {
 		return errors.Trace(err)
 	}
-
+	//nolint: errcheck
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {

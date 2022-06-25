@@ -92,6 +92,7 @@ func withTiKVConnection(ctx context.Context, tls *common.TLS, tikvAddr string, a
 	if err != nil {
 		return errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer conn.Close()
 
 	client := import_sstpb.NewImportSSTClient(conn)
@@ -176,6 +177,7 @@ func FetchMode(ctx context.Context, tls *common.TLS, tikvAddr string) (import_ss
 	if err != nil {
 		return 0, err
 	}
+	//nolint: errcheck
 	defer conn.Close()
 
 	client := debugpb.NewDebugClient(conn)

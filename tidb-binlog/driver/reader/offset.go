@@ -52,7 +52,9 @@ func NewKafkaSeeker(addr []string, config *sarama.Config) (*KafkaSeeker, error) 
 
 // Close releases resources of KafkaSeeker
 func (ks *KafkaSeeker) Close() {
+	//nolint: errcheck
 	ks.consumer.Close()
+	//nolint: errcheck
 	ks.client.Close()
 }
 
@@ -178,6 +180,7 @@ func (ks *KafkaSeeker) getTSAtOffset(topic string, partition int32, offset int64
 		err = errors.Trace(err)
 		return
 	}
+	//nolint: errcheck
 	defer pc.Close()
 
 	errorCnt := 0

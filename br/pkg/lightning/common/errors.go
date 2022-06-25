@@ -110,6 +110,7 @@ func (w *withStack) Format(s fmt.State, verb rune) {
 	switch verb {
 	case 'v':
 		if s.Flag('+') {
+			//nolint: errcheck
 			fmt.Fprintf(s, "%+v", w.Cause())
 			w.StackTrace().Format(s, verb)
 			return
@@ -118,6 +119,7 @@ func (w *withStack) Format(s fmt.State, verb rune) {
 	case 's':
 		_, _ = io.WriteString(s, w.Error())
 	case 'q':
+		//nolint: errcheck
 		fmt.Fprintf(s, "%q", w.Error())
 	}
 }

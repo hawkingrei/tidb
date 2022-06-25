@@ -84,6 +84,7 @@ func NewPumpStatus(status *node.Status, security *tls.Config) *PumpStatus {
 func (p *PumpStatus) createGrpcClient() error {
 	// release the old connection, and create a new one
 	if p.grpcConn != nil {
+		//nolint: errcheck
 		p.grpcConn.Close()
 	}
 
@@ -122,6 +123,7 @@ func (p *PumpStatus) ResetGrpcClient() {
 	defer p.Unlock()
 
 	if p.grpcConn != nil {
+		//nolint: errcheck
 		p.grpcConn.Close()
 		p.Client = nil
 	}

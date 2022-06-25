@@ -182,6 +182,7 @@ func (u *bufferedWriter) uploadChunk(ctx context.Context) error {
 }
 
 func (u *bufferedWriter) Close(ctx context.Context) error {
+	//nolint: errcheck
 	u.buf.Close()
 	err := u.uploadChunk(ctx)
 	if err != nil {

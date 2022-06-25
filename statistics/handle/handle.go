@@ -1520,6 +1520,7 @@ func (h *Handle) getStatsReader(snapshot uint64, ctx sqlexec.RestrictedSQLExecut
 			err = fmt.Errorf("getStatsReader panic %v", r)
 		}
 	}()
+	//nolint: errcheck
 	failpoint.Inject("mockGetStatsReaderPanic", nil)
 	_, err = ctx.(sqlexec.SQLExecutor).ExecuteInternal(context.TODO(), "begin")
 	if err != nil {

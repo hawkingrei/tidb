@@ -59,14 +59,17 @@ func (ops *ConsoleOperations) CreateTable() *Table {
 }
 
 func (ops ConsoleOperations) Print(args ...interface{}) {
+	//nolint: errcheck
 	fmt.Fprint(ops, args...)
 }
 
 func (ops ConsoleOperations) Println(args ...interface{}) {
+	//nolint: errcheck
 	fmt.Fprintln(ops, args...)
 }
 
 func (ops ConsoleOperations) Printf(format string, args ...interface{}) {
+	//nolint: errcheck
 	fmt.Fprintf(ops, format, args...)
 }
 

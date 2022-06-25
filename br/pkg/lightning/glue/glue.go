@@ -59,6 +59,7 @@ type sqlConnSession struct {
 }
 
 func (session *sqlConnSession) Close() {
+	//nolint: errcheck
 	session.conn.Close()
 }
 
@@ -127,6 +128,7 @@ func (e *ExternalTiDBGlue) QueryStringsWithLog(ctx context.Context, query string
 		if err != nil {
 			return err
 		}
+		//nolint: errcheck
 		defer rows.Close()
 
 		colNames, err := rows.Columns()
@@ -179,6 +181,7 @@ func (e *ExternalTiDBGlue) OwnsSQLExecutor() bool {
 }
 
 func (e *ExternalTiDBGlue) Close() {
+	//nolint: errcheck
 	e.db.Close()
 }
 

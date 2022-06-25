@@ -59,6 +59,7 @@ func GetJSON(client *http.Client, url string, v interface{}) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {

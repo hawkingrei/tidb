@@ -72,6 +72,7 @@ func ExportStatement(ctx context.Context, store storage.ExternalStorage, sqlFile
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer fd.Close()
 
 	br := bufio.NewReader(fd)

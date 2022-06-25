@@ -192,6 +192,7 @@ func (g GlueCheckpointsDB) TaskCheckpoint(ctx context.Context) (*TaskCheckpoint,
 			return errors.Trace(err)
 		}
 		r := rs[0]
+		//nolint: errcheck
 		defer r.Close()
 		req := r.NewChunk(nil)
 		err = r.Next(ctx, req)
@@ -247,6 +248,7 @@ func (g GlueCheckpointsDB) Get(ctx context.Context, tableName string) (*TableChe
 		for {
 			err = r.Next(ctx, req)
 			if err != nil {
+				//nolint: errcheck
 				r.Close()
 				return err
 			}
@@ -262,6 +264,7 @@ func (g GlueCheckpointsDB) Get(ctx context.Context, tableName string) (*TableChe
 				}
 			}
 		}
+		//nolint: errcheck
 		r.Close()
 
 		// 2. Populate the chunks.
@@ -277,6 +280,7 @@ func (g GlueCheckpointsDB) Get(ctx context.Context, tableName string) (*TableChe
 		for {
 			err = r.Next(ctx, req)
 			if err != nil {
+				//nolint: errcheck
 				r.Close()
 				return err
 			}
@@ -306,12 +310,14 @@ func (g GlueCheckpointsDB) Get(ctx context.Context, tableName string) (*TableChe
 				value.FileMeta.Path = value.Key.Path
 				value.Checksum = verify.MakeKVChecksum(kvcBytes, kvcKVs, kvcChecksum)
 				if err := json.Unmarshal(colPerm, &value.ColumnPermutation); err != nil {
+					//nolint: errcheck
 					r.Close()
 					return errors.Trace(err)
 				}
 				cp.Engines[engineID].Chunks = append(cp.Engines[engineID].Chunks, value)
 			}
 		}
+		//nolint: errcheck
 		r.Close()
 
 		// 3. Fill in the remaining table info
@@ -322,6 +328,7 @@ func (g GlueCheckpointsDB) Get(ctx context.Context, tableName string) (*TableChe
 			return errors.Trace(err)
 		}
 		r = rs[0]
+		//nolint: errcheck
 		defer r.Close()
 		req = r.NewChunk(nil)
 		err = r.Next(ctx, req)
@@ -713,6 +720,7 @@ func (g GlueCheckpointsDB) DestroyErrorCheckpoint(ctx context.Context, tableName
 		for {
 			err = r.Next(ctx, req)
 			if err != nil {
+				//nolint: errcheck
 				r.Close()
 				return err
 			}
@@ -728,6 +736,7 @@ func (g GlueCheckpointsDB) DestroyErrorCheckpoint(ctx context.Context, tableName
 				targetTables = append(targetTables, dtc)
 			}
 		}
+		//nolint: errcheck
 		r.Close()
 
 		if _, e := s.Execute(c, deleteChunkQuery); e != nil {
@@ -791,6 +800,7 @@ func drainFirstRecordSet(ctx context.Context, rss []sqlexec.RecordSet) ([]chunk.
 	for {
 		err := rs.Next(ctx, req)
 		if err != nil || req.NumRows() == 0 {
+			//nolint: errcheck
 			rs.Close()
 			return rows, err
 		}

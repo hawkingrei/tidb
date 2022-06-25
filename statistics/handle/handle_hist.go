@@ -244,6 +244,7 @@ func (h *Handle) getFreshStatsReader(readerCtx *StatsReaderContext, ctx sqlexec.
 
 // readStatsForOne reads hist for one column, TODO load data via kv-get asynchronously
 func (h *Handle) readStatsForOne(col model.TableColumnID, c *statistics.Column, reader *statsReader) (*statistics.Column, error) {
+	//nolint: errcheck
 	failpoint.Inject("mockReadStatsForOnePanic", nil)
 	failpoint.Inject("mockReadStatsForOneFail", func(val failpoint.Value) {
 		if val.(bool) {
@@ -402,6 +403,7 @@ func (h *Handle) setWorking(col model.TableColumnID, resultCh chan model.TableCo
 func (h *Handle) finishWorking(col model.TableColumnID) {
 	h.StatsLoad.Lock()
 	defer h.StatsLoad.Unlock()
+	//nolint: errcheck
 	failpoint.Inject("mockFinishWorkingPanic", nil)
 	if chList, ok := h.StatsLoad.WorkingColMap[col]; ok {
 		list := chList[1:]

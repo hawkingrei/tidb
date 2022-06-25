@@ -55,6 +55,7 @@ func ResetTS(ctx context.Context, pdAddr string, ts uint64, tlsConf *tls.Config)
 	if err != nil {
 		return errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusForbidden {
 		buf := new(bytes.Buffer)
@@ -80,6 +81,7 @@ func GetPlacementRules(ctx context.Context, pdAddr string, tlsConf *tls.Config) 
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer resp.Body.Close()
 	buf := new(bytes.Buffer)
 	_, err = buf.ReadFrom(resp.Body)

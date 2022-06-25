@@ -149,7 +149,7 @@ func NewReader(cfg *Config) (r *Reader, err error) {
 // Close shuts down the reader
 func (r *Reader) Close() {
 	close(r.stop)
-
+	//nolint: errcheck
 	r.client.Close()
 }
 
@@ -191,12 +191,14 @@ func (r *Reader) run() {
 	if err != nil {
 		log.Fatal("create kafka consumer failed", zap.Error(err))
 	}
+	//nolint: errcheck
 	defer consumer.Close()
 	topic, partition := r.getTopic()
 	partitionConsumer, err := consumer.ConsumePartition(topic, partition, offset)
 	if err != nil {
 		log.Fatal("create kafka partition consumer failed", zap.Error(err))
 	}
+	//nolint: errcheck
 	defer partitionConsumer.Close()
 
 	// add select to avoid message blocking while reading
@@ -204,6 +206,7 @@ func (r *Reader) run() {
 		select {
 		case <-r.stop:
 			// clean environment
+			//nolint: errcheck
 			partitionConsumer.Close()
 			close(r.msgs)
 			log.Info("reader stop to run")

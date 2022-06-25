@@ -801,6 +801,7 @@ func (is *InfoSyncer) getPrometheusAddr() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	//nolint: errcheck
 	defer resp.Body.Close()
 	var metricStorage metricStorage
 	dec := json.NewDecoder(resp.Body)

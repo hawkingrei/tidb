@@ -473,6 +473,7 @@ func SplitLargeFile(
 				pos = dataFile.FileMeta.FileSize
 			}
 			endOffset = pos
+			//nolint: errcheck
 			parser.Close()
 		}
 		regions = append(regions,

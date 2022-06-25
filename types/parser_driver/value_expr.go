@@ -181,6 +181,7 @@ func (n *ValueExpr) Format(w io.Writer) {
 	default:
 		panic("Can't format to string")
 	}
+	//nolint: errcheck
 	fmt.Fprint(w, s)
 }
 

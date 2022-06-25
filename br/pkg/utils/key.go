@@ -58,6 +58,7 @@ func unescapedKey(text string) ([]byte, error) {
 
 		switch n[0] {
 		case 'x':
+			//nolint: errcheck
 			fmt.Sscanf(string(r.Next(2)), "%02x", &c)
 			buf = append(buf, c)
 		default:
