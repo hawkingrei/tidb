@@ -517,6 +517,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 				log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
 			}
 			if file != nil {
+				//nolint: errcheck
 				file.Close()
 			}
 		}
