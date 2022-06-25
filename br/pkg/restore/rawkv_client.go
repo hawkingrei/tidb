@@ -64,6 +64,7 @@ func NewRawKVBatchClient(
 
 // Close closes the RawKVBatchClient.
 func (c *RawKVBatchClient) Close() {
+	//nolint: errcheck
 	c.rawkvClient.Close()
 }
 

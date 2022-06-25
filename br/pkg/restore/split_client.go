@@ -201,6 +201,7 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer conn.Close()
 
 	client := tikvpb.NewTikvClient(conn)
@@ -341,6 +342,7 @@ func sendSplitRegionRequest(c *pdClient, ctx context.Context, regionInfo *Region
 	if err != nil {
 		return false, nil, err
 	}
+	//nolint: errcheck
 	defer conn.Close()
 	client := tikvpb.NewTikvClient(conn)
 	resp, err := splitRegionWithFailpoint(ctx, regionInfo, peer, client, keys, c.isRawKv)
