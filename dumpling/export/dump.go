@@ -141,9 +141,11 @@ func (d *Dumper) Dump() (dumpErr error) {
 			return errors.Trace(err)
 		}
 		if err = prepareTableListToDump(tctx, conf, conn); err != nil {
+			//nolint: errcheck
 			conn.Close()
 			return err
 		}
+		//nolint: errcheck
 		conn.Close()
 	}
 
@@ -166,6 +168,7 @@ func (d *Dumper) Dump() (dumpErr error) {
 	if err != nil {
 		return err
 	}
+	//nolint: errcheck
 	defer metaConn.Close()
 	m.recordStartTime(time.Now())
 	// for consistency lock, we can write snapshot info after all tables are locked.
@@ -206,6 +209,7 @@ func (d *Dumper) Dump() (dumpErr error) {
 			return conn, errors.Trace(err1)
 		}
 		// give up the last broken connection
+		//nolint: errcheck
 		conn.Close()
 		newConn, err1 := createConnWithConsistency(tctx, pool, repeatableRead)
 		if err1 != nil {
