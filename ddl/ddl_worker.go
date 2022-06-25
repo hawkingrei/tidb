@@ -822,6 +822,7 @@ func (w *worker) runDDLJob(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, 
 		}, false)
 
 	// Mock for run ddl job panic.
+	//nolint: errcheck
 	failpoint.Inject("mockPanicInRunDDLJob", func(val failpoint.Value) {})
 
 	logutil.Logger(w.logCtx).Info("[ddl] run DDL job", zap.String("job", job.String()))
