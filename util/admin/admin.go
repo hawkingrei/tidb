@@ -210,6 +210,7 @@ func iterRecords(sessCtx sessionctx.Context, retriever kv.Retriever, t table.Tab
 	if err != nil {
 		return errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer it.Close()
 
 	if !it.Valid() {
