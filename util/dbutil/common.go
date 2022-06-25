@@ -652,6 +652,7 @@ func GetDBVersion(ctx context.Context, db QueryExecutor) (string, error) {
 	if err != nil {
 		return "", errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer result.Close()
 
 	var version sql.NullString
