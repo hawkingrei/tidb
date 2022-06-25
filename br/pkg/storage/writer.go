@@ -159,7 +159,7 @@ func (u *bufferedWriter) Write(ctx context.Context, p []byte) (int, error) {
 				continue
 			}
 		}
-		//nolint: errcheck
+		//nolint: br/pkg/lightning/backend/local/local.go:481
 		u.buf.Flush()
 		err := u.uploadChunk(ctx)
 		if err != nil {
@@ -182,7 +182,7 @@ func (u *bufferedWriter) uploadChunk(ctx context.Context) error {
 }
 
 func (u *bufferedWriter) Close(ctx context.Context) error {
-	//nolint: errcheck
+	//nolint: br/pkg/lightning/backend/local/local.go:481
 	u.buf.Close()
 	err := u.uploadChunk(ctx)
 	if err != nil {

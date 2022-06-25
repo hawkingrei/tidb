@@ -189,6 +189,7 @@ func (dr *delRange) doTask(ctx sessionctx.Context, r util.DelRangeTask) error {
 			if err != nil {
 				return errors.Trace(err)
 			}
+			//nolint: errcheck
 			defer iter.Close()
 
 			txn.SetDiskFullOpt(kvrpcpb.DiskFullOpt_AllowedOnAlmostFull)

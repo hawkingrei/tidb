@@ -150,6 +150,7 @@ func clearStoreData(t *testing.T, store kv.Storage) {
 
 	iter, err := txn.Iter(nil, nil)
 	require.NoError(t, err)
+	//nolint: errcheck
 	defer iter.Close()
 
 	for iter.Valid() {

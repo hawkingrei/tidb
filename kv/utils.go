@@ -70,7 +70,7 @@ func WalkMemBuffer(memBuf Retriever, f func(k Key, v []byte) error) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-
+	//nolint: errcheck
 	defer iter.Close()
 	for iter.Valid() {
 		if err = f(iter.Key(), iter.Value()); err != nil {

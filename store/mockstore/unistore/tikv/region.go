@@ -688,6 +688,7 @@ func (rm *StandAloneRegionManager) splitCheckRegion(region *regionCtx) error {
 	s := newSampler()
 	err := rm.bundle.DB.View(func(txn *badger.Txn) error {
 		iter := txn.NewIterator(badger.IteratorOptions{})
+		//nolint: errcheck
 		defer iter.Close()
 		for iter.Seek(region.rawStartKey); iter.Valid(); iter.Next() {
 			item := iter.Item()
