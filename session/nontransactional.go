@@ -346,6 +346,7 @@ func doOneJob(ctx context.Context, job *job, totalJobCount int, options statemen
 			zap.Int("jobSize", job.jobSize), zap.String("deleteSQL", deleteSQLInLog))
 	}
 	if rs != nil {
+		//nolint: errcheck
 		rs.Close()
 	}
 	return ""
@@ -377,6 +378,7 @@ func buildShardJobs(ctx context.Context, stmt *ast.NonTransactionalDeleteStmt, s
 		return nil, errors.Errorf("Non-transactional delete, expecting 1 record set, but got %d", len(rss))
 	}
 	rs := rss[0]
+	//nolint: errcheck
 	defer rs.Close()
 
 	batchSize := int(stmt.Limit)
