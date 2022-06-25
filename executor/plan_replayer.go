@@ -314,6 +314,7 @@ func dumpSessionBindings(ctx sessionctx.Context, zw *zip.Writer) error {
 		return errors.AddStack(err)
 	}
 	for _, row := range sRows {
+		//nolint: errcheck
 		fmt.Fprintf(bf, "%s\n", strings.Join(row, "\t"))
 	}
 	if len(recordSets) > 0 {
@@ -338,6 +339,7 @@ func dumpGlobalBindings(ctx sessionctx.Context, zw *zip.Writer) error {
 		return errors.AddStack(err)
 	}
 	for _, row := range sRows {
+		//nolint: errcheck
 		fmt.Fprintf(bf, "%s\n", strings.Join(row, "\t"))
 	}
 	if len(recordSets) > 0 {
@@ -373,6 +375,7 @@ func dumpExplain(ctx sessionctx.Context, zw *zip.Writer, sql string, isAnalyze b
 		return errors.AddStack(err)
 	}
 	for _, row := range sRows {
+		//nolint: errcheck
 		fmt.Fprintf(fw, "%s\n", strings.Join(row, "\t"))
 	}
 	if len(recordSets) > 0 {
@@ -419,7 +422,9 @@ func getShowCreateTable(pair tableNamePair, zw *zip.Writer, ctx sessionctx.Conte
 	if len(sRows) == 0 || len(sRows[0]) != 2 {
 		return errors.New(fmt.Sprintf("plan replayer: get create table %v.%v failed", pair.DBName, pair.TableName))
 	}
+	//nolint: errcheck
 	fmt.Fprintf(fw, "create database `%v`; use `%v`;", pair.DBName, pair.DBName)
+	//nolint: errcheck
 	fmt.Fprintf(fw, "%s", sRows[0][1])
 	if len(recordSets) > 0 {
 		if err := recordSets[0].Close(); err != nil {
@@ -525,6 +530,7 @@ func loadVariables(ctx sessionctx.Context, z *zip.Reader) error {
 			if err != nil {
 				return errors.AddStack(err)
 			}
+			//nolint: errcheck
 			defer v.Close()
 			_, err = toml.DecodeReader(v, &varMap)
 			if err != nil {
@@ -556,6 +562,7 @@ func createSchemaAndTables(ctx sessionctx.Context, f *zip.File) error {
 	if err != nil {
 		return errors.AddStack(err)
 	}
+	//nolint: errcheck
 	defer r.Close()
 	buf := new(bytes.Buffer)
 	_, err = buf.ReadFrom(r)
@@ -589,6 +596,7 @@ func loadStats(ctx sessionctx.Context, f *zip.File) error {
 	if err != nil {
 		return errors.AddStack(err)
 	}
+	//nolint: errcheck
 	defer r.Close()
 	buf := new(bytes.Buffer)
 	_, err = buf.ReadFrom(r)
