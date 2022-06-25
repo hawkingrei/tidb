@@ -128,6 +128,7 @@ func (s *gcsStorage) ReadFile(ctx context.Context, name string) ([]byte, error) 
 			"failed to read gcs file, file info: input.bucket='%s', input.key='%s'",
 			s.gcs.Bucket, object)
 	}
+	//nolint: errcheck
 	defer rc.Close()
 
 	size := rc.Attrs.Size

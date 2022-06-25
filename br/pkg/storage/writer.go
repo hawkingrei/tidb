@@ -159,6 +159,7 @@ func (u *bufferedWriter) Write(ctx context.Context, p []byte) (int, error) {
 				continue
 			}
 		}
+		//nolint: errcheck
 		u.buf.Flush()
 		err := u.uploadChunk(ctx)
 		if err != nil {

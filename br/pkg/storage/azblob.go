@@ -273,6 +273,7 @@ func (s *AzureBlobStorage) WriteFile(ctx context.Context, name string, data []by
 	if err != nil {
 		return errors.Annotatef(err, "Failed to write azure blob file, file info: bucket(container)='%s', key='%s'", s.options.Bucket, s.withPrefix(name))
 	}
+	//nolint: errcheck
 	defer resp.Body.Close()
 	return nil
 }
@@ -283,6 +284,7 @@ func (s *AzureBlobStorage) ReadFile(ctx context.Context, name string) ([]byte, e
 	if err != nil {
 		return nil, errors.Annotatef(err, "Failed to download azure blob file, file info: bucket(container)='%s', key='%s'", s.options.Bucket, s.withPrefix(name))
 	}
+	//nolint: errcheck
 	defer resp.RawResponse.Body.Close()
 	data, err := io.ReadAll(resp.Body(azblob.RetryReaderOptions{}))
 	if err != nil {
