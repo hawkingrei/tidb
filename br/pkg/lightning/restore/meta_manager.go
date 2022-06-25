@@ -238,6 +238,7 @@ func (m *dbTableMetaMgr) AllocTableRowIDs(ctx context.Context, rawRowIDMax int64
 		if err != nil {
 			return errors.Trace(err)
 		}
+		//nolint: errcheck
 		defer rows.Close()
 		var (
 			metaTaskID, rowIDBase, rowIDMax, maxRowIDMax int64
@@ -705,6 +706,7 @@ func (m *dbTaskMetaMgr) CheckTasksExclusively(ctx context.Context, action func(t
 		if err != nil {
 			return errors.Annotate(err, "fetch task metas failed")
 		}
+		//nolint: errcheck
 		defer rows.Close()
 
 		var tasks []taskMeta

@@ -606,6 +606,7 @@ func (be *tidbBackend) FetchRemoteTableModels(ctx context.Context, schemaName st
 		if e != nil {
 			return e
 		}
+		//nolint: errcheck
 		defer rows.Close()
 
 		var (

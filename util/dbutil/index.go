@@ -52,6 +52,7 @@ func ShowIndex(ctx context.Context, db QueryExecutor, schemaName string, table s
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer rows.Close()
 
 	for rows.Next() {

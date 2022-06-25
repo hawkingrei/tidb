@@ -87,6 +87,7 @@ func ShowGrants(ctx context.Context, db QueryExecutor, user, host string) ([]str
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
+		//nolint: errcheck
 		defer rows.Close()
 
 		grants := make([]string, 0, 8)

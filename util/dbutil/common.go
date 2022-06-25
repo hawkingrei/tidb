@@ -232,6 +232,7 @@ func GetRandomValues(ctx context.Context, db QueryExecutor, schemaName, table, c
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer rows.Close()
 
 	randomValue := make([]string, 0, num)
@@ -278,6 +279,7 @@ func GetMinMaxValue(ctx context.Context, db QueryExecutor, schema, table, column
 	if err != nil {
 		return "", "", errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer rows.Close()
 
 	for rows.Next() {
@@ -343,6 +345,7 @@ func queryTables(ctx context.Context, db QueryExecutor, q string) (tables []stri
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer rows.Close()
 
 	tables = make([]string, 0, 8)
@@ -393,6 +396,7 @@ func GetSchemas(ctx context.Context, db QueryExecutor) ([]string, error) {
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer rows.Close()
 
 	// show an example.
@@ -483,6 +487,7 @@ func GetBucketsInfo(ctx context.Context, db QueryExecutor, schema, table string,
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer rows.Close()
 
 	cols, err := rows.Columns()
@@ -605,6 +610,7 @@ func GetTidbLatestTSO(ctx context.Context, db QueryExecutor) (int64, error) {
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer rows.Close()
 
 	for rows.Next() {
@@ -673,6 +679,7 @@ func GetSessionVariable(ctx context.Context, db QueryExecutor, variable string) 
 	if err != nil {
 		return "", errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer rows.Close()
 
 	// Show an example.

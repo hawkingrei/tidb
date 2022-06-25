@@ -662,6 +662,7 @@ func GetSpecifiedColumnValueAndClose(rows *sql.Rows, columnName string) ([]strin
 	if rows == nil {
 		return []string{}, nil
 	}
+	//nolint: errcheck
 	defer rows.Close()
 	columnName = strings.ToUpper(columnName)
 	var strs []string
@@ -695,6 +696,7 @@ func GetSpecifiedColumnValuesAndClose(rows *sql.Rows, columnName ...string) ([][
 	if rows == nil {
 		return [][]string{}, nil
 	}
+	//nolint: errcheck
 	defer rows.Close()
 	var strs [][]string
 	columns, err := rows.Columns()
@@ -1140,6 +1142,7 @@ func simpleQueryWithArgs(ctx context.Context, conn *sql.Conn, handleOneRow func(
 	if err != nil {
 		return errors.Annotatef(err, "sql: %s, args: %s", query, args)
 	}
+	//nolint: errcheck
 	defer rows.Close()
 
 	for rows.Next() {
@@ -1499,7 +1502,7 @@ func GetCharsetAndDefaultCollation(ctx context.Context, db *sql.Conn) (map[strin
 	if err != nil {
 		return nil, errors.Annotatef(err, "sql: %s", query)
 	}
-
+	//nolint: errcheck
 	defer rows.Close()
 	for rows.Next() {
 		var charset, description, collation string
