@@ -247,6 +247,7 @@ func MaybeQPS(ctx context.Context, mgr *conn.Mgr) (float64, error) {
 		if err != nil {
 			return 0, err
 		}
+		//nolint: errcheck
 		defer before.Body.Close()
 		data, err := io.ReadAll(before.Body)
 		if err != nil {
