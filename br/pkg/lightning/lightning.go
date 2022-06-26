@@ -243,6 +243,7 @@ func (l *Lightning) goServe(statusAddr string, realAddrWriter io.Writer) error {
 	}
 	l.serverAddr = listener.Addr()
 	log.L().Info("starting HTTP server", zap.Stringer("address", l.serverAddr))
+	//nolint: errcheck
 	fmt.Fprintln(realAddrWriter, "started HTTP server on", l.serverAddr)
 	l.server.Handler = mux
 	listener = l.globalTLS.WrapListener(listener)
@@ -798,6 +799,7 @@ func handlePause(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case http.MethodGet:
 		w.WriteHeader(http.StatusOK)
+		//nolint: errcheck
 		fmt.Fprintf(w, `{"paused":%v}`, restore.DeliverPauser.IsPaused())
 
 	case http.MethodPut:
@@ -912,6 +914,7 @@ func CheckpointRemove(ctx context.Context, cfg *config.Config, tableName string)
 	if err != nil {
 		return errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer cpdb.Close()
 
 	// try to remove the metadata first.
