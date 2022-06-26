@@ -138,6 +138,7 @@ func NewTiDBManagerWithDB(db *sql.DB, sqlMode mysql.SQLMode) *TiDBManager {
 }
 
 func (timgr *TiDBManager) Close() {
+	//nolint: errcheck
 	timgr.db.Close()
 }
 

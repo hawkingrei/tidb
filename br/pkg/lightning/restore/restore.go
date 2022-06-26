@@ -2132,6 +2132,7 @@ func newChunkRestore(
 }
 
 func (cr *chunkRestore) close() {
+	//nolint: errcheck
 	cr.parser.Close()
 }
 
