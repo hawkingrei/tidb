@@ -451,6 +451,7 @@ func (m *dbTableMetaMgr) CheckAndUpdateLocalChecksum(ctx context.Context, checks
 		closed := false
 		defer func() {
 			if !closed {
+				//nolint: errcheck
 				rows.Close()
 			}
 		}()
@@ -504,6 +505,7 @@ func (m *dbTableMetaMgr) CheckAndUpdateLocalChecksum(ctx context.Context, checks
 			totalKvs += taskKvs
 			totalChecksum ^= taskChecksum
 		}
+		//nolint: errcheck
 		rows.Close()
 		closed = true
 		if err := rows.Err(); err != nil {
@@ -668,6 +670,7 @@ func (m *dbTaskMetaMgr) CheckTaskExist(ctx context.Context) (bool, error) {
 		var taskID int64
 		for rows.Next() {
 			if err = rows.Scan(&taskID); err != nil {
+				//nolint: errcheck
 				rows.Close()
 				return errors.Trace(err)
 			}
@@ -778,6 +781,7 @@ func (m *dbTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.U
 		closed := false
 		defer func() {
 			if !closed {
+				//nolint: errcheck
 				rows.Close()
 			}
 		}()
@@ -909,6 +913,7 @@ func (m *dbTaskMetaMgr) CheckAndFinishRestore(ctx context.Context, finished bool
 		closed := false
 		defer func() {
 			if !closed {
+				//nolint: errcheck
 				rows.Close()
 			}
 		}()
