@@ -34,6 +34,7 @@ func main() {
 	globalCfg := config.Must(config.LoadGlobalConfig(os.Args[1:], nil))
 	logToFile := globalCfg.App.File != "" && globalCfg.App.File != "-"
 	if logToFile {
+		//nolint: errcheck
 		fmt.Fprintf(os.Stdout, "Verbose debug logs will be written to %s\n\n", globalCfg.App.Config.File)
 	}
 
@@ -108,6 +109,7 @@ func main() {
 		if !finished {
 			exitMsg = "tidb lightning canceled"
 		}
+		//nolint: errcheck
 		fmt.Fprintln(os.Stdout, exitMsg)
 	}
 
