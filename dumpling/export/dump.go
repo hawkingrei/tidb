@@ -245,6 +245,7 @@ func (d *Dumper) Dump() (dumpErr error) {
 		}
 	}
 	// Inject consistency failpoint test after we release the table lock
+	//nolint: errcheck
 	failpoint.Inject("ConsistencyCheck", nil)
 
 	if conf.PosAfterConnect {
@@ -335,6 +336,7 @@ func (d *Dumper) startWriters(tctx *tcontext.Context, wg *errgroup.Group, taskCh
 	}
 	tearDown := func() {
 		for _, w := range writers {
+			//nolint: errcheck
 			w.conn.Close()
 		}
 	}
@@ -798,6 +800,7 @@ func (d *Dumper) selectMinAndMaxIntValue(tctx *tcontext.Context, conn *BaseConn,
 	var smax sql.NullString
 	err := conn.QuerySQL(tctx, func(rows *sql.Rows) error {
 		err := rows.Scan(&smin, &smax)
+		//nolint: errcheck
 		rows.Close()
 		return err
 	}, func() {}, query)
@@ -953,6 +956,7 @@ func selectTiDBTableSample(tctx *tcontext.Context, conn *BaseConn, meta TableMet
 		return nil
 	}, func() {
 		if iter != nil {
+			//nolint: errcheck
 			iter.Close()
 			iter = nil
 		}
@@ -1509,6 +1513,7 @@ func (d *Dumper) renewSelectTableRegionFuncForLowerTiDB(tctx *tcontext.Context) 
 	if err != nil {
 		return errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer dbHandle.Close()
 	conn, err := dbHandle.Conn(tctx)
 	if err != nil {

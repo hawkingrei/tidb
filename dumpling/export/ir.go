@@ -67,6 +67,7 @@ type RowReceiver interface {
 func decodeFromRows(rows *sql.Rows, args []interface{}, row RowReceiver) error {
 	row.BindAddress(args)
 	if err := rows.Scan(args...); err != nil {
+		//nolint: errcheck
 		rows.Close()
 		return errors.Trace(err)
 	}

@@ -781,6 +781,7 @@ func getTiDBConfig(db *sql.Conn) (dbconfig.Config, error) {
 func CheckTiDBWithTiKV(db *sql.DB) (bool, error) {
 	conn, err := db.Conn(context.Background())
 	if err == nil {
+		//nolint: errcheck
 		defer conn.Close()
 		tidbConfig, err := getTiDBConfig(conn)
 		if err == nil {
@@ -874,13 +875,14 @@ func resetDBWithSessionParams(tctx *tcontext.Context, db *sql.DB, dsn string, pa
 		}
 		dsn += fmt.Sprintf("&%s=%s", k, url.QueryEscape(s))
 	}
-
+	//nolint: errcheck
 	db.Close()
 	newDB, err := sql.Open("mysql", dsn)
 	if err == nil {
 		// ping to make sure all session parameters are set correctly
 		err = newDB.PingContext(tctx)
 		if err != nil {
+			//nolint: errcheck
 			newDB.Close()
 		}
 	}
@@ -1234,6 +1236,7 @@ func detectEstimateRows(tctx *tcontext.Context, db *BaseConn, query string, fiel
 			}
 		}
 		if fieldIndex == -1 {
+			//nolint: errcheck
 			rows.Close()
 			return nil
 		}
