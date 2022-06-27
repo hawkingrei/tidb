@@ -155,6 +155,7 @@ func checkpointErrorIgnore(ctx context.Context, cfg *config.Config, tableName st
 	if err != nil {
 		return errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer cpdb.Close()
 
 	return errors.Trace(cpdb.IgnoreErrorCheckpoint(ctx, tableName))
@@ -165,6 +166,7 @@ func checkpointErrorDestroy(ctx context.Context, cfg *config.Config, tls *common
 	if err != nil {
 		return errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer cpdb.Close()
 
 	target, err := restore.NewTiDBManager(ctx, cfg.TiDB, tls)
@@ -222,6 +224,7 @@ func checkpointDump(ctx context.Context, cfg *config.Config, dumpFolder string) 
 	if err != nil {
 		return errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer cpdb.Close()
 
 	if err := os.MkdirAll(dumpFolder, 0o750); err != nil {
@@ -233,6 +236,7 @@ func checkpointDump(ctx context.Context, cfg *config.Config, dumpFolder string) 
 	if err != nil {
 		return errors.Annotatef(err, "failed to create %s", tablesFileName)
 	}
+	//nolint: errcheck
 	defer tablesFile.Close()
 
 	enginesFileName := filepath.Join(dumpFolder, "engines.csv")
@@ -240,6 +244,7 @@ func checkpointDump(ctx context.Context, cfg *config.Config, dumpFolder string) 
 	if err != nil {
 		return errors.Annotatef(err, "failed to create %s", enginesFileName)
 	}
+	//nolint: errcheck
 	defer enginesFile.Close()
 
 	chunksFileName := filepath.Join(dumpFolder, "chunks.csv")
@@ -247,6 +252,7 @@ func checkpointDump(ctx context.Context, cfg *config.Config, dumpFolder string) 
 	if err != nil {
 		return errors.Annotatef(err, "failed to create %s", chunksFileName)
 	}
+	//nolint: errcheck
 	defer chunksFile.Close()
 
 	if err := cpdb.DumpTables(ctx, tablesFile); err != nil {
@@ -288,6 +294,7 @@ func getLocalStoringTables(ctx context.Context, cfg *config.Config) (err2 error)
 	if err != nil {
 		return errors.Trace(err)
 	}
+	//nolint: errcheck
 	defer cpdb.Close()
 
 	tableWithEngine, err := cpdb.GetLocalStoringTables(ctx)
