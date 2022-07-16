@@ -13,3 +13,58 @@
 // limitations under the License.
 
 package ticlose
+
+import (
+	"go/types"
+
+	"github.com/gostaticanalysis/analysisutil"
+	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/analysis/passes/buildssa"
+	"golang.org/x/tools/go/analysis/passes/inspect"
+	"golang.org/x/tools/go/ast/inspector"
+)
+
+var Analyzer = &analysis.Analyzer{
+	Name: "ticlose",
+	Doc:  "check whether to close the sqlexec.RecordSet",
+	Requires: []*analysis.Analyzer{
+		inspect.Analyzer,
+		buildssa.Analyzer,
+	},
+	Run: run,
+}
+
+func run(pass *analysis.Pass) (interface{}, error) {
+	funcs := pass.ResultOf[buildssa.Analyzer].(*buildssa.SSA).SrcFuncs
+	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
+
+	// Fast path: if the package doesn't import database/sql,
+	// skip the traversal.
+	if !imports(pass.Pkg, "database/sql") {
+		return nil, nil
+	}
+
+	rowsType := analysisutil.TypeOf(pass, "github.com/pingcap/tidb/util/sqlexec", "sqlexec.RecordSet")
+	if rowsType == nil {
+		// skip checking
+		return nil, nil
+	}
+
+	var methods []*types.Func
+	if m := analysisutil.MethodOf(rowsType, "Close"); m != nil {
+		methods = append(methods, m)
+	}
+	var errMethod *types.Func
+	if m := analysisutil.MethodOf(rowsType, "Err"); m != nil {
+		errMethod = m
+	}
+}
+
+func imports(pkg *types.Package, path string) bool {
+	for _, imp := range pkg.Imports() {
+		if imp.Path() == path {
+			return true
+		}
+	}
+	return false
+}
