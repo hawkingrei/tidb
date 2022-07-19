@@ -80,7 +80,7 @@ const (
 
 	batchAddingJobs = 10
 
-	reorgWorkerCnt   = 10
+	reorgWorkerCnt   = 1
 	generalWorkerCnt = 1
 
 	// PartitionCountLimit is limit of the number of partitions in a table.
