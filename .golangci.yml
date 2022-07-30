@@ -3,6 +3,7 @@ run:
 linters:
   disable-all: true
   enable:
+    - misspell
     - ineffassign
     - typecheck
     - varcheck
@@ -23,6 +24,7 @@ linters:
     - durationcheck
     - prealloc
     - predeclared
+    - unconvert
 
 linters-settings:
   staticcheck:

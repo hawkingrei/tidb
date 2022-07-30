@@ -1,4 +1,5 @@
 load("@bazel_gazelle//:def.bzl", "gazelle")
+load("//build/golangcilint:def.bzl", "golangcilint")
 
 # gazelle:proto disable_global
 # gazelle:prefix github.com/pingcap/tidb
@@ -26,4 +27,11 @@ filegroup(
     ),
     tags = ["automanaged"],
     visibility = ["//visibility:private"],
+)
+
+golangcilint(
+    name = "golangcilint",
+    config = "//:.golangci.yml",
+    paths = [],
+    prefix = "github.com/pingcap/tidb",
 )
