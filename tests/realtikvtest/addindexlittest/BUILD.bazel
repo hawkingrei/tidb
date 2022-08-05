@@ -2,21 +2,21 @@ load("@io_bazel_rules_go//go:def.bzl", "go_test")
 
 go_library(
     name = "addindexlittest_test",
-    srcs = [        
-        "common.go"
+    srcs = [
+        "common.go",
         "workload.go",
     ],
     importpath = "github.com/pingcap/tidb/tests/realtikvtest",
     visibility = ["//visibility:public"],
     deps = [
-	    "//fmt",
-	    "//strconv",
-	    "//strings",
-	    "//math",
+        "//fmt",
+        "//math",
         "//math/rand",
-	    "//time",
+        "//strconv",
+        "//strings",
         "//testing",
         "//testkit",
+        "//time",
     ],
 )
 
@@ -24,10 +24,11 @@ go_test(
     name = "addindexlittest_test",
     timeout = "short",
     srcs = [
-        "main_test.go",
         "adindex_test.go",
+        "main_test.go",
         "workload_test.go",
     ],
+    data = ["//tidb-server:tidb-server-raw"],
     flaky = True,
     deps = [
         "//testing",
