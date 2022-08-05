@@ -28,7 +28,7 @@ func initTest(t *testing.T) (*suiteContext, error) {
 	tk.MustExec("drop database if exists addindexlit;")
 	tk.MustExec("create database addindexlit;")
 	tk.MustExec("use addindexlit;")
-	tk.MustExec(`set @@tidb_ddl_enable_fast_reorg=on`)
+	//tk.MustExec(`set @@tidb_ddl_enable_fast_reorg=on`)
 
 	ctx := newSuiteContext(t, tk)
 	// create table
