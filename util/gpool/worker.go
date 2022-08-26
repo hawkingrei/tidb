@@ -19,15 +19,15 @@ import (
 	"time"
 )
 
-// goWorkerWithFunc is the actual executor who runs the tasks,
+// goWorker is the actual executor who runs the tasks,
 // it starts a goroutine that accepts tasks and
 // performs function calls.
-type goWorkerWithFunc struct {
+type goWorker struct {
 	// pool who owns this worker.
-	pool *PoolWithFunc
+	pool *Pool
 
-	// args is a job should be done.
-	args chan interface{}
+	// task is a job should be done.
+	task chan func()
 
 	// recycleTime will be updated when putting a worker back into queue.
 	recycleTime time.Time
@@ -35,7 +35,7 @@ type goWorkerWithFunc struct {
 
 // run starts a goroutine to repeat the process
 // that performs the function calls.
-func (w *goWorkerWithFunc) run() {
+func (w *goWorker) run() {
 	w.pool.addRunning(1)
 	go func() {
 		defer func() {
@@ -45,21 +45,21 @@ func (w *goWorkerWithFunc) run() {
 				if ph := w.pool.options.PanicHandler; ph != nil {
 					ph(p)
 				} else {
-					w.pool.options.Logger.Printf("worker with func exits from a panic: %v\n", p)
+					w.pool.options.Logger.Printf("worker exits from a panic: %v\n", p)
 					var buf [4096]byte
 					n := runtime.Stack(buf[:], false)
-					w.pool.options.Logger.Printf("worker with func exits from panic: %s\n", string(buf[:n]))
+					w.pool.options.Logger.Printf("worker exits from panic: %s\n", string(buf[:n]))
 				}
 			}
 			// Call Signal() here in case there are goroutines waiting for available workers.
 			w.pool.cond.Signal()
 		}()
 
-		for args := range w.args {
-			if args == nil {
+		for f := range w.task {
+			if f == nil {
 				return
 			}
-			w.pool.poolFunc(args)
+			f()
 			if ok := w.pool.revertWorker(w); !ok {
 				return
 			}
