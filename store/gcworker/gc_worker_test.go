@@ -47,6 +47,7 @@ import (
 	"github.com/tikv/client-go/v2/tikvrpc"
 	"github.com/tikv/client-go/v2/txnkv/txnlock"
 	pd "github.com/tikv/pd/client"
+	"go.opencensus.io/stats/view"
 )
 
 type mockGCWorkerClient struct {
@@ -1987,6 +1988,7 @@ func bootstrap(t testing.TB, store kv.Storage, lease time.Duration) *domain.Doma
 		dom.Close()
 		err := store.Close()
 		require.NoError(t, err)
+		view.Stop()
 	})
 	return dom
 }
