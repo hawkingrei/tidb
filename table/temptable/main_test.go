@@ -36,7 +36,6 @@ import (
 func TestMain(m *testing.M) {
 	opts := []goleak.Option{
 		goleak.IgnoreTopFunction("go.etcd.io/etcd/client/pkg/v3/logutil.(*MergeLogger).outputLoop"),
-		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
 		goleak.IgnoreTopFunction("github.com/golang/glog.(*loggingT).flushDaemon"),
 	}
 	testsetup.SetupForCommonTest()
