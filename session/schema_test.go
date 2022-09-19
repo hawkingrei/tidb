@@ -34,6 +34,7 @@ import (
 	"github.com/pingcap/tidb/testkit"
 	"github.com/stretchr/testify/require"
 	"github.com/tikv/client-go/v2/testutils"
+	"go.opencensus.io/stats/view"
 )
 
 func createMockStoreForSchemaTest(t *testing.T, opts ...mockstore.MockTiKVStoreOption) kv.Storage {
@@ -52,6 +53,7 @@ func createMockStoreForSchemaTest(t *testing.T, opts ...mockstore.MockTiKVStoreO
 	t.Cleanup(func() {
 		dom.Close()
 		require.NoError(t, store.Close())
+		view.Stop()
 	})
 	return store
 }
