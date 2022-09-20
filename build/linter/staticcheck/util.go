@@ -53,3 +53,24 @@ func FindAnalyzerByName(name string) *analysis.Analyzer {
 
 	panic(fmt.Sprintf("not a valid staticcheck analyzer: %s", name))
 }
+
+// FindAnalyzerByNameNobazel finds the analyzer with the given name without bazel.
+func FindAnalyzerByNameNobazel(name string) *analysis.Analyzer {
+	resMap := make(map[string]*analysis.Analyzer)
+
+	for _, analyzers := range [][]*lint.Analyzer{
+		quickfix.Analyzers,
+		simple.Analyzers,
+		staticcheck.Analyzers,
+		stylecheck.Analyzers,
+		{unused.Analyzer},
+	} {
+		for _, a := range analyzers {
+			resMap[a.Analyzer.Name] = a.Analyzer
+		}
+	}
+	if a, ok := resMap[name]; ok {
+		return a
+	}
+	panic(fmt.Sprintf("not a valid staticcheck analyzer: %s", name))
+}
