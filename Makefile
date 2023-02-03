@@ -112,6 +112,7 @@ explaintest: server_check
 	@cd cmd/explaintest && ./run-tests.sh -s ../../bin/tidb-server
 
 ddltest:
+# Please migrate this test to bazel.
 	@cd cmd/ddltest && $(GO) test --tags=deadlock,intest -o ../../bin/ddltest -c
 
 CLEAN_UT_BINARY := find . -name '*.test.bin'| xargs rm
