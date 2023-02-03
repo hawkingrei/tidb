@@ -112,8 +112,7 @@ explaintest: server_check
 	@cd cmd/explaintest && ./run-tests.sh -s ../../bin/tidb-server
 
 ddltest:
-	bazel $(BAZEL_GLOBAL_CONFIG) test $(BAZEL_CMD_CONFIG) --define gotags=deadlock,intest \
-		-- //cmd/ddltest/...
+	@cd cmd/ddltest && $(GO) test --tags=deadlock,intest -o ../../bin/ddltest -c
 
 CLEAN_UT_BINARY := find . -name '*.test.bin'| xargs rm
 
@@ -459,8 +458,6 @@ bazel_sessiontest: failpoint-enable bazel_ci_prepare
 bazel_statisticstest: failpoint-enable bazel_ci_prepare
 	bazel $(BAZEL_GLOBAL_CONFIG) test $(BAZEL_CMD_CONFIG) --test_arg=-with-real-tikv --define gotags=deadlock,intest \
 		-- //tests/realtikvtest/statisticstest/...
-	bazel $(BAZEL_GLOBAL_CONFIG) test $(BAZEL_CMD_CONFIG) --define gotags=deadlock,intest \
-		-- //cmd/ddltest/...
 
 bazel_txntest: failpoint-enable bazel_ci_prepare
 	bazel $(BAZEL_GLOBAL_CONFIG) test $(BAZEL_CMD_CONFIG) --test_arg=-with-real-tikv --define gotags=deadlock,intest \
