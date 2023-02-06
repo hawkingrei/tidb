@@ -52,22 +52,18 @@ const (
 	// BackfillTableSQL is the CREATE TABLE SQL of `tidb_ddl_backfill`.
 	BackfillTableSQL = "create table " + BackfillTable + `(
 		id bigint not null,
-		ddl_job_id bigint not null,
-		ele_id bigint not null,
-		ele_key blob,
-		store_id bigint,
+		namespace char(64) ,
+		key text(1024),
+		ddl_job_id bigint,
 		type int,
-		exec_id blob default null,
-		exec_lease timestamp,
-		state int,
+		ele_id blob not null,
+		exec_expired Time not null,
+		state VHAR(100),
 		curr_key blob,
-		start_key blob,
-		end_key blob,
 		start_ts bigint,
-		finish_ts bigint,
-		row_count bigint,
-		backfill_meta longblob,
-		unique key(ddl_job_id, ele_id, ele_key(20), id))`
+		status_update_ts bigint,
+		meta longblob,
+		unique key(namespace, key)`
 	// BackfillHistoryTableSQL is the CREATE TABLE SQL of `tidb_ddl_backfill_history`.
 	BackfillHistoryTableSQL = "create table " + BackfillHistoryTable + `(
 	 	id bigint not null,
