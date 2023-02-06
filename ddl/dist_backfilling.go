@@ -225,14 +225,14 @@ func (dc *ddlCtx) backfillJob2Task(t table.Table, bfJob *BackfillJob) (*reorgBac
 			return nil, dbterror.ErrCancelledDDLJob.GenWithStack("Can not find partition id %d for table %d", bfJob.Meta.PhysicalTableID, t.Meta().ID)
 		}
 	}
-	endKey := bfJob.EndKey
+	endKey := bfJob.Meta.EndKey
 	// TODO: Check reorgInfo.mergingTmpIdx
-	endK, err := getRangeEndKey(dc.jobContext(bfJob.JobID), dc.store, bfJob.Meta.Priority, pt.RecordPrefix(), bfJob.StartKey, endKey)
+	endK, err := getRangeEndKey(dc.jobContext(bfJob.JobID), dc.store, bfJob.Meta.Priority, pt.RecordPrefix(), bfJob.Meta.StartKey, endKey)
 	if err != nil {
 		logutil.BgLogger().Info("[ddl] convert backfill job to task, get reverse key failed", zap.String("backfill job", bfJob.AbbrStr()), zap.Error(err))
 	} else {
 		logutil.BgLogger().Info("[ddl] convert backfill job to task, change end key", zap.String("backfill job",
-			bfJob.AbbrStr()), zap.String("current key", hex.EncodeToString(bfJob.StartKey)), zap.Bool("end include", bfJob.Meta.EndInclude),
+			bfJob.AbbrStr()), zap.String("current key", hex.EncodeToString(bfJob.Meta.StartKey)), zap.Bool("end include", bfJob.Meta.EndInclude),
 			zap.String("end key", hex.EncodeToString(endKey)), zap.String("current end key", hex.EncodeToString(endK)))
 		endKey = endK
 	}
@@ -242,7 +242,7 @@ func (dc *ddlCtx) backfillJob2Task(t table.Table, bfJob *BackfillJob) (*reorgBac
 		physicalTable: pt,
 		// TODO: Remove these fields after remove the old logic.
 		sqlQuery:   bfJob.Meta.Query,
-		startKey:   bfJob.StartKey,
+		startKey:   bfJob.Meta.StartKey,
 		endKey:     endKey,
 		endInclude: bfJob.Meta.EndInclude,
 		priority:   bfJob.Meta.Priority}, nil

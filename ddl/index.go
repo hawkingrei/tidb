@@ -1367,8 +1367,8 @@ func (w *baseIndexWorker) UpdateTask(bfJob *BackfillJob) error {
 	s := newSession(w.backfillCtx.sessCtx)
 
 	return s.runInTxn(func(se *session) error {
-		jobs, err := GetBackfillJobs(se, BackfillTable, fmt.Sprintf("ddl_job_id = %d and ele_id = %d and ele_key = %s and id = %d",
-			bfJob.JobID, bfJob.EleID, wrapKey2String(bfJob.EleKey), bfJob.ID), "update_backfill_task")
+		jobs, err := GetBackfillJobs(se, BackgroundSubtaskTable, fmt.Sprintf("task_key = `%d_%s_%d_%d`",
+			bfJob.JobID, hex.EncodeToString(bfJob.EleKey), bfJob.EleID, bfJob.ID), "update_backfill_task")
 		if err != nil {
 			return err
 		}
@@ -1384,7 +1384,7 @@ func (w *baseIndexWorker) UpdateTask(bfJob *BackfillJob) error {
 			return err
 		}
 		bfJob.InstanceLease = GetLeaseGoTime(currTime, InstanceLease)
-		return updateBackfillJob(se, BackfillTable, bfJob, "update_backfill_task")
+		return updateBackfillJob(se, bfJob, "update_backfill_task")
 	})
 }
 
@@ -1395,7 +1395,7 @@ func (w *baseIndexWorker) FinishTask(bfJob *BackfillJob) error {
 		if err != nil {
 			return errors.Trace(err)
 		}
-		bfJob.FinishTS = txn.StartTS()
+		bfJob.StateUpdateTS = txn.StartTS()
 		err = RemoveBackfillJob(se, false, bfJob)
 		if err != nil {
 			return err

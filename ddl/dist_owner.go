@@ -16,6 +16,7 @@ package ddl
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -78,7 +79,7 @@ func (dc *ddlCtx) controlWritePhysicalTableRecord(sess *session, t table.Physica
 		return errors.Trace(err)
 	}
 	if maxBfJob != nil {
-		startKey = maxBfJob.EndKey
+		startKey = maxBfJob.Meta.EndKey
 		currBackfillJobID = maxBfJob.ID + 1
 	}
 
@@ -121,7 +122,7 @@ func checkReorgJobFinished(ctx context.Context, sess *session, reorgCtxs *reorgC
 					return errors.Trace(err)
 				}
 
-				bfJob, err = getBackfillJobWithRetry(sess, BackfillTable, ddlJobID, currEle.ID, currEle.TypeKey, false)
+				bfJob, err = getBackfillJobWithRetry(sess, ddlJobID, currEle.ID, currEle.TypeKey, false)
 				if err != nil {
 					logutil.BgLogger().Info("[ddl] getBackfillJobWithRetry failed", zap.Int64("job ID", ddlJobID), zap.Error(err))
 					return errors.Trace(err)
@@ -171,8 +172,9 @@ func GetBackfillErr(sess *session, ddlJobID, currEleID int64, currEleKey []byte)
 	var err error
 	var metas []*model.BackfillMeta
 	for i := 0; i < retrySQLTimes; i++ {
-		metas, err = GetBackfillMetas(sess, BackfillHistoryTable, fmt.Sprintf("ddl_job_id = %d and ele_id = %d and ele_key = %s",
-			ddlJobID, currEleID, wrapKey2String(currEleKey)), "get_backfill_job_metas")
+		metas, err = GetBackfillMetas(sess, BackgroundSubtaskHistoryTable, fmt.Sprintf("task_key like \"%d_%s_%d_%%\"",
+			ddlJobID, hex.EncodeToString(currEleKey), currEleID), "get_backfill_job_metas")
+
 		if err == nil {
 			for _, m := range metas {
 				if m.Error != nil {
@@ -222,9 +224,8 @@ func checkBackfillJobCount(sess *session, ddlJobID, currEleID int64, currEleKey 
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
-
-	backfillJobCnt, err = GetBackfillJobCount(sess, BackfillTable, fmt.Sprintf("ddl_job_id = %d and ele_id = %d and ele_key = %s",
-		ddlJobID, currEleID, wrapKey2String(currEleKey)), "check_backfill_job_count")
+	backfillJobCnt, err = GetBackfillJobCount(sess, BackgroundSubtaskTableSQL, fmt.Sprintf("task_key like \"%d_%s_%d_%%\"",
+		ddlJobID, hex.EncodeToString(currEleKey), currEleID), "check_backfill_job_count")
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
@@ -232,7 +233,7 @@ func checkBackfillJobCount(sess *session, ddlJobID, currEleID int64, currEleKey 
 	return backfillJobCnt, nil
 }
 
-func getBackfillJobWithRetry(sess *session, tableName string, ddlJobID, currEleID int64, currEleKey []byte, isDesc bool) (*BackfillJob, error) {
+func getBackfillJobWithRetry(sess *session, ddlJobID, currEleID int64, currEleKey []byte, isDesc bool) (*BackfillJob, error) {
 	var err error
 	var bJobs []*BackfillJob
 	descStr := ""
@@ -240,8 +241,8 @@ func getBackfillJobWithRetry(sess *session, tableName string, ddlJobID, currEleI
 		descStr = "order by id desc"
 	}
 	for i := 0; i < retrySQLTimes; i++ {
-		bJobs, err = GetBackfillJobs(sess, tableName, fmt.Sprintf("ddl_job_id = %d and ele_id = %d and ele_key = %s %s limit 1",
-			ddlJobID, currEleID, wrapKey2String(currEleKey), descStr), "check_backfill_job_state")
+		bJobs, err = GetBackfillJobs(sess, BackgroundSubtaskTable, fmt.Sprintf("task_key like \"%d_%s_%d_%%\" %s limit 1",
+			ddlJobID, hex.EncodeToString(currEleKey), currEleID, descStr), "check_backfill_job_state")
 		if err != nil {
 			logutil.BgLogger().Warn("[ddl] GetBackfillJobs failed", zap.Error(err))
 			continue
@@ -255,13 +256,36 @@ func getBackfillJobWithRetry(sess *session, tableName string, ddlJobID, currEleI
 	return nil, errors.Trace(err)
 }
 
-// GetMaxBackfillJob gets the max backfill job in BackfillTable and BackfillHistoryTable.
+func getBackfillHistoryJobWithRetry(sess *session, ddlJobID, currEleID int64, currEleKey []byte, isDesc bool) (*BackfillJob, error) {
+	var err error
+	var bJobs []*BackfillJob
+	descStr := ""
+	if isDesc {
+		descStr = "order by id desc"
+	}
+	for i := 0; i < retrySQLTimes; i++ {
+		bJobs, err = GetBackfillJobs(sess, BackgroundSubtaskHistoryTable, fmt.Sprintf("task_key like \"%d_%s_%d_%%\" %s limit 1",
+			ddlJobID, hex.EncodeToString(currEleKey), currEleID, descStr), "check_backfill_job_state")
+		if err != nil {
+			logutil.BgLogger().Warn("[ddl] GetBackfillJobs failed", zap.Error(err))
+			continue
+		}
+
+		if len(bJobs) != 0 {
+			return bJobs[0], nil
+		}
+		break
+	}
+	return nil, errors.Trace(err)
+}
+
+// GetMaxBackfillJob gets the max backfill job in BackfillTable and BackgroundSubtaskHistoryTable.
 func GetMaxBackfillJob(sess *session, ddlJobID, currEleID int64, currEleKey []byte) (*BackfillJob, error) {
-	bfJob, err := getBackfillJobWithRetry(sess, BackfillTable, ddlJobID, currEleID, currEleKey, true)
+	bfJob, err := getBackfillJobWithRetry(sess, ddlJobID, currEleID, currEleKey, true)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	hJob, err := getBackfillJobWithRetry(sess, BackfillHistoryTable, ddlJobID, currEleID, currEleKey, true)
+	hJob, err := getBackfillHistoryJobWithRetry(sess, ddlJobID, currEleID, currEleKey, true)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -287,8 +311,8 @@ func MoveBackfillJobsToHistoryTable(sctx sessionctx.Context, bfJob *BackfillJob)
 
 	return s.runInTxn(func(se *session) error {
 		// TODO: Consider batch by batch update backfill jobs and insert backfill history jobs.
-		bJobs, err := GetBackfillJobs(se, BackfillTable, fmt.Sprintf("ddl_job_id = %d and ele_id = %d and ele_key = %s",
-			bfJob.JobID, bfJob.EleID, wrapKey2String(bfJob.EleKey)), "update_backfill_job")
+		bJobs, err := GetBackfillJobs(se, BackgroundSubtaskTable, fmt.Sprintf("task_key like \"%d_%s_%d_%%\"",
+			bfJob.JobID, hex.EncodeToString(bfJob.EleKey), bfJob.EleID), "update_backfill_job")
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -305,7 +329,7 @@ func MoveBackfillJobsToHistoryTable(sctx sessionctx.Context, bfJob *BackfillJob)
 		if err == nil {
 			for _, bj := range bJobs {
 				bj.State = model.JobStateCancelled
-				bj.FinishTS = startTS
+				bj.StateUpdateTS = startTS
 			}
 			err = AddBackfillHistoryJob(se, bJobs)
 		}
