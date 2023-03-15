@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"testing"
@@ -35,6 +36,7 @@ import (
 	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/intest"
 	"github.com/pingcap/tidb/util/mathutil"
+	"github.com/pingcap/tidb/util/size"
 	"github.com/pingcap/tidb/util/sqlexec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -59,6 +61,7 @@ type TestKit struct {
 func NewTestKit(t testing.TB, store kv.Storage) *TestKit {
 	require.True(t, intest.InTest, "you should add --tags=intest when to test, see https://pingcap.github.io/tidb-dev-guide/get-started/setup-an-ide.html for help")
 	runtime.GOMAXPROCS(mathutil.Min(16, runtime.GOMAXPROCS(0)))
+	debug.SetMemoryLimit(int64(1 * size.GB))
 	tk := &TestKit{
 		require: require.New(t),
 		assert:  assert.New(t),
