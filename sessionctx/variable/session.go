@@ -1498,6 +1498,9 @@ type SessionVars struct {
 	runtimeFilterTypes []RuntimeFilterType
 	// Runtime filter mode: only support OFF, LOCAL now
 	runtimeFilterMode RuntimeFilterMode
+
+	// FastCheckTable is used to control whether fast check table is enabled.
+	FastCheckTable bool
 }
 
 var (
