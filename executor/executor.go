@@ -2478,7 +2478,7 @@ func (w *checkIndexWorker) HandleTask(task checkIndexTask) {
 	}
 	sb.WriteString("))")
 
-	groupStr := fmt.Sprintf("md5(%s))", pkCols[0])
+	groupStr := fmt.Sprintf("md5(%s)", pkCols[0])
 
 	tableRowCnt := w.e.rowCnt
 
