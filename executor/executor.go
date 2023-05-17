@@ -2371,7 +2371,6 @@ type FastCheckTableExec struct {
 	err        error
 	hasError   *atomic.Bool
 	wg         sync.WaitGroup
-	rowCnt     int64
 }
 
 // Open implements the Executor Open interface.
@@ -2393,7 +2392,6 @@ type checkIndexWorker struct {
 	dbName     string
 	table      table.Table
 	indexInfos []*model.IndexInfo
-	rowCnt     int64
 	e          *FastCheckTableExec
 }
 
@@ -2510,7 +2508,7 @@ func (w *checkIndexWorker) HandleTask(task checkIndexTask) {
 		}
 	}
 
-	tableRowCntToCheck := w.e.rowCnt
+	tableRowCntToCheck := int64(0)
 
 	offset := 0
 	mod := 1
@@ -2530,7 +2528,7 @@ func (w *checkIndexWorker) HandleTask(task checkIndexTask) {
 		groupByKey := fmt.Sprintf("((%s - %d) / %d %% %d)", md5Handle.String(), offset, mod, bucketSize)
 
 		// compute table side checksum.
-		sql := fmt.Sprintf("select bit_xor(%s), %s, count(*) from %s.%s use index() group by %s", md5HandleAndIndexCol.String(), groupByKey, w.e.dbName, w.e.table.Meta().Name, groupByKey)
+		sql := fmt.Sprintf("select /*+ read_from_storage(tikv[%s.%s]) */ bit_xor(%s), %s, count(*) from %s.%s use index() group by %s", w.e.dbName, w.e.table.Meta().Name, md5HandleAndIndexCol.String(), groupByKey, w.e.dbName, w.e.table.Meta().Name, groupByKey)
 		logutil.BgLogger().Info("check table index on table side", zap.String("index name", idxInfo.Name.String()), zap.String("sql", sql))
 		tableCheckSumMap, err := getCheckSum(se, sql)
 		if err != nil {
@@ -2598,7 +2596,7 @@ func (w *checkIndexWorker) HandleTask(task checkIndexTask) {
 	if meetError {
 		groupByKey := fmt.Sprintf("((%s - %d) / %d %% %d)", md5Handle.String(), offset, mod, bucketSize)
 		indexSQL := fmt.Sprintf("select %s, %s, %s from %s.%s use index(%s) where %s = 0 order by %s", handleColumnField, indexColumnField.String(), md5HandleAndIndexCol.String(), w.e.dbName, w.e.table.Meta().Name, idxInfo.Name, groupByKey, handleColumnField)
-		tableSQL := fmt.Sprintf("select %s, %s, %s from %s.%s use index() where %s = 0 order by %s", handleColumnField, indexColumnField.String(), md5HandleAndIndexCol.String(), w.e.dbName, w.e.table.Meta().Name, groupByKey, handleColumnField)
+		tableSQL := fmt.Sprintf("select /*+ read_from_storage(tikv[%s.%s]) */ %s, %s, %s from %s.%s use index() where %s = 0 order by %s", w.e.dbName, w.e.table.Meta().Name, handleColumnField, indexColumnField.String(), md5HandleAndIndexCol.String(), w.e.dbName, w.e.table.Meta().Name, groupByKey, handleColumnField)
 
 		idxRow, err := queryToRow(se, indexSQL)
 		if err != nil {
@@ -2732,7 +2730,7 @@ func (w *checkIndexWorker) Close() {
 }
 
 func (e *FastCheckTableExec) createWorker() workerpool.Worker[checkIndexTask] {
-	return &checkIndexWorker{sctx: e.ctx, dbName: e.dbName, table: e.table, indexInfos: e.indexInfos, rowCnt: e.rowCnt, e: e}
+	return &checkIndexWorker{sctx: e.ctx, dbName: e.dbName, table: e.table, indexInfos: e.indexInfos, e: e}
 }
 
 // Next implements the Executor Next interface.
@@ -2741,26 +2739,6 @@ func (e *FastCheckTableExec) Next(ctx context.Context, req *chunk.Chunk) error {
 		return nil
 	}
 	defer func() { e.done = true }()
-
-	internalSe, err := e.getSysSession()
-	if err != nil {
-		return err
-	}
-	ctx = kv.WithInternalSourceType(ctx, kv.InternalTxnAdmin)
-	rs, err := internalSe.(sqlexec.SQLExecutor).ExecuteInternal(ctx, fmt.Sprintf("select count(*) from %s.%s", e.dbName, e.table.Meta().Name.O))
-	if err != nil {
-		return err
-	}
-	defer e.releaseSysSession(ctx, internalSe)
-	row, err := sqlexec.DrainRecordSet(ctx, rs, 8)
-	if err != nil {
-		return err
-	}
-	err = rs.Close()
-	if err != nil {
-		return err
-	}
-	e.rowCnt = row[0].GetInt64(0)
 
 	// Here we need check all indexes, includes invisible index
 	e.ctx.GetSessionVars().OptimizerUseInvisibleIndexes = true
