@@ -597,8 +597,8 @@ def go_deps():
         name = "com_github_cncf_xds_go",
         build_file_proto_mode = "disable_global",
         importpath = "github.com/cncf/xds/go",
-        sum = "h1:ACGZRIr7HsgBKHsueQ1yM4WaVaXh21ynwqsF8M8tXhA=",
-        version = "v0.0.0-20230105202645-06c439db220b",
+        sum = "h1:58f1tJ1ra+zFINPlwLWvQsR9CzAKt2e+EWV2yX9oXQ4=",
+        version = "v0.0.0-20230310173818-32f1caf87195",
     )
     go_repository(
         name = "com_github_cockroachdb_apd",
@@ -1013,15 +1013,15 @@ def go_deps():
         name = "com_github_envoyproxy_go_control_plane",
         build_file_proto_mode = "disable_global",
         importpath = "github.com/envoyproxy/go-control-plane",
-        sum = "h1:xdCVXxEe0Y3FQith+0cj2irwZudqGYvecuLB1HtdexY=",
-        version = "v0.10.3",
+        sum = "h1:jtLewhRR2vMRNnq2ZZUoCjUlgut+Y0+sDDWPOfwOi1o=",
+        version = "v0.11.0",
     )
     go_repository(
         name = "com_github_envoyproxy_protoc_gen_validate",
         build_file_proto_mode = "disable_global",
         importpath = "github.com/envoyproxy/protoc-gen-validate",
-        sum = "h1:PS7VIOgmSVhWUEeZwTe7z7zouA22Cr590PzXKbZHOVY=",
-        version = "v0.9.1",
+        sum = "h1:oIfnZFdC0YhpNNEX+SuIqko4cqqVZeN9IGTrhZje83Y=",
+        version = "v0.10.0",
     )
     go_repository(
         name = "com_github_esimonov_ifshort",
@@ -1585,8 +1585,8 @@ def go_deps():
         name = "com_github_golang_glog",
         build_file_proto_mode = "disable_global",
         importpath = "github.com/golang/glog",
-        sum = "h1:nfP3RFugxnNRyKgeWd4oI1nYvXpxrx8ck8ZrcizshdQ=",
-        version = "v1.0.0",
+        sum = "h1:jxpi2eWoU84wbX9iIEyAeeoac3FLuifZpY9tcNUD9kw=",
+        version = "v1.1.1",
     )
     go_repository(
         name = "com_github_golang_groupcache",
@@ -3421,8 +3421,8 @@ def go_deps():
         name = "com_github_pingcap_kvproto",
         build_file_proto_mode = "disable_global",
         importpath = "github.com/pingcap/kvproto",
-        sum = "h1:iAIjJVgrPuXjpAiMDcJvz4Y4Qf4KypiCsqy3UVzU6FQ=",
-        version = "v0.0.0-20230523065550-8b641fa69bf3",
+        sum = "h1:GBlml2UIrI9IR3DdBnUWNeXizK4PwJhYPO7eWgCNErg=",
+        version = "v0.0.0-20230530111525-e4919c190b46",
     )
     go_repository(
         name = "com_github_pingcap_log",
@@ -5962,15 +5962,30 @@ def go_deps():
         name = "org_golang_google_genproto",
         build_file_proto_mode = "disable_global",
         importpath = "google.golang.org/genproto",
-        sum = "h1:KpwkzHKEF7B9Zxg18WzOa7djJ+Ha5DzthMyZYQfEn2A=",
-        version = "v0.0.0-20230410155749-daa745c078e1",
+        sum = "h1:8DyZCyvI8mE1IdLy/60bS+52xfymkE72wv1asokgtao=",
+        version = "v0.0.0-20230530153820-e85fd2cbaebc",
     )
+    go_repository(
+        name = "org_golang_google_genproto_googleapis_api",
+        build_file_proto_mode = "disable",
+        importpath = "google.golang.org/genproto/googleapis/api",
+        sum = "h1:kVKPf/IiYSBWEWtkIn6wZXwWGCnLKcC8oWfZvXjsGnM=",
+        version = "v0.0.0-20230530153820-e85fd2cbaebc",
+    )
+    go_repository(
+        name = "org_golang_google_genproto_googleapis_rpc",
+        build_file_proto_mode = "disable",
+        importpath = "google.golang.org/genproto/googleapis/rpc",
+        sum = "h1:NumxXLPfHSndr3wBBdeKiVHjGVFzi9RX2HwwQke94iY=",
+        version = "v0.0.0-20230526203410-71b5a4ffd15e",
+    )
+
     go_repository(
         name = "org_golang_google_grpc",
         build_file_proto_mode = "disable_global",
         importpath = "google.golang.org/grpc",
-        sum = "h1:EhTqbhiYeixwWQtAEZAxmV9MGqcjEU2mFx52xCzNyag=",
-        version = "v1.54.0",
+        sum = "h1:3Oj82/tFSCeUrRTg/5E/7d/W5A1tj6Ky1ABAuZuv5ag=",
+        version = "v1.55.0",
     )
     go_repository(
         name = "org_golang_google_grpc_cmd_protoc_gen_go_grpc",

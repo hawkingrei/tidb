@@ -74,7 +74,7 @@ require (
 	github.com/pingcap/errors v0.11.5-0.20221009092201-b66cddb77c32
 	github.com/pingcap/failpoint v0.0.0-20220801062533-2eaa32854a6c
 	github.com/pingcap/fn v0.0.0-20200306044125-d5540d389059
-	github.com/pingcap/kvproto v0.0.0-20230523065550-8b641fa69bf3
+	github.com/pingcap/kvproto v0.0.0-20230530111525-e4919c190b46
 	github.com/pingcap/log v1.1.1-0.20230317032135-a0d097d16e22
 	github.com/pingcap/sysutil v1.0.1-0.20230407040306-fb007c5aff21
 	github.com/pingcap/tidb/parser v0.0.0-20211011031125-9b13dc409c5e
@@ -125,7 +125,7 @@ require (
 	golang.org/x/time v0.3.0
 	golang.org/x/tools v0.9.1
 	google.golang.org/api v0.114.0
-	google.golang.org/grpc v1.54.0
+	google.golang.org/grpc v1.55.0
 	gopkg.in/yaml.v2 v2.4.0
 	honnef.co/go/tools v0.4.3
 	k8s.io/api v0.27.2
@@ -172,13 +172,14 @@ require (
 	github.com/fatih/structtag v1.2.0 // indirect
 	github.com/felixge/httpsnoop v1.0.2 // indirect
 	github.com/form3tech-oss/jwt-go v3.2.5+incompatible // indirect
+	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.4 // indirect
 	github.com/go-kit/kit v0.9.0 // indirect
 	github.com/go-logfmt/logfmt v0.5.1 // indirect
 	github.com/go-logr/logr v1.2.3 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/goccy/go-json v0.9.11 // indirect
-	github.com/golang/glog v1.0.0 // indirect
+	github.com/golang/glog v1.1.1 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/google/gofuzz v1.1.0 // indirect
@@ -275,7 +276,8 @@ require (
 	golang.org/x/mod v0.10.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
-	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
+	google.golang.org/genproto v0.0.0-20230530153820-e85fd2cbaebc // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20230530153820-e85fd2cbaebc // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
