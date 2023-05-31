@@ -2375,8 +2375,7 @@ type FastCheckTableExec struct {
 	indexInfos []*model.IndexInfo
 	done       bool
 	is         infoschema.InfoSchema
-	err        error
-	hasError   *atomic.Bool
+	err        *atomic.Pointer[error]
 	wg         sync.WaitGroup
 	contextCtx context.Context
 }
@@ -2443,9 +2442,7 @@ func (w *checkIndexWorker) HandleTask(task checkIndexTask) {
 	ctx := kv.WithInternalSourceType(w.e.contextCtx, kv.InternalTxnAdmin)
 
 	trySaveErr := func(err error) {
-		if setNewErr := w.e.hasError.CompareAndSwap(false, true); setNewErr {
-			w.e.err = err
-		}
+		w.e.err.CompareAndSwap(nil, &err)
 	}
 
 	se, err := w.e.base().getSysSession()
@@ -2529,17 +2526,9 @@ func (w *checkIndexWorker) HandleTask(task checkIndexTask) {
 	checkOnce := false
 
 	if w.e.ctx.GetSessionVars().SnapshotTS != 0 {
-		_, err = se.(sqlexec.SQLExecutor).ExecuteInternal(ctx, "set @@tidb_snapshot = %?", w.e.ctx.GetSessionVars().SnapshotTS)
-		if err != nil {
-			trySaveErr(err)
-			return
-		}
+		se.GetSessionVars().SnapshotTS = w.e.ctx.GetSessionVars().SnapshotTS
 		defer func() {
-			_, err = se.(sqlexec.SQLExecutor).ExecuteInternal(ctx, "set @@tidb_snapshot = ''")
-			if err != nil {
-				trySaveErr(err)
-				return
-			}
+			se.GetSessionVars().SnapshotTS = 0
 		}()
 	}
 	_, err = se.(sqlexec.SQLExecutor).ExecuteInternal(ctx, "begin")
@@ -2793,7 +2782,6 @@ func (w *checkIndexWorker) HandleTask(task checkIndexTask) {
 
 // Close implements the Worker interface.
 func (w *checkIndexWorker) Close() {
-
 }
 
 func (e *FastCheckTableExec) createWorker() workerpool.Worker[checkIndexTask] {
@@ -2827,5 +2815,9 @@ func (e *FastCheckTableExec) Next(ctx context.Context, req *chunk.Chunk) error {
 	e.wg.Wait()
 	workerPool.ReleaseAndWait()
 
-	return e.err
+	p := e.err.Load()
+	if p == nil {
+		return nil
+	}
+	return *p
 }
