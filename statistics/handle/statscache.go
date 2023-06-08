@@ -179,12 +179,7 @@ func (t *tableCache) AddRef() {
 }
 
 func (t *tableCache) DecRef() {
-	v := t.ref.Add(-1)
-	switch {
-	case v < 0:
-		panic("Decrementing non-positive ref count")
-	case v == 0:
-	}
+	t.ref.Add(-1)
 }
 
 func (t *tableCache) Get(k int64) (*statistics.Table, bool) {
