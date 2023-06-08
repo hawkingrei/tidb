@@ -53,6 +53,7 @@ func (c *CacheItemGC) AddCacheItem(item *mapCache) {
 func (c *CacheItemGC) Start() {
 	c.wg.Run(func() {
 		ticker := time.NewTicker(100 * time.Microsecond)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-c.exitCh:
