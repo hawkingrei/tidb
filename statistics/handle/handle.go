@@ -497,7 +497,6 @@ func NewHandle(ctx, initStatsCtx sessionctx.Context, lease time.Duration, pool s
 		autoAnalyzeProcIDGetter: autoAnalyzeProcIDGetter,
 		InitStatsDone:           make(chan struct{}),
 	}
-	handle.statsCacheGC.Start()
 	handle.initStatsCtx = initStatsCtx
 	handle.lease.Store(lease)
 	handle.statsCache.memTracker = memory.NewTracker(memory.LabelForStatsCache, -1)
@@ -517,6 +516,11 @@ func NewHandle(ctx, initStatsCtx sessionctx.Context, lease time.Duration, pool s
 		return nil, err
 	}
 	return handle, nil
+}
+
+// Start start the handle.
+func (h *Handle) Start() {
+	h.statsCacheGC.Start()
 }
 
 // Stop stops the handle.
