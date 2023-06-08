@@ -29,10 +29,10 @@ type CacheItem struct {
 }
 
 type CacheItemGC struct {
-	cnt    atomic.Uint64
 	gcItem chan CacheItem
 	exitCh chan struct{}
 	wg     util.WaitGroupWrapper
+	cnt    atomic.Uint64
 }
 
 func newCacheItemGC() *CacheItemGC {
@@ -71,21 +71,19 @@ func (c *CacheItemGC) Stop() {
 
 func (c *CacheItemGC) gc() {
 	cnt := c.cnt.Load()
-	for {
-		select {
-		case <-c.exitCh:
-			return
-		case item := <-c.gcItem:
-			if time.Since(item.StartTs) > CacheItemTTL {
-				item.item.Release()
-			} else {
-				c.gcItem <- item
-			}
-			cnt--
-			if cnt == 0 {
-				return
-			}
-		default:
+	select {
+	case <-c.exitCh:
+		return
+	case item := <-c.gcItem:
+		if time.Since(item.StartTs) > CacheItemTTL {
+			item.item.Release()
+		} else {
+			c.gcItem <- item
 		}
+		cnt--
+		if cnt == 0 {
+			return
+		}
+	default:
 	}
 }
