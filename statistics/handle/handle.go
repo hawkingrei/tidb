@@ -572,6 +572,7 @@ func (h *Handle) UpdateStatsHealthyMetrics() {
 
 // Update reads stats meta from store and updates the stats map.
 func (h *Handle) Update(is infoschema.InfoSchema, opts ...TableStatsOpt) error {
+	h.statsCache.RLock()
 	oldCache := h.statsCache.Load()
 	lastVersion := oldCache.version
 	// We need this because for two tables, the smaller version may write later than the one with larger version.
@@ -588,6 +589,7 @@ func (h *Handle) Update(is infoschema.InfoSchema, opts ...TableStatsOpt) error {
 	ctx := kv.WithInternalSourceType(context.Background(), kv.InternalTxnStats)
 	rows, _, err := h.execRestrictedSQL(ctx, "SELECT version, table_id, modify_count, count from mysql.stats_meta where version > %? order by version", lastVersion)
 	if err != nil {
+		h.statsCache.RUnlock()
 		return errors.Trace(err)
 	}
 	option := &tableStatsOption{}
@@ -609,6 +611,7 @@ func (h *Handle) Update(is infoschema.InfoSchema, opts ...TableStatsOpt) error {
 			continue
 		}
 		tableInfo := table.Meta()
+		oldCache = h.statsCache.Load()
 		if oldTbl, ok := oldCache.Get(physicalID); ok && oldTbl.Version >= version && tableInfo.UpdateTS == oldTbl.TblInfoUpdateTS {
 			continue
 		}
@@ -629,6 +632,7 @@ func (h *Handle) Update(is infoschema.InfoSchema, opts ...TableStatsOpt) error {
 		tbl.TblInfoUpdateTS = tableInfo.UpdateTS
 		tables = append(tables, tbl)
 	}
+	h.statsCache.RUnlock()
 	h.createAndUpdateStatsCache(oldCache, tables, deletedTableIDs, lastVersion, opts...)
 	return nil
 }

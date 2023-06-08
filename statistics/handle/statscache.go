@@ -18,6 +18,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/sqlexec"
 	"github.com/pingcap/tidb/util/syncutil"
+	"golang.org/x/exp/maps"
 )
 
 // statsCacheInner is the interface to manage the statsCache, it can be implemented by map, lru cache or other structures.
@@ -143,18 +145,33 @@ func (c cacheItem) copy() cacheItem {
 	}
 }
 
+var mapPool = sync.Pool{
+	New: func() any {
+		item := make(map[int64]cacheItem)
+		result := &tableCache{
+			Item: item,
+		}
+
+		return result
+	},
+}
+
 type tableCache struct {
 	Item map[int64]cacheItem
 	ref  atomic.Int32
 }
 
 func newTableCache() *tableCache {
-	item := make(map[int64]cacheItem)
-	result := &tableCache{
-		Item: item,
-	}
+	result := mapPool.Get().(*tableCache)
 	result.ref.Store(1)
 	return result
+}
+
+func (t *tableCache) Release() {
+	if t.ref.Load() < 1 {
+		maps.Clear(t.Item)
+	}
+	mapPool.Put(t)
 }
 
 func (t *tableCache) AddRef() {
@@ -252,6 +269,7 @@ func (v *tableCacheView) Release() {
 		panic("cannot release a nil view")
 	}
 	v.tableCache.DecRef()
+	v.tableCache.Release()
 }
 
 func (v *tableCacheView) share() bool {
@@ -259,6 +277,9 @@ func (v *tableCacheView) share() bool {
 }
 
 func (v *tableCacheView) Get(k int64) (*statistics.Table, bool) {
+	if v.tableCache == nil {
+		return nil, true
+	}
 	return v.tableCache.Get(k)
 }
 
