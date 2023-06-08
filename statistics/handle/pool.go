@@ -17,6 +17,7 @@ package handle
 import (
 	"time"
 
+	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/util"
 	"go.uber.org/atomic"
 )
@@ -52,6 +53,7 @@ func (c *CacheItemGC) AddCacheItem(item *mapCache) {
 
 func (c *CacheItemGC) Start() {
 	c.wg.Run(func() {
+		log.Info("start gc cache item")
 		ticker := time.NewTicker(100 * time.Microsecond)
 		defer ticker.Stop()
 		for {

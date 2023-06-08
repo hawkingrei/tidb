@@ -1200,7 +1200,11 @@ func (do *Domain) Init(
 			do.loadSchemaInLoop(ctx, ddlLease)
 		}, "loadSchemaInLoop")
 	}
-	do.StatsHandle().Start()
+
+	statsHandle := do.StatsHandle()
+	if statsHandle != nil {
+		statsHandle.Start()
+	}
 	do.wg.Run(do.mdlCheckLoop, "mdlCheckLoop")
 	do.wg.Run(do.topNSlowQueryLoop, "topNSlowQueryLoop")
 	do.wg.Run(do.infoSyncerKeeper, "infoSyncerKeeper")
