@@ -21,7 +21,7 @@ import (
 	"go.uber.org/atomic"
 )
 
-const CacheItemTTL = 2 * time.Minute
+const CacheItemTTL = 10 * time.Second
 
 type CacheItem struct {
 	item    *mapCache
@@ -52,7 +52,7 @@ func (c *CacheItemGC) AddCacheItem(item *mapCache) {
 
 func (c *CacheItemGC) Start() {
 	c.wg.Run(func() {
-		ticker := time.NewTicker(time.Second)
+		ticker := time.NewTicker(100 * time.Microsecond)
 		for {
 			select {
 			case <-c.exitCh:
