@@ -263,7 +263,6 @@ func (v *tableCacheView) Release() {
 	if v == nil {
 		panic("cannot release a nil view")
 	}
-	v.tableCache.DecRef()
 	v.tableCache.Release()
 }
 

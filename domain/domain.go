@@ -1006,6 +1006,7 @@ func (do *Domain) Close() {
 	if do.onClose != nil {
 		do.onClose()
 	}
+	do.StatsHandle().Stop()
 	gctuner.WaitMemoryLimitTunerExitInTest()
 	close(do.mdlCheckCh)
 	logutil.BgLogger().Info("domain closed", zap.Duration("take time", time.Since(startTime)))

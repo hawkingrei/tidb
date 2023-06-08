@@ -94,6 +94,7 @@ type Handle struct {
 		memTracker *memory.Tracker
 		sync.RWMutex
 	}
+	statsCacheGC *CacheItemGC
 
 	// feedback is used to store query feedback info.
 	feedback struct {
@@ -488,6 +489,7 @@ func NewHandle(ctx, initStatsCtx sessionctx.Context, lease time.Duration, pool s
 	cfg := config.GetGlobalConfig()
 	handle := &Handle{
 		ddlEventCh:              make(chan *ddlUtil.Event, 1000),
+		statsCacheGC:            newCacheItemGC(),
 		listHead:                &SessionStatsCollector{mapper: make(tableDeltaMap), rateMap: make(errorRateDeltaMap)},
 		idxUsageListHead:        &SessionIndexUsageCollector{mapper: make(indexUsageMap)},
 		pool:                    pool,
@@ -495,6 +497,7 @@ func NewHandle(ctx, initStatsCtx sessionctx.Context, lease time.Duration, pool s
 		autoAnalyzeProcIDGetter: autoAnalyzeProcIDGetter,
 		InitStatsDone:           make(chan struct{}),
 	}
+	handle.statsCacheGC.Start()
 	handle.initStatsCtx = initStatsCtx
 	handle.lease.Store(lease)
 	handle.statsCache.memTracker = memory.NewTracker(memory.LabelForStatsCache, -1)
@@ -514,6 +517,11 @@ func NewHandle(ctx, initStatsCtx sessionctx.Context, lease time.Duration, pool s
 		return nil, err
 	}
 	return handle, nil
+}
+
+// Stop stops the handle.
+func (h *Handle) Stop() {
+	h.statsCacheGC.Stop()
 }
 
 // Lease returns the stats lease.
@@ -1054,7 +1062,9 @@ func (h *Handle) createAndUpdateStatsCache(statsCache *statsCache, tables []*sta
 	if oldCache.version < newCache.version || (oldCache.version == newCache.version && oldCache.minorVersion < newCache.minorVersion) {
 		h.statsCache.memTracker.Consume(newCost - oldCache.Cost())
 		old := h.statsCache.Swap(&newCache)
-		old.Release()
+		if item, ok := old.statsCacheInner.(*mapCache); ok {
+			h.statsCacheGC.AddCacheItem(item)
+		}
 		updated = true
 	}
 	h.statsCache.Unlock()
