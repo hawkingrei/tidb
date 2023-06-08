@@ -2084,6 +2084,7 @@ func (do *Domain) CreateStatsHandle(ctx, initStatsCtx sessionctx.Context) error 
 	if err != nil {
 		return err
 	}
+	h.Start()
 	atomic.StorePointer(&do.statsHandle, unsafe.Pointer(h))
 	return nil
 }
@@ -2160,6 +2161,7 @@ func (do *Domain) UpdateTableStatsLoop(ctx, initStatsCtx sessionctx.Context) err
 	if err != nil {
 		return err
 	}
+	statsHandle.Start()
 	atomic.StorePointer(&do.statsHandle, unsafe.Pointer(statsHandle))
 	do.ddl.RegisterStatsHandle(statsHandle)
 	// Negative stats lease indicates that it is in test, it does not need update.
