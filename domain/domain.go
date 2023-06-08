@@ -2084,7 +2084,6 @@ func (do *Domain) CreateStatsHandle(ctx, initStatsCtx sessionctx.Context) error 
 	if err != nil {
 		return err
 	}
-	h.Start()
 	atomic.StorePointer(&do.statsHandle, unsafe.Pointer(h))
 	return nil
 }
