@@ -43,7 +43,7 @@ func getCgroupCPU(root string) (CPUUsage, error) {
 	}
 
 	var res CPUUsage
-	log.Info("debug", zap.Any("mount", mount))
+	log.Info("debug", zap.Any("mount", mount), zap.Any("version", ver))
 	if len(mount) == 2 {
 		cgroupRootV1 := filepath.Join(root, mount[0])
 		cgroupRootV2 := filepath.Join(root, mount[1], path)
