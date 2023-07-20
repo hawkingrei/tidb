@@ -16,6 +16,7 @@ package lfu
 
 import (
 	"sync/atomic"
+	"time"
 
 	"github.com/dgraph-io/ristretto"
 	"github.com/pingcap/tidb/statistics"
@@ -52,7 +53,24 @@ func NewLFU(totalMemCost int64) (*LFU, error) {
 }
 
 // Get implements statsCacheInner
-func (s *LFU) Get(tid int64, _ bool) (*statistics.Table, bool) {
+func (s *LFU) Get(tid int64, _ bool) (result *statistics.Table, ok bool) {
+	result, ok = s.get(tid)
+	if ok {
+		return result, ok
+	}
+	// Retry three times and sleep exponentially. 40ms,80ms, 160ms
+	for i := 0; i < 3; i++ {
+		time.Sleep((2 << uint(i)) * 10 * time.Millisecond)
+		result, ok = s.get(tid)
+		if ok {
+			return result, ok
+		}
+	}
+	// TODO(hawkingrei): add metrics
+	return nil, ok
+}
+
+func (s *LFU) get(tid int64) (*statistics.Table, bool) {
 	result, ok := s.cache.Get(tid)
 	if !ok {
 		return nil, ok
