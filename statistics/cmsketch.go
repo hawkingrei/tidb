@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/tidb/parser/mysql"
@@ -800,30 +801,43 @@ func MergePartTopN2GlobalTopN(loc *time.Location, version int, topNs []*TopN, n 
 	// datumMap is used to store the mapping from the string type to datum type.
 	// The datum is used to find the value in the histogram.
 	datumMap := NewDatumMapCache()
-	for i, topN := range topNs {
+	bloomTopN := make([]*bloom.BloomFilter, len(topNs))
+	for _, topN := range topNs {
 		if atomic.LoadUint32(killed) == 1 {
 			return nil, nil, nil, errors.Trace(ErrQueryInterrupted)
 		}
 		if topN.TotalCount() == 0 {
+			bloomTopN = append(bloomTopN, nil)
 			continue
 		}
+		nb := bloom.NewWithEstimates(uint(len(topN.TopN)), 0.01)
 		for _, val := range topN.TopN {
 			encodedVal := hack.String(val.Encoded)
-			_, exists := counter[encodedVal]
 			counter[encodedVal] += float64(val.Count)
-			if exists {
-				// We have already calculated the encodedVal from the histogram, so just continue to next topN value.
+			nb.Add(val.Encoded)
+		}
+		bloomTopN = append(bloomTopN, nb)
+	}
+	valueSet := make(map[hack.MutableString]struct{})
+	for i, topN := range topNs {
+		// We need to check whether the value corresponding to encodedVal is contained in other partition-level stats.
+		// 1. Check the topN first.
+		// 2. If the topN doesn't contain the value corresponding to encodedVal. We should check the histogram.
+		for _, val := range topN.TopN {
+			encodedVal := hack.String(val.Encoded)
+			_, exist := valueSet[encodedVal]
+			if exist {
 				continue
 			}
-			// We need to check whether the value corresponding to encodedVal is contained in other partition-level stats.
-			// 1. Check the topN first.
-			// 2. If the topN doesn't contain the value corresponding to encodedVal. We should check the histogram.
+			valueSet[encodedVal] = struct{}{}
 			for j := 0; j < partNum; j++ {
 				if atomic.LoadUint32(killed) == 1 {
 					return nil, nil, nil, errors.Trace(ErrQueryInterrupted)
 				}
-				if (j == i && version >= 2) || topNs[j].FindTopN(val.Encoded) != -1 {
-					continue
+				if (j == i && version >= 2) || (bloomTopN[j] != nil && !bloomTopN[j].Test(val.Encoded)) {
+					if topNs[j].FindTopN(val.Encoded) != -1 {
+						continue
+					}
 				}
 				// Get the encodedVal from the hists[j]
 				datum, exists := datumMap.Get(encodedVal)

@@ -642,6 +642,32 @@ def go_deps():
         ],
     )
     go_repository(
+        name = "com_github_bits_and_blooms_bitset",
+        build_file_proto_mode = "disable_global",
+        importpath = "github.com/bits-and-blooms/bitset",
+        sha256 = "f279f01b52efcd5d3ccb8ee61f98dfdbd9c1b2edadb39fe5a9278ec18562be36",
+        strip_prefix = "github.com/bits-and-blooms/bitset@v1.8.0",
+        urls = [
+            "http://bazel-cache.pingcap.net:8080/gomod/github.com/bits-and-blooms/bitset/com_github_bits_and_blooms_bitset-v1.8.0.zip",
+            "http://ats.apps.svc/gomod/github.com/bits-and-blooms/bitset/com_github_bits_and_blooms_bitset-v1.8.0.zip",
+            "https://cache.hawkingrei.com/gomod/github.com/bits-and-blooms/bitset/com_github_bits_and_blooms_bitset-v1.8.0.zip",
+            "https://storage.googleapis.com/pingcapmirror/gomod/github.com/bits-and-blooms/bitset/com_github_bits_and_blooms_bitset-v1.8.0.zip",
+        ],
+    )
+    go_repository(
+        name = "com_github_bits_and_blooms_bloom_v3",
+        build_file_proto_mode = "disable_global",
+        importpath = "github.com/bits-and-blooms/bloom/v3",
+        sha256 = "70e84496a684ff61a5b9f95a5e43a33ebfaa8f318829904f7201ab75a052b0bc",
+        strip_prefix = "github.com/bits-and-blooms/bloom/v3@v3.5.0",
+        urls = [
+            "http://bazel-cache.pingcap.net:8080/gomod/github.com/bits-and-blooms/bloom/v3/com_github_bits_and_blooms_bloom_v3-v3.5.0.zip",
+            "http://ats.apps.svc/gomod/github.com/bits-and-blooms/bloom/v3/com_github_bits_and_blooms_bloom_v3-v3.5.0.zip",
+            "https://cache.hawkingrei.com/gomod/github.com/bits-and-blooms/bloom/v3/com_github_bits_and_blooms_bloom_v3-v3.5.0.zip",
+            "https://storage.googleapis.com/pingcapmirror/gomod/github.com/bits-and-blooms/bloom/v3/com_github_bits_and_blooms_bloom_v3-v3.5.0.zip",
+        ],
+    )
+    go_repository(
         name = "com_github_bketelsen_crypt",
         build_file_proto_mode = "disable_global",
         importpath = "github.com/bketelsen/crypt",
