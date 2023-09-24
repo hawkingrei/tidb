@@ -801,7 +801,7 @@ func MergePartTopN2GlobalTopN(loc *time.Location, version int, topNs []*TopN, n 
 	// datumMap is used to store the mapping from the string type to datum type.
 	// The datum is used to find the value in the histogram.
 	datumMap := NewDatumMapCache()
-	bloomTopN := make([]*bloom.BloomFilter, len(topNs))
+	bloomTopN := make([]*bloom.BloomFilter, 0, len(topNs))
 	for _, topN := range topNs {
 		if atomic.LoadUint32(killed) == 1 {
 			return nil, nil, nil, errors.Trace(ErrQueryInterrupted)
@@ -834,10 +834,11 @@ func MergePartTopN2GlobalTopN(loc *time.Location, version int, topNs []*TopN, n 
 				if atomic.LoadUint32(killed) == 1 {
 					return nil, nil, nil, errors.Trace(ErrQueryInterrupted)
 				}
-				if (j == i && version >= 2) || (bloomTopN[j] != nil && !bloomTopN[j].Test(val.Encoded)) {
-					if topNs[j].FindTopN(val.Encoded) != -1 {
-						continue
-					}
+				if (j == i && version >= 2) || (bloomTopN[j] != nil && bloomTopN[j].Test(val.Encoded)) {
+					continue
+				}
+				if topNs[j].FindTopN(val.Encoded) != -1 {
+					continue
 				}
 				// Get the encodedVal from the hists[j]
 				datum, exists := datumMap.Get(encodedVal)

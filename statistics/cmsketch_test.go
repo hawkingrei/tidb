@@ -398,6 +398,6 @@ func TestMergePartTopN2GlobalTopNWithHists(t *testing.T) {
 	globalTopN, leftTopN, _, err := MergePartTopN2GlobalTopN(loc, version, topNs, 2, hists, false, &isKilled)
 	require.NoError(t, err)
 	require.Len(t, globalTopN.TopN, 2, "should only have 2 topN")
-	require.Equal(t, uint64(55), globalTopN.TotalCount(), "should have 55")
 	require.Len(t, leftTopN, 1, "should have 1 left topN")
+	require.Equal(t, uint64(55), globalTopN.TotalCount(), "should have 55")
 }
