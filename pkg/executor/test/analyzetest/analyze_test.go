@@ -3127,3 +3127,22 @@ func TestAnalyzePartitionVerify(t *testing.T) {
 		}
 	}
 }
+
+func TestAnalyze(t *testing.T) {
+	store, dom := testkit.CreateMockStoreAndDomain(t)
+	h := dom.StatsHandle()
+	oriLease := h.Lease()
+	h.SetLease(1)
+	defer func() {
+		h.SetLease(oriLease)
+	}()
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec("create table t1(id int(11) DEFAULT NULL)")
+	tk.MustExec("analyze table t1")
+	tbl, err := dom.InfoSchema().TableByName(model.NewCIStr("test"), model.NewCIStr("t1"))
+	require.NoError(t, err)
+	s, ok := dom.StatsHandle().Get(tbl.Meta().ID)
+	require.True(t, ok)
+	require.True(t, s.Pseudo)
+}
