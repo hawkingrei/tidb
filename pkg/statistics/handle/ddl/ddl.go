@@ -192,13 +192,6 @@ func (h *ddlHandlerImpl) HandleDDLEvent(s *notifier.SchemaChangeEvent) error {
 	return nil
 }
 
-// UpdateStatsWithCountDeltaAndModifyCountDeltaForTest is exported for testing.
-func UpdateStatsWithCountDeltaAndModifyCountDeltaForTest(sctx sessionctx.Context,
-	tableID int64,
-	countDelta, modifyCountDelta int64) {
-	updateStatsWithCountDeltaAndModifyCountDelta(sctx, tableID, countDelta, modifyCountDelta)
-}
-
 // updateStatsWithCountDeltaAndModifyCountDelta updates
 // the global stats with the given count delta and modify count delta.
 // Only used by some special DDLs, such as exchange partition.
