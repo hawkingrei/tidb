@@ -159,3 +159,17 @@ func TestIssues57583(t *testing.T) {
 		"      └─Selection_20 9990.00 cop[tikv]  not(isnull(test.t1.v1))",
 		"        └─TableFullScan_19 10000.00 cop[tikv] table:t1 keep order:false, stats:pseudo"))
 }
+
+func TestIssue58371(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test;")
+	tk.MustExec("create table t( id int, a int, b int, index idx(id, a));")
+	tk.MustExec("insert into t values (1, 1, 1), (2, 2, 2), (3, 3, 3), (4, 4, 4), (5, 5, 5);")
+	tk.MustExec("insert into t select * from t where id<>2;")
+	tk.MustExec("insert into t select * from t where id<>2;")
+	tk.MustExec("insert into t select * from t where id<>2;")
+	tk.MustExec("insert into t select * from t where id<>2;")
+	tk.MustExec("analyze table t all columns;")
+	tk.MustQuery("explain select * from t where ( id > 1 or ( a>0 and id=0 )) and ( id < 3 or ( a>0 and id=6 ));")
+}
