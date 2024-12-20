@@ -231,19 +231,20 @@ const (
 func generateReorgLabel(label, schemaName, tableName, colOrIdxNames string) string {
 	var stringBuilder strings.Builder
 	if len(colOrIdxNames) == 0 {
-		stringBuilder.Grow(len(label) + len(schemaName) + len(tableName) + 2)
+		stringBuilder.Grow(len(label) + len(schemaName) + len(tableName) + 6)
 	} else {
-		stringBuilder.Grow(len(label) + len(schemaName) + len(tableName) + len(colOrIdxNames) + 3)
+		stringBuilder.Grow(len(label) + len(schemaName) + len(tableName) + len(colOrIdxNames) + 9)
 	}
 	stringBuilder.WriteString(label)
-	stringBuilder.WriteString("_")
+	stringBuilder.WriteString("_[")
 	stringBuilder.WriteString(schemaName)
-	stringBuilder.WriteString("_")
+	stringBuilder.WriteString("]_[")
 	stringBuilder.WriteString(tableName)
 	if len(colOrIdxNames) > 0 {
-		stringBuilder.WriteString("_")
+		stringBuilder.WriteString("]_[")
 		stringBuilder.WriteString(colOrIdxNames)
 	}
+	stringBuilder.WriteString("]")
 	return stringBuilder.String()
 }
 
