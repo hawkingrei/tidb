@@ -69,7 +69,8 @@ func (a *aggregationEliminateChecker) tryToEliminateAggregation(agg *logicalop.L
 	schemaByGroupby := expression.NewSchema(agg.GetGroupByCols()...)
 	coveredByUniqueKey := false
 	var uniqueKey expression.KeyInfo
-	for _, key := range agg.Children()[0].Schema().PKOrUK {
+	tmp := agg.Children()[0].Schema()
+	for _, key := range tmp.PKOrUK {
 		if schemaByGroupby.ColumnsIndices(key) != nil {
 			coveredByUniqueKey = true
 			uniqueKey = key
@@ -272,6 +273,9 @@ func (a *AggregationEliminator) Optimize(ctx context.Context, p base.LogicalPlan
 	agg, ok := p.(*logicalop.LogicalAggregation)
 	if !ok {
 		return p, planChanged, nil
+	}
+	if !p.SCtx().GetSessionVars().InRestrictedSQL {
+		fmt.Println("wwz")
 	}
 	a.tryToEliminateDistinct(agg, opt)
 	if proj := a.tryToEliminateAggregation(agg, opt); proj != nil {
