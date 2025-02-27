@@ -66,7 +66,8 @@ func (a *aggregationEliminateChecker) tryToEliminateAggregation(agg *logicalop.L
 			return nil
 		}
 	}
-	schemaByGroupby := expression.NewSchema(agg.GetGroupByCols()...)
+	schemas := agg.GetGroupByCols()
+	schemaByGroupby := expression.NewSchema(schemas...)
 	coveredByUniqueKey := false
 	var uniqueKey expression.KeyInfo
 	tmp := agg.Children()[0].Schema()
