@@ -181,6 +181,13 @@ func (p *LogicalJoin) ExplainInfo() string {
 	return buffer.String()
 }
 
+func (p *LogicalJoin) OutputNames() types.NameSlice {
+	if p.names != nil {
+		return p.names
+	}
+	return append(p.Children()[0].OutputNames(), p.Children()[1].OutputNames()...)
+}
+
 // ReplaceExprColumns implements base.LogicalPlan interface.
 func (p *LogicalJoin) ReplaceExprColumns(replace map[string]*expression.Column) {
 	for _, equalExpr := range p.EqualConditions {

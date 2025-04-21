@@ -410,6 +410,9 @@ type baseSingleGroupJoinOrderSolver struct {
 }
 
 func (s *baseSingleGroupJoinOrderSolver) generateLeadingJoinGroup(curJoinGroup []base.LogicalPlan, hintInfo *h.PlanHints, hasOuterJoin bool) (bool, []base.LogicalPlan) {
+	if !s.ctx.GetSessionVars().InRestrictedSQL {
+		fmt.Println("wwz")
+	}
 	var leadingJoinGroup []base.LogicalPlan
 	leftJoinGroup := make([]base.LogicalPlan, len(curJoinGroup))
 	copy(leftJoinGroup, curJoinGroup)
@@ -419,20 +422,24 @@ func (s *baseSingleGroupJoinOrderSolver) generateLeadingJoinGroup(curJoinGroup [
 	}
 	for _, hintTbl := range hintInfo.LeadingJoinOrder {
 		match := false
-		for i, joinGroup := range leftJoinGroup {
-			tableAlias := util.ExtractTableAlias(joinGroup, joinGroup.QueryBlockOffset())
-			if tableAlias == nil {
+		if len(leftJoinGroup) != 0 {
+			for i, joinGroup := range leftJoinGroup {
+				tableAlias := util.ExtractTableAlias(joinGroup, joinGroup.QueryBlockOffset())
+				if tableAlias == nil {
+					continue
+				}
+				if (hintTbl.DBName.L == tableAlias.DBName.L || hintTbl.DBName.L == "*") && hintTbl.TblName.L == tableAlias.TblName.L && hintTbl.SelectOffset == tableAlias.SelectOffset {
+					match = true
+					leadingJoinGroup = append(leadingJoinGroup, joinGroup)
+					leftJoinGroup = append(leftJoinGroup[:i], leftJoinGroup[i+1:]...)
+					break
+				}
+			}
+			if match {
 				continue
 			}
-			if (hintTbl.DBName.L == tableAlias.DBName.L || hintTbl.DBName.L == "*") && hintTbl.TblName.L == tableAlias.TblName.L && hintTbl.SelectOffset == tableAlias.SelectOffset {
-				match = true
-				leadingJoinGroup = append(leadingJoinGroup, joinGroup)
-				leftJoinGroup = append(leftJoinGroup[:i], leftJoinGroup[i+1:]...)
-				break
-			}
-		}
-		if match {
-			continue
+		} else {
+			break
 		}
 
 		// consider query block alias: select /*+ leading(t1, t2) */ * from (select ...) t1, t2 ...
@@ -459,9 +466,12 @@ func (s *baseSingleGroupJoinOrderSolver) generateLeadingJoinGroup(curJoinGroup [
 			leftJoinGroup = append(leftJoinGroup[:groupIdx], leftJoinGroup[groupIdx+1:]...)
 		}
 	}
-	if len(leadingJoinGroup) != len(hintInfo.LeadingJoinOrder) || leadingJoinGroup == nil {
-		return false, nil
+	if len(leftJoinGroup) != 0 {
+		if len(leadingJoinGroup) != len(hintInfo.LeadingJoinOrder) || leadingJoinGroup == nil {
+			return false, nil
+		}
 	}
+
 	leadingJoin := leadingJoinGroup[0]
 	leadingJoinGroup = leadingJoinGroup[1:]
 	for len(leadingJoinGroup) > 0 {
