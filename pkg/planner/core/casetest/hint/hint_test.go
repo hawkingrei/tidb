@@ -429,3 +429,37 @@ func TestOptimizerCostFactorHints(t *testing.T) {
 	// Reset table scan cost factor variable to default
 	tk.MustExec("set @@session.tidb_opt_table_full_scan_cost_factor=1")
 }
+
+func TestIssue51384(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec("create table a(id int key);")
+	tk.MustExec("create table b(id int key);")
+	tk.MustExec("create table c(id int key);")
+	tk.MustExec("create table d(id int key);")
+	samePlan := testkit.Rows(
+		"MergeJoin 19531.25 root  inner join, left key:test.a.id, right key:test.b.id",
+		"├─MergeJoin(Build) 15625.00 root  left outer join, left side:MergeJoin, left key:test.b.id, right key:test.d.id, left cond:not(isnull(test.c.id))",
+		"│ ├─TableReader(Build) 10000.00 root  data:TableFullScan",
+		"│ │ └─TableFullScan 10000.00 cop[tikv] table:d keep order:true, stats:pseudo",
+		"│ └─MergeJoin(Probe) 12500.00 root  left outer join, left side:TableReader, left key:test.b.id, right key:test.c.id",
+		"│   ├─TableReader(Build) 10000.00 root  data:TableFullScan",
+		"│   │ └─TableFullScan 10000.00 cop[tikv] table:c keep order:true, stats:pseudo",
+		"│   └─TableReader(Probe) 10000.00 root  data:TableFullScan",
+		"│     └─TableFullScan 10000.00 cop[tikv] table:b keep order:true, stats:pseudo",
+		"└─TableReader(Probe) 10000.00 root  data:TableFullScan",
+		"  └─TableFullScan 10000.00 cop[tikv] table:a keep order:true, stats:pseudo")
+	tk.MustQuery(`explain format='brief' select /*+ leading(a,b,c,d) */ * from a, b left join c on b.id=c.id 
+ left join d on b.id=d.id and c.id is not null where a.id=b.id;`).
+		Check(samePlan)
+	tk.MustQuery("show warnings").Check(testkit.Rows())
+
+	tk.MustQuery(`explain format='brief' select /*+ leading(a,c,b) */ * from a left join b on a.id=b.id left join c on a.id=c.id where b.id is null;`).
+		Check(testkit.Rows())
+	tk.MustQuery("show warnings").Check(testkit.Rows("Warning 1815 leading hint is inapplicable, check if the leading hint table is valid"))
+	tk.MustQuery(`explain format='brief' select /*+ straight_join() */ * from a, b left join c on b.id=c.id 
+ left join d on b.id=d.id and c.id is not null where a.id=b.id;`).
+		Check(samePlan)
+}

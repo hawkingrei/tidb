@@ -26,6 +26,7 @@ import (
 	"github.com/pingcap/tidb/pkg/planner/core/operator/logicalop"
 	"github.com/pingcap/tidb/pkg/planner/util"
 	"github.com/pingcap/tidb/pkg/planner/util/optimizetrace"
+	"github.com/pingcap/tidb/pkg/types"
 	h "github.com/pingcap/tidb/pkg/util/hint"
 	"github.com/pingcap/tidb/pkg/util/plancodec"
 	"github.com/pingcap/tidb/pkg/util/tracing"
@@ -422,24 +423,20 @@ func (s *baseSingleGroupJoinOrderSolver) generateLeadingJoinGroup(curJoinGroup [
 	}
 	for _, hintTbl := range hintInfo.LeadingJoinOrder {
 		match := false
-		if len(leftJoinGroup) != 0 {
-			for i, joinGroup := range leftJoinGroup {
-				tableAlias := util.ExtractTableAlias(joinGroup, joinGroup.QueryBlockOffset())
-				if tableAlias == nil {
-					continue
-				}
-				if (hintTbl.DBName.L == tableAlias.DBName.L || hintTbl.DBName.L == "*") && hintTbl.TblName.L == tableAlias.TblName.L && hintTbl.SelectOffset == tableAlias.SelectOffset {
-					match = true
-					leadingJoinGroup = append(leadingJoinGroup, joinGroup)
-					leftJoinGroup = append(leftJoinGroup[:i], leftJoinGroup[i+1:]...)
-					break
-				}
-			}
-			if match {
+		for i, joinGroup := range leftJoinGroup {
+			tableAlias := util.ExtractTableAlias(joinGroup, joinGroup.QueryBlockOffset())
+			if tableAlias == nil {
 				continue
 			}
-		} else {
-			break
+			if (hintTbl.DBName.L == tableAlias.DBName.L || hintTbl.DBName.L == "*") && hintTbl.TblName.L == tableAlias.TblName.L && hintTbl.SelectOffset == tableAlias.SelectOffset {
+				match = true
+				leadingJoinGroup = append(leadingJoinGroup, joinGroup)
+				leftJoinGroup = append(leftJoinGroup[:i], leftJoinGroup[i+1:]...)
+				break
+			}
+		}
+		if match {
+			continue
 		}
 
 		// consider query block alias: select /*+ leading(t1, t2) */ * from (select ...) t1, t2 ...
@@ -466,10 +463,8 @@ func (s *baseSingleGroupJoinOrderSolver) generateLeadingJoinGroup(curJoinGroup [
 			leftJoinGroup = append(leftJoinGroup[:groupIdx], leftJoinGroup[groupIdx+1:]...)
 		}
 	}
-	if len(leftJoinGroup) != 0 {
-		if len(leadingJoinGroup) != len(hintInfo.LeadingJoinOrder) || leadingJoinGroup == nil {
-			return false, nil
-		}
+	if len(leadingJoinGroup) != len(hintInfo.LeadingJoinOrder) || leadingJoinGroup == nil {
+		return false, nil
 	}
 
 	leadingJoin := leadingJoinGroup[0]
@@ -681,6 +676,9 @@ func (s *baseSingleGroupJoinOrderSolver) newJoinWithEdges(lChild, rChild base.Lo
 	newJoin.LeftConditions = leftConds
 	newJoin.RightConditions = rightConds
 	newJoin.JoinType = joinType
+	newJoin.SetOutputNames(make([]*types.FieldName, lChild.Schema().Len()+rChild.Schema().Len()))
+	copy(newJoin.OutputNames(), lChild.OutputNames())
+	copy(newJoin.OutputNames()[lChild.Schema().Len():], rChild.OutputNames())
 	return newJoin
 }
 

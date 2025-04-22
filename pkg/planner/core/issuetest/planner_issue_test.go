@@ -512,4 +512,5 @@ and d.audit_status is null
 AND tt.cash_out_date >= '20250320'
 AND tt.cash_out_date <= '20250328'
 AND tt.advance_type in ('03', '02', '04', '00');`)
+	tk.MustQuery("show warnings").Check(testkit.Rows())
 }
