@@ -15,7 +15,6 @@
 package core
 
 import (
-	"fmt"
 	"math"
 	"slices"
 
