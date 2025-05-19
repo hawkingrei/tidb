@@ -278,7 +278,7 @@ func predicatePushDownToTableScanImpl(sctx base.PlanContext, physicalSelection *
 
 // PushedDown is used to push down the selected conditions from PhysicalSelection to PhysicalTableScan.
 // Used in unit test, so it is exported.
-func PushedDown(sel *PhysicalSelection, ts *PhysicalTableScan, selectedConds []expression.Expression, selectedSelectivity float64) {
+func PushedDown(sel *PhysicalSelection, ts *PhysicalTableScan, selectedConds []expression.Expression, _ float64) {
 	// remove the pushed down conditions from selection
 	removeSpecificExprsFromSelection(sel, selectedConds)
 	// add the pushed down conditions to table scan
