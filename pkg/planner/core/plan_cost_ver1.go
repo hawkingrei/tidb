@@ -1258,16 +1258,16 @@ func getCardinality(operator base.PhysicalPlan, costFlag uint64) float64 {
 	return rows
 }
 
-func (ts *PhysicalTableScan) getCardinality(costFlag uint64) float64 {
+func (p *PhysicalTableScan) getCardinality(costFlag uint64) float64 {
 	if hasCostFlag(costFlag, costusage.CostFlagUseTrueCardinality) {
-		actualProbeCnt := ts.GetActualProbeCnt(ts.SCtx().GetSessionVars().StmtCtx.RuntimeStatsColl)
+		actualProbeCnt := p.GetActualProbeCnt(p.SCtx().GetSessionVars().StmtCtx.RuntimeStatsColl)
 		if actualProbeCnt == 0 {
 			return 0
 		}
-		return max(0, getOperatorActRows(ts)/float64(actualProbeCnt))
+		return max(0, getOperatorActRows(p)/float64(actualProbeCnt))
 	}
-	rows := ts.BasePhysicalPlan.StatsCount()
-	if rows <= 0 && ts.SCtx().GetSessionVars().CostModelVersion == modelVer2 {
+	rows := p.BasePhysicalPlan.StatsCount()
+	if rows <= 0 && p.SCtx().GetSessionVars().CostModelVersion == modelVer2 {
 		// 0 est-row can lead to 0 operator cost which makes plan choice unstable.
 		rows = 1
 	}
