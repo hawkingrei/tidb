@@ -1042,7 +1042,11 @@ func (ts *PhysicalTableScan) selectivity() float64 {
 
 // StatsInfo returns the stats info of the table scan.
 func (ts *PhysicalTableScan) StatsInfo() *property.StatsInfo {
-	return ts.BasePhysicalPlan.StatsInfo().Scale(ts.selectivity())
+	selectivity := ts.selectivity()
+	if selectivity == 1 {
+		return ts.BasePhysicalPlan.StatsInfo()
+	}
+	return ts.BasePhysicalPlan.StatsInfo().Scale(selectivity)
 }
 
 // StatsCount returns the count of the table scan.
