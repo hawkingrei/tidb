@@ -3069,7 +3069,7 @@ func getOriginalPhysicalTableScan(ds *logicalop.DataSource, prop *property.Physi
 		filterCondition: slices.Clone(path.TableFilters),
 	}.Init(ds.SCtx(), ds.QueryBlockOffset())
 	ts.SetSchema(ds.Schema().Clone())
-	rowCount := min(ds.StatsInfo().RowCount, path.CountAfterAccess)
+	rowCount := path.CountAfterAccess
 	// Add an arbitrary tolerance factor to account for comparison with floating point
 	if (prop.ExpectedCnt + cost.ToleranceFactor) < ds.StatsInfo().RowCount {
 		rowCount = cardinality.AdjustRowCountForTableScanByLimit(ds.SCtx(),
