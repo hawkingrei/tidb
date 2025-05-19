@@ -238,7 +238,7 @@ order by       o_orderpriority`
 		"                      └─ExchangeSender 4799991767.20 mpp[tiflash]  ExchangeType: HashPartition, Compression: FAST, Hash Cols: [name: olap.lineitem.l_orderkey, collate: binary]",
 		"                        └─Projection 4799991767.20 mpp[tiflash]  olap.lineitem.l_orderkey",
 		"                          └─Selection 4799991767.20 mpp[tiflash]  lt(olap.lineitem.l_commitdate, olap.lineitem.l_receiptdate)",
-		"                            └─TableFullScan 5999989709.00 mpp[tiflash] table:lineitem pushed down filter:empty, keep order:false"))
+		"                            └─TableFullScan 4799991767.20 mpp[tiflash] table:lineitem pushed down filter:empty, keep order:false"))
 	checkCost(t, tk, q4)
 }
 

@@ -283,6 +283,4 @@ func PushedDown(sel *PhysicalSelection, ts *PhysicalTableScan, selectedConds []e
 	removeSpecificExprsFromSelection(sel, selectedConds)
 	// add the pushed down conditions to table scan
 	ts.LateMaterializationFilterCondition = selectedConds
-	// Update the row count of table scan after pushing down the conditions.
-	ts.StatsInfo().RowCount *= selectedSelectivity
 }

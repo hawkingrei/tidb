@@ -30,9 +30,11 @@ import (
 	"github.com/pingcap/tidb/pkg/planner/util/costusage"
 	"github.com/pingcap/tidb/pkg/planner/util/optimizetrace"
 	"github.com/pingcap/tidb/pkg/sessionctx/vardef"
+	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/paging"
 	"github.com/pingcap/tidb/pkg/util/ranger"
 	"github.com/pingcap/tipb/go-tipb"
+	"go.uber.org/zap"
 )
 
 // GetPlanCost returns the cost of this plan.
@@ -134,6 +136,13 @@ func (p *PhysicalIndexScan) GetPlanCostVer2(taskType property.TaskType, option *
 	// Multiply by cost factor - defaults to 1, but can be increased/decreased to influence the cost model
 	p.PlanCostVer2 = costusage.MulCostVer2(p.PlanCostVer2, p.SCtx().GetSessionVars().IndexScanCostFactor)
 	p.SCtx().GetSessionVars().RecordRelevantOptVar(vardef.TiDBOptIndexScanCostFactor)
+	if !p.SCtx().GetSessionVars().InRestrictedSQL {
+		logutil.BgLogger().Info("wwz PhysicalIndexScan",
+			zap.String("explain", p.ExplainInfo()),
+			zap.String("operator", p.OperatorInfo(false)),
+			zap.Float64("rows", rows),
+			zap.Float64("cost", p.PlanCostVer2.GetCost()))
+	}
 	return p.PlanCostVer2, nil
 }
 
