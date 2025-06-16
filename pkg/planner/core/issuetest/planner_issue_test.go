@@ -16,11 +16,16 @@ package issuetest
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/pingcap/tidb/pkg/domain"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/planner"
 	"github.com/pingcap/tidb/pkg/planner/core"
+	"github.com/pingcap/tidb/pkg/statistics/handle/util"
 	"github.com/pingcap/tidb/pkg/testkit"
 	"github.com/stretchr/testify/require"
 )
@@ -117,4 +122,84 @@ func TestIssue53175(t *testing.T) {
 	tk.MustExec(`set @@sql_mode = ""`)
 	tk.MustQuery(`select * from t group by null`)
 	tk.MustQuery(`select * from v`)
+}
+
+func loadTableStats(fileName string, dom *domain.Domain) error {
+	statsPath := filepath.Join("testdata", fileName)
+	bytes, err := os.ReadFile(statsPath)
+	if err != nil {
+		return err
+	}
+	statsTbl := &util.JSONTable{}
+	err = json.Unmarshal(bytes, statsTbl)
+	if err != nil {
+		return err
+	}
+	statsHandle := dom.StatsHandle()
+	err = statsHandle.LoadStatsFromJSON(context.Background(), dom.InfoSchema(), statsTbl, 0)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func TestABC(t *testing.T) {
+	store, dom := testkit.CreateMockStoreAndDomain(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec(`create database if not exists dh_app_7226`)
+	tk.MustExec("use dh_app_7226")
+	tk.MustExec(`CREATE TABLE dh_login_device_record (
+  id bigint(20) unsigned NOT NULL /*T![auto_rand] AUTO_RANDOM(5) */ COMMENT 'id',
+  site_code varchar(64) NOT NULL DEFAULT '' COMMENT '品牌id',
+  create_time int(10) NOT NULL DEFAULT '0' COMMENT '创建时间',
+  update_time int(10) NOT NULL DEFAULT '0' COMMENT '更新时间',
+  useridx bigint(20) NOT NULL DEFAULT '0' COMMENT '用户ID',
+  record_type tinyint(1) NOT NULL DEFAULT '1' COMMENT '当前设备:1当前 2上次',
+  os_type int(10) NOT NULL DEFAULT '0' COMMENT '应用程序',
+  app_version varchar(50) NOT NULL DEFAULT '' COMMENT '版本号',
+  device_model varchar(64) NOT NULL DEFAULT '' COMMENT '设备类型',
+  app_system varchar(50) NOT NULL DEFAULT '' COMMENT '系统',
+  network_type varchar(50) NOT NULL DEFAULT '' COMMENT '网络类型',
+  ip varchar(255) NOT NULL DEFAULT '' COMMENT 'ip地址',
+  area varchar(255) NOT NULL DEFAULT '' COMMENT '地区',
+  logintime bigint(20) NOT NULL DEFAULT '0' COMMENT '登陆时间',
+  is_delete tinyint(1) NOT NULL DEFAULT '1' COMMENT '1 正常 2 删除',
+  idle_time int(10) NOT NULL DEFAULT '0' COMMENT '闲置时长',
+  device_id varchar(64) NOT NULL COMMENT '设备ID',
+  user_token varchar(64) NOT NULL DEFAULT '' COMMENT 'token',
+  os_kind varchar(16) NOT NULL DEFAULT '' COMMENT '设备分类',
+  operating_system varchar(100) NOT NULL DEFAULT '' COMMENT '操作系统',
+  device_brand varchar(100) NOT NULL DEFAULT '' COMMENT '设备品牌',
+  login_count int(10) NOT NULL DEFAULT '0' COMMENT '登录次数',
+  browser_type varchar(100) NOT NULL DEFAULT '' COMMENT '浏览器类型',
+  browser_finger_id varchar(255) NOT NULL DEFAULT '' COMMENT '浏览器指纹',
+  user_agent varchar(1000) NOT NULL DEFAULT '' COMMENT 'UA',
+  device_hash varchar(64) NOT NULL DEFAULT '' COMMENT '设备hash, 用于卸载重装自动登录',
+  trust_type int(8) NOT NULL DEFAULT '0' COMMENT '信任设备类型 1注册2充值3手动4取消',
+  PRIMARY KEY (id) /*T![clustered_index] CLUSTERED */,
+  KEY idx_udx_useridx_token_isdelete (useridx,user_token,is_delete),
+  KEY idx_udx_useridx_token_sitecode (useridx,user_token,site_code),
+  KEY idx_useridx_isDelete_deviceId_sitecode (useridx,is_delete,device_id,site_code),
+  KEY idx_login_device_record_device_hash (site_code,device_hash,is_delete)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin /*T![auto_rand_base] AUTO_RANDOM_BASE=5640001 */ COMMENT='会员登录设备列表'`)
+	err := loadTableStats("dh_app_7226.dh_login_device_record.json", dom)
+	require.NoError(t, err)
+	tk.MustQuery(`explain SELECT /*+ FORCE_INDEX(dh_login_device_record, idx_useridx_isDelete_deviceId_sitecode )*/
+  id,
+  create_time,
+  login_count,
+  trust_type
+FROM
+  dh_login_device_record
+WHERE
+  (
+    useridx = 339375754
+    AND device_id = "672c5c1e-5ad0-4245-a038-2f451d2e4270"
+    AND os_type = 6
+  )
+  AND site_code = "8268"
+ORDER BY
+  update_time DESC
+LIMIT
+  1`).Check(testkit.Rows())
 }

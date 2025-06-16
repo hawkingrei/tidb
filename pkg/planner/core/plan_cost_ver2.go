@@ -196,6 +196,9 @@ func (p *PhysicalIndexReader) getPlanCostVer2(taskType property.TaskType, option
 // plan-cost = (child-cost + net-cost) / concurrency
 // net-cost = rows * row-size * net-factor
 func (p *PhysicalTableReader) getPlanCostVer2(taskType property.TaskType, option *PlanCostOption) (costVer2, error) {
+	if !p.SCtx().GetSessionVars().InRestrictedSQL {
+		fmt.Println("wwz")
+	}
 	if p.planCostInit && !hasCostFlag(option.CostFlag, CostFlagRecalculate) {
 		return p.planCostVer2, nil
 	}
@@ -236,6 +239,9 @@ func (p *PhysicalTableReader) getPlanCostVer2(taskType property.TaskType, option
 // double-read-cpu-cost = index-rows * cpu-factor
 // double-read-tasks = index-rows / batch-size * task-per-batch # task-per-batch is a magic number now
 func (p *PhysicalIndexLookUpReader) getPlanCostVer2(taskType property.TaskType, option *PlanCostOption) (costVer2, error) {
+	if !p.SCtx().GetSessionVars().InRestrictedSQL {
+		fmt.Println("wwz")
+	}
 	if p.planCostInit && !hasCostFlag(option.CostFlag, CostFlagRecalculate) {
 		return p.planCostVer2, nil
 	}
@@ -803,6 +809,7 @@ func scanCostVer2(option *PlanCostOption, rows, rowSize float64, scanFactor cost
 }
 
 func netCostVer2(option *PlanCostOption, rows, rowSize float64, netFactor costVer2Factor) costVer2 {
+	fmt.Println("wwz")
 	return newCostVer2(option, netFactor,
 		rows*rowSize*netFactor.Value,
 		func() string { return fmt.Sprintf("net(%v*rowsize(%v)*%v)", rows, rowSize, netFactor) })
