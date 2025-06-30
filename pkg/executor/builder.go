@@ -84,6 +84,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/dbterror/exeerrors"
 	"github.com/pingcap/tidb/pkg/util/dbterror/plannererrors"
 	"github.com/pingcap/tidb/pkg/util/execdetails"
+	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/memory"
 	"github.com/pingcap/tidb/pkg/util/ranger"
 	rangerctx "github.com/pingcap/tidb/pkg/util/ranger/context"
@@ -1439,7 +1440,7 @@ func (b *executorBuilder) buildUnionScanFromReader(reader exec.Executor, v *plan
 		us.table = x.table
 		us.virtualColumnIndex = buildVirtualColumnIndex(us.Schema(), us.columns)
 	case *PointGetExecutor, *BatchPointGetExec, // PointGet and BatchPoint can handle virtual columns and dirty txn data themselves.
-		*TableDualExec,       // If TableDual, the result must be empty, so we can skip UnionScan and use TableDual directly here.
+		*TableDualExec,                         // If TableDual, the result must be empty, so we can skip UnionScan and use TableDual directly here.
 		*TableSampleExecutor: // TableSample only supports sampling from disk, don't need to consider in-memory txn data for simplicity.
 		return originReader
 	default:
@@ -4739,6 +4740,9 @@ func newClosestReadAdjuster(dctx *distsqlctx.DistSQLContext, req *kv.Request, ne
 	}
 	return func(req *kv.Request, copTaskCount int) bool {
 		// copTaskCount is the number of coprocessor requests
+		if intest.InTest && dctx.InRestrictedSQL {
+			intest.Assert(dctx.ReplicaClosestReadThreshold != 0, "ReplicaClosestReadThreshold should not be 0 in test")
+		}
 		if int64(netDataSize/float64(copTaskCount)) >= dctx.ReplicaClosestReadThreshold {
 			req.MatchStoreLabels = append(req.MatchStoreLabels, &metapb.StoreLabel{
 				Key:   placement.DCLabelKey,
