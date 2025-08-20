@@ -649,13 +649,12 @@ func (la *LogicalAggregation) splitCondForAggregation(predicates []expression.Ex
 // getAggFuncsCols returns the columns used by firstrow aggregate functions.
 func (la *LogicalAggregation) getAggFuncsCols() (aggFuncsCols []*expression.Column) {
 	aggFuncsCols = make([]*expression.Column, 0, len(la.AggFuncs))
-	for idx, col := range la.Schema().Columns {
-		aggFunc := la.AggFuncs[idx]
+	for _, aggFunc := range la.AggFuncs {
 		switch aggFunc.Name {
 		case ast.AggFuncFirstRow, ast.AggFuncMax, ast.AggFuncMin:
 			cols := expression.ExtractColumns(aggFunc.Args[0])
 			if len(cols) == 1 {
-				aggFuncsCols = append(aggFuncsCols, col)
+				aggFuncsCols = append(aggFuncsCols, cols[0])
 			}
 		}
 	}
