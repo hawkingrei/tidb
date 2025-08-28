@@ -710,6 +710,7 @@ func (la *LogicalAggregation) pushDownPredicatesByGroupby(cond *expression.Scala
 // pushDownPredicatesByAggFuncs is only used for firstrow
 func (la *LogicalAggregation) pushDownPredicatesByAggFuncs(cond *expression.ScalarFunction, aggFirstRowColumns *expression.Schema, exprsOriginal []expression.Expression) (condsToPush, ret []expression.Expression) {
 	extractedCols := expression.ExtractColumnsMapFromExpressions(nil, cond)
+
 	if len(extractedCols) != 1 {
 		ret = append(ret, cond)
 		return condsToPush, ret
@@ -717,7 +718,16 @@ func (la *LogicalAggregation) pushDownPredicatesByAggFuncs(cond *expression.Scal
 	// `aggFirstRowColumns` are the output columns of the first row function.
 	// We compare the columns in the push-down predicates with the output columns of the first row.
 	// The columns that match are the ones that can be pushed down.
-	schemaCol := aggFirstRowColumns.RetrieveColumn(extractedCols[0])
+	var schemaCol *expression.Column
+	for _, col := range extractedCols {
+		// extractedCols is a map that it's length is one.
+		schemaCol = aggFirstRowColumns.RetrieveColumn(col)
+		if schemaCol == nil {
+			ret = append(ret, cond)
+			return condsToPush, ret
+		}
+	}
+
 	if schemaCol != nil {
 		newFunc := expression.ColumnSubstitute(la.SCtx().GetExprCtx(), cond, la.Schema(), exprsOriginal)
 		condsToPush = append(condsToPush, newFunc)
