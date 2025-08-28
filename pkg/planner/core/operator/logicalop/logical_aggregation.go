@@ -727,7 +727,6 @@ func (la *LogicalAggregation) pushDownPredicatesByAggFuncs(cond *expression.Scal
 			return condsToPush, ret
 		}
 	}
-
 	if schemaCol != nil {
 		newFunc := expression.ColumnSubstitute(la.SCtx().GetExprCtx(), cond, la.Schema(), exprsOriginal)
 		condsToPush = append(condsToPush, newFunc)
