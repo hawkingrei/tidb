@@ -778,12 +778,12 @@ func validRange(sc *stmtctx.StatementContext, ran *ranger.Range, encoded bool) b
 		low, high = ran.LowVal[0].GetBytes(), ran.HighVal[0].GetBytes()
 	} else {
 		var err error
-		low, err = codec.EncodeKey(sc.TimeZone(), nil, ran.LowVal[0])
+		low, err = codec.EncodeForPointerSlices(sc.TimeZone(), nil, ran.LowVal[0])
 		err = sc.HandleError(err)
 		if err != nil {
 			return false
 		}
-		high, err = codec.EncodeKey(sc.TimeZone(), nil, ran.HighVal[0])
+		high, err = codec.EncodeForPointerSlices(sc.TimeZone(), nil, ran.HighVal[0])
 		err = sc.HandleError(err)
 		if err != nil {
 			return false
@@ -798,7 +798,7 @@ func validRange(sc *stmtctx.StatementContext, ran *ranger.Range, encoded bool) b
 	return bytes.Compare(low, high) < 0
 }
 
-func checkKind(vals []types.Datum, kind byte) bool {
+func checkKind(vals []*types.Datum, kind byte) bool {
 	if kind == types.KindString {
 		kind = types.KindBytes
 	}
@@ -847,7 +847,7 @@ func (hg *Histogram) SplitRange(sc *stmtctx.StatementContext, oldRanges []*range
 	split := make([]*ranger.Range, 0, len(ranges))
 	for len(ranges) > 0 {
 		// Find the first bound that greater than the LowVal.
-		idx := hg.Bounds.UpperBound(0, &ranges[0].LowVal[0])
+		idx := hg.Bounds.UpperBound(0, ranges[0].LowVal[0])
 		// Treat last bucket's upper bound as +inf, so we do not need split any more.
 		if idx >= hg.Bounds.NumRows()-1 {
 			split = append(split, ranges...)
@@ -865,7 +865,7 @@ func (hg *Histogram) SplitRange(sc *stmtctx.StatementContext, oldRanges []*range
 		var i int
 		// Find the first range that need to be split by the lower bound.
 		for ; i < len(ranges); i++ {
-			if chunk.Compare(lowerBound, 0, &ranges[i].HighVal[0]) <= 0 {
+			if chunk.Compare(lowerBound, 0, ranges[i].HighVal[0]) <= 0 {
 				break
 			}
 		}
@@ -875,20 +875,20 @@ func (hg *Histogram) SplitRange(sc *stmtctx.StatementContext, oldRanges []*range
 			break
 		}
 		// Split according to the lower bound.
-		cmp := chunk.Compare(lowerBound, 0, &ranges[0].LowVal[0])
+		cmp := chunk.Compare(lowerBound, 0, ranges[0].LowVal[0])
 		if cmp > 0 {
 			lower := lowerBound.GetDatum(0, hg.Tp)
 			newRange := &ranger.Range{
 				LowExclude:  ranges[0].LowExclude,
-				LowVal:      []types.Datum{ranges[0].LowVal[0]},
-				HighVal:     []types.Datum{lower},
+				LowVal:      []*types.Datum{ranges[0].LowVal[0]},
+				HighVal:     []*types.Datum{&lower},
 				HighExclude: true,
 				Collators:   ranges[0].Collators,
 			}
 			if validRange(sc, newRange, encoded) {
 				split = append(split, newRange)
 			}
-			ranges[0].LowVal[0] = lower
+			ranges[0].LowVal[0] = &lower
 			ranges[0].LowExclude = false
 			if !validRange(sc, ranges[0], encoded) {
 				ranges = ranges[1:]

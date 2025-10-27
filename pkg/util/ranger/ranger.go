@@ -41,7 +41,7 @@ import (
 )
 
 func validInterval(ec errctx.Context, loc *time.Location, low, high *point) (bool, error) {
-	l, err := codec.EncodeKey(loc, nil, low.value)
+	l, err := codec.EncodeForPointerSlices(loc, nil, low.value)
 	err = ec.HandleError(err)
 	if err != nil {
 		return false, errors.Trace(err)
@@ -49,7 +49,7 @@ func validInterval(ec errctx.Context, loc *time.Location, low, high *point) (boo
 	if low.excl {
 		l = kv.Key(l).PrefixNext()
 	}
-	r, err := codec.EncodeKey(loc, nil, high.value)
+	r, err := codec.EncodeForPointerSlices(loc, nil, high.value)
 	err = ec.HandleError(err)
 	if err != nil {
 		return false, errors.Trace(err)
@@ -65,7 +65,7 @@ func validInterval(ec errctx.Context, loc *time.Location, low, high *point) (boo
 func convertPoints(sctx *rangerctx.RangerContext, rangePoints []*point, newTp *types.FieldType, skipNull bool, tableRange bool) ([]*point, error) {
 	i := 0
 	numPoints := len(rangePoints)
-	var minValueDatum, maxValueDatum types.Datum
+	var minValueDatum, maxValueDatum *types.Datum
 	if tableRange {
 		// Currently, table's kv range cannot accept encoded value of MaxValueDatum. we need to convert it.
 		isUnsigned := mysql.HasUnsignedFlag(newTp.GetFlag())
@@ -145,9 +145,9 @@ func points2Ranges(sctx *rangerctx.RangerContext, rangePoints []*point, newTp *t
 	for i := 0; i < len(convertedPoints); i += 2 {
 		startPoint, endPoint := convertedPoints[i], convertedPoints[i+1]
 		ran := &Range{
-			LowVal:      []types.Datum{startPoint.value},
+			LowVal:      []*types.Datum{startPoint.value},
 			LowExclude:  startPoint.excl,
-			HighVal:     []types.Datum{endPoint.value},
+			HighVal:     []*types.Datum{endPoint.value},
 			HighExclude: endPoint.excl,
 			Collators:   []collate.Collator{collate.GetCollator(newTp.GetCollate())},
 		}
@@ -303,11 +303,11 @@ func appendPoints2IndexRange(origin *Range, rangePoints []*point, ft *types.Fiel
 	for i := 0; i < len(rangePoints); i += 2 {
 		startPoint, endPoint := rangePoints[i], rangePoints[i+1]
 
-		lowVal := make([]types.Datum, len(origin.LowVal)+1)
+		lowVal := make([]*types.Datum, len(origin.LowVal)+1)
 		copy(lowVal, origin.LowVal)
 		lowVal[len(origin.LowVal)] = startPoint.value
 
-		highVal := make([]types.Datum, len(origin.HighVal)+1)
+		highVal := make([]*types.Datum, len(origin.HighVal)+1)
 		copy(highVal, origin.HighVal)
 		highVal[len(origin.HighVal)] = endPoint.value
 
@@ -339,11 +339,11 @@ func estimateMemUsageForAppendRanges2PointRanges(pointRanges Ranges, ranges Rang
 
 // appendRange2PointRange appends suffixRange to pointRange.
 func appendRange2PointRange(pointRange, suffixRange *Range) *Range {
-	lowVal := make([]types.Datum, 0, len(pointRange.LowVal)+len(suffixRange.LowVal))
+	lowVal := make([]*types.Datum, 0, len(pointRange.LowVal)+len(suffixRange.LowVal))
 	lowVal = append(lowVal, pointRange.LowVal...)
 	lowVal = append(lowVal, suffixRange.LowVal...)
 
-	highVal := make([]types.Datum, 0, len(pointRange.HighVal)+len(suffixRange.HighVal))
+	highVal := make([]*types.Datum, 0, len(pointRange.HighVal)+len(suffixRange.HighVal))
 	highVal = append(highVal, pointRange.HighVal...)
 	highVal = append(highVal, suffixRange.HighVal...)
 
@@ -397,9 +397,9 @@ func points2TableRanges(sctx *rangerctx.RangerContext, rangePoints []*point, new
 	for i := 0; i < len(convertedPoints); i += 2 {
 		startPoint, endPoint := convertedPoints[i], convertedPoints[i+1]
 		ran := &Range{
-			LowVal:      []types.Datum{startPoint.value},
+			LowVal:      []*types.Datum{startPoint.value},
 			LowExclude:  startPoint.excl,
-			HighVal:     []types.Datum{endPoint.value},
+			HighVal:     []*types.Datum{endPoint.value},
 			HighExclude: endPoint.excl,
 			Collators:   []collate.Collator{collate.GetCollator(newTp.GetCollate())},
 		}
@@ -584,7 +584,7 @@ func UnionRanges(sctx *rangerctx.RangerContext, ranges Ranges, mergeConsecutive 
 	}
 	objects := make([]*sortRange, 0, len(ranges))
 	for _, ran := range ranges {
-		left, err := codec.EncodeKey(sctx.TypeCtx.Location(), nil, ran.LowVal...)
+		left, err := codec.EncodeForPointerSlices(sctx.TypeCtx.Location(), nil, ran.LowVal...)
 		err = sctx.ErrCtx.HandleError(err)
 		if err != nil {
 			return nil, errors.Trace(err)
@@ -592,7 +592,7 @@ func UnionRanges(sctx *rangerctx.RangerContext, ranges Ranges, mergeConsecutive 
 		if ran.LowExclude {
 			left = kv.Key(left).PrefixNext()
 		}
-		right, err := codec.EncodeKey(sctx.TypeCtx.Location(), nil, ran.HighVal...)
+		right, err := codec.EncodeForPointerSlices(sctx.TypeCtx.Location(), nil, ran.HighVal...)
 		err = sctx.ErrCtx.HandleError(err)
 		if err != nil {
 			return nil, errors.Trace(err)
@@ -644,14 +644,14 @@ func cutPrefixForPoints(points []*point, length int, tp *types.FieldType) {
 		if p == nil {
 			continue
 		}
-		cut := CutDatumByPrefixLen(&p.value, length, tp)
+		cut := CutDatumByPrefixLen(p.value, length, tp)
 		// In two cases, we need to convert the exclusive point to an inclusive point.
 		// case 1: we actually cut the value to accommodate the prefix index.
 		if cut ||
 			// case 2: the value is already equal to the prefix index.
 			// For example, col_varchar > 'xx' should be converted to range [xx, +inf) when the prefix index length of
 			// `col_varchar` is 2. Otherwise, we would miss values like 'xxx' if we execute (xx, +inf) index range scan.
-			(p.start && ReachPrefixLen(&p.value, length, tp)) {
+			(p.start && ReachPrefixLen(p.value, length, tp)) {
 			p.excl = false
 		}
 	}
@@ -736,7 +736,7 @@ func points2EqOrInCond(ctx expression.BuildContext, points []*point, col *expres
 			orArgs = append(orArgs, expression.NewFunctionInternal(ctx, ast.IsNull, retType, col))
 		} else {
 			value := &expression.Constant{
-				Value:   points[i].value,
+				Value:   *(points[i].value),
 				RetType: retType,
 			}
 			args = append(args, value)
@@ -788,7 +788,7 @@ func RangesToString(sc *stmtctx.StatementContext, rans Ranges, colNames []string
 
 			// sanity check: only last column of the `Range` can be an interval
 			if j < len(ran.LowVal)-1 {
-				cmp, err := ran.LowVal[j].Compare(sc.TypeCtx(), &ran.HighVal[j], ran.Collators[j])
+				cmp, err := ran.LowVal[j].Compare(sc.TypeCtx(), ran.HighVal[j], ran.Collators[j])
 				if err != nil {
 					return "", errors.New("comparing values error: " + err.Error())
 				}
@@ -823,7 +823,7 @@ func RangesToString(sc *stmtctx.StatementContext, rans Ranges, colNames []string
 }
 
 // RangeSingleColToString prints a single column of a Range into a string which can appear in an SQL as a condition.
-func RangeSingleColToString(sc *stmtctx.StatementContext, lowVal, highVal types.Datum, lowExclude, highExclude bool, colName string, collator collate.Collator) (string, error) {
+func RangeSingleColToString(sc *stmtctx.StatementContext, lowVal, highVal *types.Datum, lowExclude, highExclude bool, colName string, collator collate.Collator) (string, error) {
 	// case 1: low and high are both special values(null, min not null, max value)
 	lowKind := lowVal.Kind()
 	highKind := highVal.Kind()
@@ -845,14 +845,14 @@ func RangeSingleColToString(sc *stmtctx.StatementContext, lowVal, highVal types.
 	restoreCtx := format.NewRestoreCtx(format.DefaultRestoreFlags, &buf)
 
 	// case 2: low value and high value are the same, and low value and high value are both inclusive.
-	cmp, err := lowVal.Compare(sc.TypeCtx(), &highVal, collator)
+	cmp, err := lowVal.Compare(sc.TypeCtx(), highVal, collator)
 	if err != nil {
 		return "false", errors.Trace(err)
 	}
 	if cmp == 0 && !lowExclude && !highExclude && !lowVal.IsNull() {
 		buf.WriteString(colName)
 		buf.WriteString(" = ")
-		lowValExpr := driver.ValueExpr{Datum: lowVal}
+		lowValExpr := driver.ValueExpr{Datum: *lowVal}
 		err := lowValExpr.Restore(restoreCtx)
 		if err != nil {
 			return "false", errors.Trace(err)
@@ -877,7 +877,7 @@ func RangeSingleColToString(sc *stmtctx.StatementContext, lowVal, highVal types.
 		} else {
 			buf.WriteString(" >= ")
 		}
-		lowValExpr := driver.ValueExpr{Datum: lowVal}
+		lowValExpr := driver.ValueExpr{Datum: *lowVal}
 		err := lowValExpr.Restore(restoreCtx)
 		if err != nil {
 			return "false", errors.Trace(err)
@@ -902,7 +902,7 @@ func RangeSingleColToString(sc *stmtctx.StatementContext, lowVal, highVal types.
 		} else {
 			buf.WriteString(" <= ")
 		}
-		highValExpr := driver.ValueExpr{Datum: highVal}
+		highValExpr := driver.ValueExpr{Datum: *highVal}
 		err := highValExpr.Restore(restoreCtx)
 		if err != nil {
 			return "false", errors.Trace(err)

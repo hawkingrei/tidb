@@ -735,6 +735,9 @@ func (d *Datum) Equals(other any) bool {
 // Compare compares datum to another datum.
 // Notes: don't rely on datum.collation to get the collator, it's tend to buggy.
 func (d *Datum) Compare(ctx Context, ad *Datum, comparer collate.Collator) (int, error) {
+	if d == ad {
+		return 0, nil
+	}
 	if d.k == KindMysqlJSON && ad.k != KindMysqlJSON {
 		cmp, err := ad.Compare(ctx, d, comparer)
 		return cmp * -1, errors.Trace(err)

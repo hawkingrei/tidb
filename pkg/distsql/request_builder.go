@@ -590,13 +590,13 @@ func SplitRangesAcrossInt64Boundary(ranges []*ranger.Range, keepOrder bool, desc
 		signedRanges = append(signedRanges, &ranger.Range{
 			LowVal:     ranges[idx].LowVal,
 			LowExclude: ranges[idx].LowExclude,
-			HighVal:    []types.Datum{types.NewUintDatum(math.MaxInt64)},
+			HighVal:    []*types.Datum{types.NewUintDatum(math.MaxInt64)},
 			Collators:  ranges[idx].Collators,
 		})
 	}
 	if !(ranges[idx].HighVal[0].GetUint64() == math.MaxInt64+1 && ranges[idx].HighExclude) {
 		unsignedRanges = append(unsignedRanges, &ranger.Range{
-			LowVal:      []types.Datum{types.NewUintDatum(math.MaxInt64 + 1)},
+			LowVal:      []*types.Datum{types.NewUintDatum(math.MaxInt64 + 1)},
 			HighVal:     ranges[idx].HighVal,
 			HighExclude: ranges[idx].HighExclude,
 			Collators:   ranges[idx].Collators,

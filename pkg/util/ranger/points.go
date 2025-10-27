@@ -45,7 +45,7 @@ const (
 
 // Point is the end point of range interval.
 type point struct {
-	value types.Datum
+	value *types.Datum
 	excl  bool // exclude
 	start bool
 }
@@ -73,7 +73,7 @@ func (rp *point) String() string {
 
 func (rp *point) Clone(value types.Datum) *point {
 	return &point{
-		value: value,
+		value: &value,
 		excl:  rp.excl,
 		start: rp.start,
 	}
@@ -83,7 +83,7 @@ func rangePointCmp(tc types.Context, a, b *point, collator collate.Collator) (in
 	if a.value.Kind() == types.KindMysqlEnum && b.value.Kind() == types.KindMysqlEnum {
 		return rangePointEnumCmp(a, b)
 	}
-	cmp, err := a.value.Compare(tc, &b.value, collator)
+	cmp, err := a.value.Compare(tc, b.value, collator)
 	if cmp != 0 {
 		return cmp, nil
 	}
@@ -155,9 +155,19 @@ func pointConvertToSortKey(
 	} else {
 		sortKey = collate.GetCollator(newTp.GetCollate()).Key(string(hack.String(sortKey)))
 	}
-
-	return &point{value: types.NewBytesDatum(sortKey), excl: p.excl, start: p.start}, nil
+	d := types.NewBytesDatum(sortKey)
+	return &point{value: &d, excl: p.excl, start: p.start}, nil
 }
+
+var (
+	maxValueDatum        = types.MaxValueDatum()
+	minNotNullValueDatum = types.MinNotNullDatum()
+	zeroUintDatumDatum   = types.NewUintDatum(0)
+	maxUint64Datum       = types.NewUintDatum(math.MaxUint64)
+	minInt64Datum        = types.NewIntDatum(math.MinInt64)
+	maxInt64Datum        = types.NewIntDatum(math.MaxInt64)
+	emptyStringDatum     = types.NewStringDatum("")
+)
 
 /*
  * If use []point, fullRange will be copied when used.
@@ -166,14 +176,14 @@ func pointConvertToSortKey(
 func getFullRange() []*point {
 	return []*point{
 		{start: true},
-		{value: types.MaxValueDatum()},
+		{value: &maxValueDatum},
 	}
 }
 
 func getNotNullFullRange() []*point {
 	return []*point{
-		{value: types.MinNotNullDatum(), start: true},
-		{value: types.MaxValueDatum()},
+		{value: &minNotNullValueDatum, start: true},
+		{value: &maxValueDatum},
 	}
 }
 
@@ -182,14 +192,14 @@ func getNotNullFullRange() []*point {
 func FullIntRange(isUnsigned bool) Ranges {
 	if isUnsigned {
 		return Ranges{{
-			LowVal:    []types.Datum{types.NewUintDatum(0)},
-			HighVal:   []types.Datum{types.NewUintDatum(math.MaxUint64)},
+			LowVal:    []*types.Datum{&zeroUintDatumDatum},
+			HighVal:   []*types.Datum{&maxUint64Datum},
 			Collators: collate.GetBinaryCollatorSlice(1),
 		}}
 	}
 	return Ranges{{
-		LowVal:    []types.Datum{types.NewIntDatum(math.MinInt64)},
-		HighVal:   []types.Datum{types.NewIntDatum(math.MaxInt64)},
+		LowVal:    []*types.Datum{&minInt64Datum},
+		HighVal:   []*types.Datum{&maxInt64Datum},
 		Collators: collate.GetBinaryCollatorSlice(1),
 	}}
 }
@@ -197,8 +207,8 @@ func FullIntRange(isUnsigned bool) Ranges {
 // FullRange is [null, +∞) for Range.
 func FullRange() Ranges {
 	return Ranges{{
-		LowVal:    []types.Datum{{}},
-		HighVal:   []types.Datum{types.MaxValueDatum()},
+		LowVal:    []*types.Datum{{}},
+		HighVal:   []*types.Datum{&maxValueDatum},
 		Collators: collate.GetBinaryCollatorSlice(1),
 	}}
 }
@@ -206,8 +216,8 @@ func FullRange() Ranges {
 // FullNotNullRange is (-∞, +∞) for Range.
 func FullNotNullRange() Ranges {
 	return Ranges{{
-		LowVal:    []types.Datum{types.MinNotNullDatum()},
-		HighVal:   []types.Datum{types.MaxValueDatum()},
+		LowVal:    []*types.Datum{&minNotNullValueDatum},
+		HighVal:   []*types.Datum{&maxValueDatum},
 		Collators: collate.GetBinaryCollatorSlice(1),
 	}}
 }
@@ -215,8 +225,8 @@ func FullNotNullRange() Ranges {
 // NullRange is [null, null] for Range.
 func NullRange() Ranges {
 	return Ranges{{
-		LowVal:    []types.Datum{{}},
-		HighVal:   []types.Datum{{}},
+		LowVal:    []*types.Datum{{}},
+		HighVal:   []*types.Datum{{}},
 		Collators: collate.GetBinaryCollatorSlice(1),
 	}}
 }
@@ -277,12 +287,12 @@ func (r *builder) buildFromConstant(expr *expression.Constant) []*point {
 
 func (*builder) buildFromColumn() []*point {
 	// column name expression is equivalent to column name is true.
-	startPoint1 := &point{value: types.MinNotNullDatum(), start: true}
+	startPoint1 := &point{value: &minNotNullValueDatum, start: true}
 	endPoint1 := &point{excl: true}
 	endPoint1.value.SetInt64(0)
 	startPoint2 := &point{excl: true, start: true}
 	startPoint2.value.SetInt64(0)
-	endPoint2 := &point{value: types.MaxValueDatum()}
+	endPoint2 := &point{value: &maxValueDatum}
 	return []*point{startPoint1, endPoint1, startPoint2, endPoint2}
 }
 
@@ -413,30 +423,30 @@ func (r *builder) buildFromBinOp(
 		}
 		fallthrough
 	case ast.EQ:
-		startPoint := &point{value: value, start: true}
-		endPoint := &point{value: value}
+		startPoint := &point{value: &value, start: true}
+		endPoint := &point{value: &value}
 		res = []*point{startPoint, endPoint}
 	case ast.NE:
-		startPoint1 := &point{value: types.MinNotNullDatum(), start: true}
-		endPoint1 := &point{value: value, excl: true}
-		startPoint2 := &point{value: value, start: true, excl: true}
-		endPoint2 := &point{value: types.MaxValueDatum()}
+		startPoint1 := &point{value: &minNotNullValueDatum, start: true}
+		endPoint1 := &point{value: &value, excl: true}
+		startPoint2 := &point{value: &value, start: true, excl: true}
+		endPoint2 := &point{value: &maxValueDatum}
 		res = []*point{startPoint1, endPoint1, startPoint2, endPoint2}
 	case ast.LT:
-		startPoint := &point{value: types.MinNotNullDatum(), start: true}
-		endPoint := &point{value: value, excl: true}
+		startPoint := &point{value: &minNotNullValueDatum, start: true}
+		endPoint := &point{value: &value, excl: true}
 		res = []*point{startPoint, endPoint}
 	case ast.LE:
-		startPoint := &point{value: types.MinNotNullDatum(), start: true}
-		endPoint := &point{value: value}
+		startPoint := &point{value: &minNotNullValueDatum, start: true}
+		endPoint := &point{value: &value}
 		res = []*point{startPoint, endPoint}
 	case ast.GT:
-		startPoint := &point{value: value, start: true, excl: true}
-		endPoint := &point{value: types.MaxValueDatum()}
+		startPoint := &point{value: &value, start: true, excl: true}
+		endPoint := &point{value: &maxValueDatum}
 		res = []*point{startPoint, endPoint}
 	case ast.GE:
-		startPoint := &point{value: value, start: true}
-		endPoint := &point{value: types.MaxValueDatum()}
+		startPoint := &point{value: &value, start: true}
+		endPoint := &point{value: &maxValueDatum}
 		res = []*point{startPoint, endPoint}
 	}
 	cutPrefixForPoints(res, prefixLen, ft)
@@ -530,7 +540,7 @@ func handleBoundCol(ft *types.FieldType, val types.Datum, op string) (types.Datu
 
 func handleEnumFromBinOp(tc types.Context, ft *types.FieldType, val types.Datum, op string) []*point {
 	res := make([]*point, 0, len(ft.GetElems())*2)
-	appendPointFunc := func(d types.Datum) {
+	appendPointFunc := func(d *types.Datum) {
 		res = append(res, &point{value: d, excl: false, start: true})
 		res = append(res, &point{value: d, excl: false, start: false})
 	}
@@ -553,27 +563,27 @@ func handleEnumFromBinOp(tc types.Context, ft *types.FieldType, val types.Datum,
 			switch op {
 			case ast.LT:
 				if v < 0 {
-					appendPointFunc(d)
+					appendPointFunc(&d)
 				}
 			case ast.LE:
 				if v <= 0 {
-					appendPointFunc(d)
+					appendPointFunc(&d)
 				}
 			case ast.GT:
 				if v > 0 {
-					appendPointFunc(d)
+					appendPointFunc(&d)
 				}
 			case ast.GE:
 				if v >= 0 {
-					appendPointFunc(d)
+					appendPointFunc(&d)
 				}
 			case ast.EQ, ast.NullEQ:
 				if v == 0 {
-					appendPointFunc(d)
+					appendPointFunc(&d)
 				}
 			case ast.NE:
 				if v != 0 {
-					appendPointFunc(d)
+					appendPointFunc(&d)
 				}
 			}
 		}
@@ -601,12 +611,12 @@ func (*builder) buildFromIsTrue(_ *expression.ScalarFunction, isNot int, keepNul
 		return []*point{startPoint1, endPoint1, startPoint2, endPoint2}
 	}
 	// TRUE range is {[-inf 0) (0 +inf]}
-	startPoint1 := &point{value: types.MinNotNullDatum(), start: true}
+	startPoint1 := &point{value: &minNotNullValueDatum, start: true}
 	endPoint1 := &point{excl: true}
 	endPoint1.value.SetInt64(0)
 	startPoint2 := &point{excl: true, start: true}
 	startPoint2.value.SetInt64(0)
-	endPoint2 := &point{value: types.MaxValueDatum()}
+	endPoint2 := &point{value: &maxValueDatum}
 	return []*point{startPoint1, endPoint1, startPoint2, endPoint2}
 }
 
@@ -618,7 +628,7 @@ func (*builder) buildFromIsFalse(_ *expression.ScalarFunction, isNot int) []*poi
 		endPoint1.value.SetInt64(0)
 		startPoint2 := &point{start: true, excl: true}
 		startPoint2.value.SetInt64(0)
-		endPoint2 := &point{value: types.MaxValueDatum()}
+		endPoint2 := &point{value: &maxValueDatum}
 		return []*point{startPoint1, endPoint1, startPoint2, endPoint2}
 	}
 	// FALSE range is {[0, 0]}
@@ -690,8 +700,8 @@ func (r *builder) buildFromIn(
 		var startValue, endValue types.Datum
 		dt.Copy(&startValue)
 		dt.Copy(&endValue)
-		startPoint := &point{value: startValue, start: true}
-		endPoint := &point{value: endValue}
+		startPoint := &point{value: &startValue, start: true}
+		endPoint := &point{value: &endValue}
 		rangePoints = append(rangePoints, startPoint, endPoint)
 	}
 	collator := collate.GetCollator(colCollate)
@@ -749,8 +759,8 @@ func (r *builder) newBuildFromPatternLike(
 	}
 	// non-exceptional return case 1: empty pattern
 	if pattern == "" {
-		startPoint := &point{value: types.NewStringDatum(""), start: true}
-		endPoint := &point{value: types.NewStringDatum("")}
+		startPoint := &point{value: &emptyStringDatum, start: true}
+		endPoint := &point{value: &emptyStringDatum}
 		res := []*point{startPoint, endPoint}
 		if convertToSortKey {
 			res, err = pointsConvertToSortKey(r.sctx, res, newTp)
@@ -802,13 +812,13 @@ func (r *builder) newBuildFromPatternLike(
 	}
 	// non-exceptional return case 2: no characters before the wildcard
 	if len(lowValue) == 0 {
-		return []*point{{value: types.MinNotNullDatum(), start: true}, {value: types.MaxValueDatum()}}
+		return []*point{{value: &minNotNullValueDatum, start: true}, {value: &maxValueDatum}}
 	}
 	// non-exceptional return case 3: pattern contains valid characters and doesn't contain the wildcard
 	if isExactMatch {
 		val := types.NewCollationStringDatum(string(lowValue), tpOfPattern.GetCollate())
-		startPoint := &point{value: val, start: true}
-		endPoint := &point{value: val}
+		startPoint := &point{value: &val, start: true}
+		endPoint := &point{value: &val}
 		res := []*point{startPoint, endPoint}
 		cutPrefixForPoints(res, prefixLen, tpOfPattern)
 		if convertToSortKey {
@@ -828,7 +838,7 @@ func (r *builder) newBuildFromPatternLike(
 	// a range for the wildcard.
 	if !convertToSortKey &&
 		!collate.IsBinCollation(tpOfPattern.GetCollate()) {
-		return []*point{{value: types.MinNotNullDatum(), start: true}, {value: types.MaxValueDatum()}}
+		return []*point{{value: &minNotNullValueDatum, start: true}, {value: &maxValueDatum}}
 	}
 
 	// non-exceptional return case 4-2: build a range for the wildcard
@@ -855,7 +865,7 @@ func (r *builder) newBuildFromPatternLike(
 		return getFullRange()
 	}
 	sortKeyWithoutTrim := slices.Clone(sortKeyPointWithoutTrim.value.GetBytes())
-	endPoint := &point{value: types.MaxValueDatum(), excl: true}
+	endPoint := &point{value: &maxValueDatum, excl: true}
 	for i := len(sortKeyWithoutTrim) - 1; i >= 0; i-- {
 		// Make the end point value more than the start point value,
 		// and the length of the end point value is the same as the length of the start point value.
@@ -867,7 +877,7 @@ func (r *builder) newBuildFromPatternLike(
 		}
 		// If sortKeyWithoutTrim[i] is 255 and sortKeyWithoutTrim[i]++ is 0, then the end point value is max value.
 		if i == 0 {
-			endPoint.value = types.MaxValueDatum()
+			endPoint.value = &maxValueDatum
 		}
 	}
 	return []*point{startPoint, endPoint}
@@ -915,7 +925,7 @@ func (r *builder) buildFromNot(
 			rangePoints = rangePoints[nonNegativePos:]
 		}
 		retRangePoints := make([]*point, 0, 2+len(rangePoints))
-		previousValue := types.Datum{}
+		var previousValue *types.Datum
 		for i := 0; i < len(rangePoints); i += 2 {
 			retRangePoints = append(retRangePoints, &point{value: previousValue, start: true, excl: true})
 			retRangePoints = append(retRangePoints, &point{value: rangePoints[i].value, excl: true})
@@ -923,7 +933,7 @@ func (r *builder) buildFromNot(
 		}
 		// Append the interval (last element, max value].
 		retRangePoints = append(retRangePoints, &point{value: previousValue, start: true, excl: true})
-		retRangePoints = append(retRangePoints, &point{value: types.MaxValueDatum()})
+		retRangePoints = append(retRangePoints, &point{value: &maxValueDatum})
 		cutPrefixForPoints(retRangePoints, prefixLen, expr.GetArgs()[0].GetType(r.sctx.ExprCtx.GetEvalCtx()))
 		if convertToSortKey {
 			var err error
@@ -939,8 +949,8 @@ func (r *builder) buildFromNot(
 		r.err = plannererrors.ErrUnsupportedType.GenWithStack("NOT LIKE is not supported.")
 		return getFullRange()
 	case ast.IsNull:
-		startPoint := &point{value: types.MinNotNullDatum(), start: true}
-		endPoint := &point{value: types.MaxValueDatum()}
+		startPoint := &point{value: &minNotNullValueDatum, start: true}
+		endPoint := &point{value: &maxValueDatum}
 		return []*point{startPoint, endPoint}
 	}
 	// TODO: currently we don't handle ast.LogicAnd, ast.LogicOr, ast.GT, ast.LT and so on. Most of those cases are eliminated

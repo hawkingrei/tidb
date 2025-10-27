@@ -86,68 +86,113 @@ func preRealloc(b []byte, vals []types.Datum, comparable1 bool) []byte {
 	return reallocBytes(b, size)
 }
 
+func preReallocForPointer(b []byte, vals []*types.Datum, comparable1 bool) []byte {
+	var size int
+	for i := range vals {
+		switch vals[i].Kind() {
+		case types.KindInt64, types.KindUint64, types.KindMysqlEnum, types.KindMysqlSet, types.KindMysqlBit, types.KindBinaryLiteral:
+			size += sizeInt(comparable1)
+		case types.KindString, types.KindBytes:
+			size += sizeBytes(vals[i].GetBytes(), comparable1)
+		case types.KindMysqlTime, types.KindMysqlDuration, types.KindFloat32, types.KindFloat64:
+			size += 9
+		case types.KindNull, types.KindMinNotNull, types.KindMaxValue:
+			size++
+		case types.KindMysqlJSON:
+			size += 2 + len(vals[i].GetBytes())
+		case types.KindVectorFloat32:
+			size += 1 + vals[i].GetVectorFloat32().SerializedSize()
+		case types.KindMysqlDecimal:
+			size += 1 + types.MyDecimalStructSize
+		default:
+			return b
+		}
+	}
+	return reallocBytes(b, size)
+}
+
 // encode will encode a datum and append it to a byte slice. If comparable1 is true, the encoded bytes can be sorted as it's original order.
 // If hash is true, the encoded bytes can be checked equal as it's original value.
 func encode(loc *time.Location, b []byte, vals []types.Datum, comparable1 bool) (_ []byte, err error) {
 	b = preRealloc(b, vals, comparable1)
 	for i, length := 0, len(vals); i < length; i++ {
-		switch vals[i].Kind() {
-		case types.KindInt64:
-			b = encodeSignedInt(b, vals[i].GetInt64(), comparable1)
-		case types.KindUint64:
-			b = encodeUnsignedInt(b, vals[i].GetUint64(), comparable1)
-		case types.KindFloat32, types.KindFloat64:
-			b = append(b, floatFlag)
-			b = EncodeFloat(b, vals[i].GetFloat64())
-		case types.KindString:
-			b = encodeString(b, vals[i], comparable1)
-		case types.KindBytes:
-			b = encodeBytes(b, vals[i].GetBytes(), comparable1)
-		case types.KindMysqlTime:
-			b = append(b, uintFlag)
-			b, err = EncodeMySQLTime(loc, vals[i].GetMysqlTime(), mysql.TypeUnspecified, b)
-			if err != nil {
-				return b, err
-			}
-		case types.KindMysqlDuration:
-			// duration may have negative value, so we cannot use String to encode directly.
-			b = append(b, durationFlag)
-			b = EncodeInt(b, int64(vals[i].GetMysqlDuration().Duration))
-		case types.KindMysqlDecimal:
-			b = append(b, decimalFlag)
-			b, err = EncodeDecimal(b, vals[i].GetMysqlDecimal(), vals[i].Length(), vals[i].Frac())
-		case types.KindMysqlEnum:
-			b = encodeUnsignedInt(b, vals[i].GetMysqlEnum().Value, comparable1)
-		case types.KindMysqlSet:
-			b = encodeUnsignedInt(b, vals[i].GetMysqlSet().Value, comparable1)
-		case types.KindMysqlBit, types.KindBinaryLiteral:
-			// We don't need to handle errors here since the literal is ensured to be able to store in uint64 in convertToMysqlBit.
-			var val uint64
-			val, err = vals[i].GetBinaryLiteral().ToInt(types.StrictContext)
-			terror.Log(errors.Trace(err))
-			b = encodeUnsignedInt(b, val, comparable1)
-		case types.KindMysqlJSON:
-			b = append(b, jsonFlag)
-			j := vals[i].GetMysqlJSON()
-			b = append(b, j.TypeCode)
-			b = append(b, j.Value...)
-		case types.KindVectorFloat32:
-			// Always do a small deser + ser for sanity check
-			b = append(b, vectorFloat32Flag)
-			v := vals[i].GetVectorFloat32()
-			b = v.SerializeTo(b)
-		case types.KindNull:
-			b = append(b, NilFlag)
-		case types.KindMinNotNull:
-			b = append(b, bytesFlag)
-		case types.KindMaxValue:
-			b = append(b, maxFlag)
-		default:
-			return b, errors.Errorf("unsupport encode type %d", vals[i].Kind())
+		b, err = encodeInternal(loc, b, &vals[i], comparable1)
+		if err != nil {
+			return nil, err
 		}
 	}
-
 	return b, errors.Trace(err)
+}
+
+// encodeForPointerSlices will encode a datum and append it to a byte slice. If comparable1 is true, the encoded bytes can be sorted as it's original order.
+// If hash is true, the encoded bytes can be checked equal as it's original value.
+func encodeForPointerSlices(loc *time.Location, b []byte, vals []*types.Datum, comparable1 bool) (_ []byte, err error) {
+	b = preReallocForPointer(b, vals, comparable1)
+	for i, length := 0, len(vals); i < length; i++ {
+		b, err = encodeInternal(loc, b, vals[i], comparable1)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return b, errors.Trace(err)
+}
+
+func encodeInternal(loc *time.Location, b []byte, val *types.Datum, comparable1 bool) (_ []byte, err error) {
+	switch val.Kind() {
+	case types.KindInt64:
+		b = encodeSignedInt(b, val.GetInt64(), comparable1)
+	case types.KindUint64:
+		b = encodeUnsignedInt(b, val.GetUint64(), comparable1)
+	case types.KindFloat32, types.KindFloat64:
+		b = append(b, floatFlag)
+		b = EncodeFloat(b, val.GetFloat64())
+	case types.KindString:
+		b = encodeString(b, *val, comparable1)
+	case types.KindBytes:
+		b = encodeBytes(b, val.GetBytes(), comparable1)
+	case types.KindMysqlTime:
+		b = append(b, uintFlag)
+		b, err = EncodeMySQLTime(loc, val.GetMysqlTime(), mysql.TypeUnspecified, b)
+		if err != nil {
+			return b, err
+		}
+	case types.KindMysqlDuration:
+		// duration may have negative value, so we cannot use String to encode directly.
+		b = append(b, durationFlag)
+		b = EncodeInt(b, int64(val.GetMysqlDuration().Duration))
+	case types.KindMysqlDecimal:
+		b = append(b, decimalFlag)
+		b, err = EncodeDecimal(b, val.GetMysqlDecimal(), val.Length(), val.Frac())
+	case types.KindMysqlEnum:
+		b = encodeUnsignedInt(b, val.GetMysqlEnum().Value, comparable1)
+	case types.KindMysqlSet:
+		b = encodeUnsignedInt(b, val.GetMysqlSet().Value, comparable1)
+	case types.KindMysqlBit, types.KindBinaryLiteral:
+		// We don't need to handle errors here since the literal is ensured to be able to store in uint64 in convertToMysqlBit.
+		var v uint64
+		v, err = val.GetBinaryLiteral().ToInt(types.StrictContext)
+		terror.Log(errors.Trace(err))
+		b = encodeUnsignedInt(b, v, comparable1)
+	case types.KindMysqlJSON:
+		b = append(b, jsonFlag)
+		j := val.GetMysqlJSON()
+		b = append(b, j.TypeCode)
+		b = append(b, j.Value...)
+	case types.KindVectorFloat32:
+		// Always do a small deser + ser for sanity check
+		b = append(b, vectorFloat32Flag)
+		v := val.GetVectorFloat32()
+		b = v.SerializeTo(b)
+	case types.KindNull:
+		b = append(b, NilFlag)
+	case types.KindMinNotNull:
+		b = append(b, bytesFlag)
+	case types.KindMaxValue:
+		b = append(b, maxFlag)
+	default:
+		return b, errors.Errorf("unsupport encode type %d", val.Kind())
+	}
+	return b, nil
 }
 
 // EstimateValueSize uses to estimate the value  size of the encoded values.
@@ -302,6 +347,11 @@ func sizeInt(comparable1 bool) int {
 // For decimal type, datum must set datum's length and frac.
 func EncodeKey(loc *time.Location, b []byte, v ...types.Datum) ([]byte, error) {
 	return encode(loc, b, v, true)
+}
+
+// EncodeForPointerSlices appends the encoded values to byte slice b, returns the appended
+func EncodeForPointerSlices(loc *time.Location, b []byte, v ...*types.Datum) ([]byte, error) {
+	return encodeForPointerSlices(loc, b, v, true)
 }
 
 // EncodeValue appends the encoded values to byte slice b, returning the appended

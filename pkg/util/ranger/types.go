@@ -78,8 +78,8 @@ func (rs Ranges) MemUsage() (sum int64) {
 
 // Range represents a range generated in physical plan building phase.
 type Range struct {
-	LowVal      []types.Datum // Low value is exclusive.
-	HighVal     []types.Datum // High value is exclusive.
+	LowVal      []*types.Datum // Low value is exclusive.
+	HighVal     []*types.Datum // High value is exclusive.
 	Collators   []collate.Collator
 	LowExclude  bool
 	HighExclude bool
@@ -96,8 +96,8 @@ func (ran *Range) Clone() *Range {
 		return nil
 	}
 	newRange := &Range{
-		LowVal:      make([]types.Datum, 0, len(ran.LowVal)),
-		HighVal:     make([]types.Datum, 0, len(ran.HighVal)),
+		LowVal:      make([]*types.Datum, 0, len(ran.LowVal)),
+		HighVal:     make([]*types.Datum, 0, len(ran.HighVal)),
 		LowExclude:  ran.LowExclude,
 		HighExclude: ran.HighExclude,
 	}
@@ -126,7 +126,7 @@ func (ran *Range) isPoint(tc types.Context, regardNullAsPoint bool) bool {
 		if a.Kind() == types.KindMinNotNull || b.Kind() == types.KindMaxValue {
 			return false
 		}
-		cmp, err := a.Compare(tc, &b, ran.Collators[i])
+		cmp, err := a.Compare(tc, b, ran.Collators[i])
 		if err != nil {
 			return false
 		}
@@ -248,7 +248,7 @@ func (ran *Range) string(redact string) string {
 
 // Encode encodes the range to its encoded value.
 func (ran *Range) Encode(ec errctx.Context, loc *time.Location, lowBuffer, highBuffer []byte) (_, _ []byte, err error) {
-	lowBuffer, err = codec.EncodeKey(loc, lowBuffer[:0], ran.LowVal...)
+	lowBuffer, err = codec.EncodeForPointerSlices(loc, lowBuffer[:0], ran.LowVal...)
 	err = ec.HandleError(err)
 	if err != nil {
 		return nil, nil, err
@@ -256,7 +256,7 @@ func (ran *Range) Encode(ec errctx.Context, loc *time.Location, lowBuffer, highB
 	if ran.LowExclude {
 		lowBuffer = kv.Key(lowBuffer).PrefixNext()
 	}
-	highBuffer, err = codec.EncodeKey(loc, highBuffer[:0], ran.HighVal...)
+	highBuffer, err = codec.EncodeForPointerSlices(loc, highBuffer[:0], ran.HighVal...)
 	err = ec.HandleError(err)
 	if err != nil {
 		return nil, nil, err
@@ -272,7 +272,7 @@ func (ran *Range) Encode(ec errctx.Context, loc *time.Location, lowBuffer, highB
 func (ran *Range) PrefixEqualLen(tc types.Context) (int, error) {
 	// Here, len(ran.LowVal) always equal to len(ran.HighVal)
 	for i := range len(ran.LowVal) {
-		cmp, err := ran.LowVal[i].Compare(tc, &ran.HighVal[i], ran.Collators[i])
+		cmp, err := ran.LowVal[i].Compare(tc, ran.HighVal[i], ran.Collators[i])
 		if err != nil {
 			return 0, errors.Trace(err)
 		}
@@ -300,7 +300,7 @@ func (ran *Range) MemUsage() (sum int64) {
 	return sum
 }
 
-func isBoundaryValue(d types.Datum, unsignedIntHandle, isLeftSide bool) bool {
+func isBoundaryValue(d *types.Datum, unsignedIntHandle, isLeftSide bool) bool {
 	isRightSide := !isLeftSide
 	switch d.Kind() {
 	case types.KindMinNotNull:
@@ -320,7 +320,7 @@ func isBoundaryValue(d types.Datum, unsignedIntHandle, isLeftSide bool) bool {
 	}
 }
 
-func formatDatum(d types.Datum, isLeftSide bool) string {
+func formatDatum(d *types.Datum, isLeftSide bool) string {
 	switch d.Kind() {
 	case types.KindNull:
 		return "NULL"
@@ -372,23 +372,23 @@ func formatDatum(d types.Datum, isLeftSide bool) string {
 //
 // This padding is essential in multi-column indexes when only a prefix of the columns
 // is constrained. The remaining columns are filled with ±∞ to form complete range bounds.
-func extendBound(bound []types.Datum, lowIndex int, highIndex int, low bool, open bool) []types.Datum {
+func extendBound(bound []*types.Datum, lowIndex int, highIndex int, low bool, open bool) []*types.Datum {
 	for i := lowIndex; i < highIndex; i++ {
 		if low {
 			if open {
 				// Open lower bound → +∞ (exclude the current value)
-				bound = append(bound, types.MaxValueDatum())
+				bound = append(bound, &maxValueDatum)
 			} else {
 				// Closed lower bound → –∞ (include all lower values)
-				bound = append(bound, types.MinNotNullDatum())
+				bound = append(bound, &minNotNullValueDatum)
 			}
 		} else {
 			if open {
 				// Open upper bound → –∞ (exclude the current value)
-				bound = append(bound, types.MinNotNullDatum())
+				bound = append(bound, &minNotNullValueDatum)
 			} else {
 				// Closed upper bound → +∞ (include all higher values)
-				bound = append(bound, types.MaxValueDatum())
+				bound = append(bound, &maxValueDatum)
 			}
 		}
 	}
@@ -400,7 +400,7 @@ func extendBound(bound []types.Datum, lowIndex int, highIndex int, low bool, ope
 // collations and if each bound is open (open1, open2) or closed. In addition,
 // it also gets if each bound is lower or upper (low1, low2).
 // Lower bounds logically can be extended with -infinity and upper bounds can be extended with +infinity.
-func compareLexicographically(tc types.Context, bound1, bound2 []types.Datum, collators []collate.Collator,
+func compareLexicographically(tc types.Context, bound1, bound2 []*types.Datum, collators []collate.Collator,
 	open1, open2, low1, low2 bool) (int, error) {
 	n1 := len(bound1)
 	n2 := len(bound2)
@@ -409,19 +409,19 @@ func compareLexicographically(tc types.Context, bound1, bound2 []types.Datum, co
 
 	if n1 < n2 {
 		// Copy bound1 before extending
-		localBound1 = make([]types.Datum, n1)
+		localBound1 = make([]*types.Datum, n1)
 		copy(localBound1, bound1)
 		localBound1 = extendBound(localBound1, n1, n2, low1, open1)
 	} else if n2 < n1 {
 		// Copy bound2 before extending
-		localBound2 = make([]types.Datum, n2)
+		localBound2 = make([]*types.Datum, n2)
 		copy(localBound2, bound2)
 		localBound2 = extendBound(localBound2, n2, n1, low2, open2)
 	}
 
 	n := max(n1, n2)
 	for i := range n {
-		cmp, err := localBound1[i].Compare(tc, &localBound2[i], collators[i])
+		cmp, err := localBound1[i].Compare(tc, localBound2[i], collators[i])
 		if err != nil {
 			return 0, err
 		}
@@ -456,9 +456,9 @@ func compareLexicographically(tc types.Context, bound1, bound2 []types.Datum, co
 
 // Check if a list of Datum is a prefix of another list of Datum. This is useful for checking if
 // lower/upper bound of a range is a subset of another.
-func prefix(tc types.Context, superValue []types.Datum, supValue []types.Datum, length int, collators []collate.Collator) bool {
+func prefix(tc types.Context, superValue []*types.Datum, supValue []*types.Datum, length int, collators []collate.Collator) bool {
 	for i := range length {
-		cmp, err := superValue[i].Compare(tc, &supValue[i], collators[i])
+		cmp, err := superValue[i].Compare(tc, supValue[i], collators[i])
 		if (err != nil) || (cmp != 0) {
 			return false
 		}
@@ -545,8 +545,8 @@ func (ran *Range) Subset(tc types.Context, otherRange *Range) bool {
 func (ran *Range) IntersectRange(tc types.Context, otherRange *Range) (*Range, error) {
 	intersectLength := max(len(ran.LowVal), len(otherRange.LowVal))
 	result := &Range{
-		LowVal:    make([]types.Datum, 0, intersectLength),
-		HighVal:   make([]types.Datum, 0, intersectLength),
+		LowVal:    make([]*types.Datum, 0, intersectLength),
+		HighVal:   make([]*types.Datum, 0, intersectLength),
 		Collators: make([]collate.Collator, 0, intersectLength),
 	}
 
