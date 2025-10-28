@@ -1244,9 +1244,9 @@ func crossValidationSelectivity(
 		// Since the column range is point range(LowVal is equal to HighVal), we need to set both LowExclude and HighExclude to false.
 		// Otherwise we would get 0.0 estRow from GetColumnRowCount.
 		rang := ranger.Range{
-			LowVal:      []types.Datum{idxPointRange.LowVal[i]},
+			LowVal:      []*types.Datum{idxPointRange.LowVal[i]},
 			LowExclude:  false,
-			HighVal:     []types.Datum{idxPointRange.HighVal[i]},
+			HighVal:     []*types.Datum{idxPointRange.HighVal[i]},
 			HighExclude: false,
 			Collators:   []collate.Collator{idxPointRange.Collators[i]},
 		}

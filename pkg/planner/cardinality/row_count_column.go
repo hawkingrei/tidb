@@ -435,8 +435,8 @@ func getPseudoRowCountWithPartialStats(sctx planctx.PlanContext, coll *statistic
 	}
 	tmpRan := []*ranger.Range{
 		{
-			LowVal:    make([]types.Datum, 1),
-			HighVal:   make([]types.Datum, 1),
+			LowVal:    make([]*types.Datum, 1),
+			HighVal:   make([]*types.Datum, 1),
 			Collators: make([]collate.Collator, 1),
 		},
 	}

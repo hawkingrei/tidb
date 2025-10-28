@@ -256,7 +256,7 @@ func (e *IndexLookUpJoin) newInnerWorker(taskCh chan *lookUpJoinTask) *innerWork
 		// memory usage of inner worker will be reset the end of iw.handleTask.
 		// While the life cycle of this memory consumption exists throughout the
 		// whole active period of inner worker.
-		e.Ctx().GetSessionVars().StmtCtx.MemTracker.Consume(2 * types.EstimatedMemUsage(copiedRanges[0].LowVal, len(copiedRanges)))
+		e.Ctx().GetSessionVars().StmtCtx.MemTracker.Consume(2 * types.EstimatedMemUsageForPointer(copiedRanges[0].LowVal, len(copiedRanges)))
 	}
 	if e.LastColHelper != nil {
 		// nextCwf.TmpConstant needs to be reset for every individual

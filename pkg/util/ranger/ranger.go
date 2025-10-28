@@ -65,7 +65,7 @@ func validInterval(ec errctx.Context, loc *time.Location, low, high *point) (boo
 func convertPoints(sctx *rangerctx.RangerContext, rangePoints []*point, newTp *types.FieldType, skipNull bool, tableRange bool) ([]*point, error) {
 	i := 0
 	numPoints := len(rangePoints)
-	var minValueDatum, maxValueDatum *types.Datum
+	minValueDatum, maxValueDatum := &types.Datum{}, &types.Datum{}
 	if tableRange {
 		// Currently, table's kv range cannot accept encoded value of MaxValueDatum. we need to convert it.
 		isUnsigned := mysql.HasUnsignedFlag(newTp.GetFlag())

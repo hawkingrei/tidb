@@ -5275,8 +5275,8 @@ func buildRangesForIndexJoin(rctx *rangerctx.RangerContext, lookUpContents []*jo
 	for _, content := range lookUpContents {
 		for _, ran := range ranges {
 			for keyOff, idxOff := range keyOff2IdxOff {
-				ran.LowVal[idxOff] = content.Keys[keyOff]
-				ran.HighVal[idxOff] = content.Keys[keyOff]
+				ran.LowVal[idxOff] = &content.Keys[keyOff]
+				ran.HighVal[idxOff] = &content.Keys[keyOff]
 			}
 		}
 		if cwc == nil {
@@ -5322,8 +5322,8 @@ func buildKvRangesForIndexJoin(dctx *distsqlctx.DistSQLContext, pctx *rangerctx.
 	for _, content := range lookUpContents {
 		for _, ran := range ranges {
 			for keyOff, idxOff := range keyOff2IdxOff {
-				ran.LowVal[idxOff] = content.Keys[keyOff]
-				ran.HighVal[idxOff] = content.Keys[keyOff]
+				ran.LowVal[idxOff] = &content.Keys[keyOff]
+				ran.HighVal[idxOff] = &content.Keys[keyOff]
 			}
 		}
 		if cwc == nil {
@@ -5363,7 +5363,7 @@ func buildKvRangesForIndexJoin(dctx *distsqlctx.DistSQLContext, pctx *rangerctx.
 		memTracker.Consume(int64(2 * cap(kvRanges[0].StartKey) * len(kvRanges)))
 	}
 	if len(tmpDatumRanges) != 0 && memTracker != nil {
-		memTracker.Consume(2 * types.EstimatedMemUsage(tmpDatumRanges[0].LowVal, len(tmpDatumRanges)))
+		memTracker.Consume(2 * types.EstimatedMemUsageForPointer(tmpDatumRanges[0].LowVal, len(tmpDatumRanges)))
 	}
 	if cwc == nil {
 		slices.SortFunc(kvRanges, func(i, j kv.KeyRange) int {

@@ -70,6 +70,16 @@ func MutRowFromDatums(datums []types.Datum) MutRow {
 	return MutRow{c: c, idx: 0}
 }
 
+// MutRowPointerFromDatums creates a MutRow from a datum slice.
+func MutRowPointerFromDatums(datums []*types.Datum) MutRow {
+	c := &Chunk{columns: make([]*Column, 0, len(datums))}
+	for _, d := range datums {
+		col := makeMutRowColumn(d.GetValue())
+		c.columns = append(c.columns, col)
+	}
+	return MutRow{c: c, idx: 0}
+}
+
 // MutRowFromTypes creates a MutRow from a FieldType slice, each Column is initialized to zero value.
 func MutRowFromTypes(types []*types.FieldType) MutRow {
 	c := &Chunk{columns: make([]*Column, 0, len(types))}

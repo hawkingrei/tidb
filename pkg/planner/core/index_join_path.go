@@ -350,7 +350,7 @@ func indexJoinPathBuildTmpRange(
 	sc := sctx.GetSessionVars().StmtCtx
 	defer func() {
 		if sc.MemTracker != nil && res != nil && len(res.ranges) > 0 {
-			sc.MemTracker.Consume(2 * types.EstimatedMemUsage(res.ranges[0].LowVal, len(res.ranges)))
+			sc.MemTracker.Consume(2 * types.EstimatedMemUsageForPointer(res.ranges[0].LowVal, len(res.ranges)))
 		}
 	}()
 	pointLength := matchedKeyCnt + len(eqAndInFuncs)
@@ -378,7 +378,7 @@ func indexJoinPathBuildTmpRange(
 				return &indexJoinTmpRange{emptyRange: true}
 			}
 			if sc.MemTracker != nil {
-				sc.MemTracker.Consume(2 * types.EstimatedMemUsage(oneColumnRan[0].LowVal, len(oneColumnRan)))
+				sc.MemTracker.Consume(2 * types.EstimatedMemUsageForPointer(oneColumnRan[0].LowVal, len(oneColumnRan)))
 			}
 			if len(remained) > 0 {
 				res.ranges = ranges
@@ -763,8 +763,8 @@ func appendTailTemplateRange(originRanges ranger.Ranges, rangeMaxSize int64) (ra
 		return originRanges, true
 	}
 	for _, ran := range originRanges {
-		ran.LowVal = append(ran.LowVal, types.Datum{})
-		ran.HighVal = append(ran.HighVal, types.Datum{})
+		ran.LowVal = append(ran.LowVal, &types.Datum{})
+		ran.HighVal = append(ran.HighVal, &types.Datum{})
 		ran.Collators = append(ran.Collators, nil)
 	}
 	return originRanges, false

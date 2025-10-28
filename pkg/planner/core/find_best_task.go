@@ -1022,7 +1022,7 @@ func matchProperty(ds *logicalop.DataSource, path *util.AccessPath, prop *proper
 				}
 				cmpResult, err := ran.LowVal[colIdx].Compare(
 					ds.SCtx().GetSessionVars().StmtCtx.TypeCtx(),
-					&ran.HighVal[colIdx],
+					ran.HighVal[colIdx],
 					ran.Collators[colIdx],
 				)
 				if err != nil || cmpResult != 0 {
@@ -1073,12 +1073,12 @@ func matchProperty(ds *logicalop.DataSource, path *util.AccessPath, prop *proper
 func GroupRangesByCols(ranges []*ranger.Range, groupByColIdxs []int) ([][]*ranger.Range, error) {
 	groups := make(map[string][]*ranger.Range)
 	for _, ran := range ranges {
-		var datums []types.Datum
+		var datums []*types.Datum
 		for _, idx := range groupByColIdxs {
 			datums = append(datums, ran.LowVal[idx])
 		}
 		// We just use it to group the values, so any time zone is ok.
-		keyBytes, err := codec.EncodeValue(time.UTC, nil, datums...)
+		keyBytes, err := codec.EncodeForPointerSlices(time.UTC, nil, datums...)
 		intest.AssertNoError(err)
 		if err != nil {
 			return nil, err
@@ -2498,7 +2498,10 @@ func convertToPointGet(ds *logicalop.DataSource, prop *property.PhysicalProperty
 		pointGetPlan.IndexInfo = candidate.path.Index
 		pointGetPlan.IdxCols = candidate.path.IdxCols
 		pointGetPlan.IdxColLens = candidate.path.IdxColLens
-		pointGetPlan.IndexValues = candidate.path.Ranges[0].LowVal
+		pointGetPlan.IndexValues = make([]types.Datum, len(candidate.path.Ranges[0].LowVal))
+		for i := range candidate.path.Ranges[0].LowVal {
+			pointGetPlan.IndexValues[i] = *candidate.path.Ranges[0].LowVal[i]
+		}
 		if candidate.path.IsSingleScan {
 			pointGetPlan.SetAccessCols(candidate.path.IdxCols)
 		} else {
@@ -2577,7 +2580,11 @@ func convertToBatchPointGet(ds *logicalop.DataSource, prop *property.PhysicalPro
 		batchPointGetPlan.IdxCols = candidate.path.IdxCols
 		batchPointGetPlan.IdxColLens = candidate.path.IdxColLens
 		for _, ran := range candidate.path.Ranges {
-			batchPointGetPlan.IndexValues = append(batchPointGetPlan.IndexValues, ran.LowVal)
+			lowVal := make([]types.Datum, len(ran.LowVal))
+			for i := range ran.LowVal {
+				lowVal[i] = *ran.LowVal[i]
+			}
+			batchPointGetPlan.IndexValues = append(batchPointGetPlan.IndexValues, lowVal)
 		}
 		if !prop.IsSortItemEmpty() {
 			batchPointGetPlan.KeepOrder = true

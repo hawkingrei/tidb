@@ -406,7 +406,10 @@ func (p *PointGetPlan) PrunePartitions(sctx sessionctx.Context) (bool, error) {
 				if len(r.Ranges) != 1 || !r.Ranges[0].IsPoint(sctx.GetRangerCtx()) {
 					return false, errors.Errorf("internal error, build ranger for PointGet failed")
 				}
-				indexValues = r.Ranges[0].LowVal
+				indexValues = indexValues[:0]
+				for _, low := range r.Ranges[0].LowVal {
+					indexValues = append(indexValues, *low)
+				}
 				break
 			}
 		}

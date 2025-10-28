@@ -549,6 +549,8 @@ func encodeHandleKey(ran *ranger.Range) (low, high []byte) {
 	return low, high
 }
 
+var maxInt64InUintDatum = types.NewUintDatum(math.MaxInt64)
+
 // SplitRangesAcrossInt64Boundary split the ranges into two groups:
 // 1. signedRanges is less or equal than MaxInt64
 // 2. unsignedRanges is greater than MaxInt64
@@ -590,13 +592,13 @@ func SplitRangesAcrossInt64Boundary(ranges []*ranger.Range, keepOrder bool, desc
 		signedRanges = append(signedRanges, &ranger.Range{
 			LowVal:     ranges[idx].LowVal,
 			LowExclude: ranges[idx].LowExclude,
-			HighVal:    []*types.Datum{types.NewUintDatum(math.MaxInt64)},
+			HighVal:    []*types.Datum{&maxInt64InUintDatum},
 			Collators:  ranges[idx].Collators,
 		})
 	}
 	if !(ranges[idx].HighVal[0].GetUint64() == math.MaxInt64+1 && ranges[idx].HighExclude) {
 		unsignedRanges = append(unsignedRanges, &ranger.Range{
-			LowVal:      []*types.Datum{types.NewUintDatum(math.MaxInt64 + 1)},
+			LowVal:      []*types.Datum{&maxInt64InUintDatum},
 			HighVal:     ranges[idx].HighVal,
 			HighExclude: ranges[idx].HighExclude,
 			Collators:   ranges[idx].Collators,
@@ -736,9 +738,11 @@ func CommonHandleRangesToKVRanges(dctx *distsqlctx.DistSQLContext, tids []int64,
 		if err != nil {
 			return nil, err
 		}
+		l := types.NewBytesDatum(low)
+		r := types.NewBytesDatum(high)
 		rans = append(rans, &ranger.Range{
-			LowVal:      []types.Datum{types.NewBytesDatum(low)},
-			HighVal:     []types.Datum{types.NewBytesDatum(high)},
+			LowVal:      []*types.Datum{&l},
+			HighVal:     []*types.Datum{&r},
 			LowExclude:  false,
 			HighExclude: true,
 			Collators:   collate.GetBinaryCollatorSlice(1),
@@ -836,7 +840,7 @@ func EncodeIndexKey(dctx *distsqlctx.DistSQLContext, ran *ranger.Range) (low, hi
 		errCtx = dctx.ErrCtx
 	}
 
-	low, err = codec.EncodeKey(tz, nil, ran.LowVal...)
+	low, err = codec.EncodeForPointerSlices(tz, nil, ran.LowVal...)
 	err = errCtx.HandleError(err)
 	if err != nil {
 		return nil, nil, err
@@ -844,7 +848,7 @@ func EncodeIndexKey(dctx *distsqlctx.DistSQLContext, ran *ranger.Range) (low, hi
 	if ran.LowExclude {
 		low = kv.Key(low).PrefixNext()
 	}
-	high, err = codec.EncodeKey(tz, nil, ran.HighVal...)
+	high, err = codec.EncodeForPointerSlices(tz, nil, ran.HighVal...)
 	err = errCtx.HandleError(err)
 	if err != nil {
 		return nil, nil, err

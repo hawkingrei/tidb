@@ -270,7 +270,7 @@ func buildRangesForPointGet(sctx base.PlanContext, x *physicalop.PointGetPlan) (
 				return errors.New("rebuild to get an unsafe range")
 			}
 			for i := range x.IndexValues {
-				x.IndexValues[i] = ranges.Ranges[0].LowVal[i]
+				x.IndexValues[i] = *ranges.Ranges[0].LowVal[i]
 			}
 		} else {
 			var pkCol *expression.Column
@@ -338,7 +338,9 @@ func buildRangesForBatchGet(sctx base.PlanContext, x *physicalop.BatchPointGetPl
 				return errors.New("rebuild to get an unsafe range")
 			}
 			for i := range ranges.Ranges {
-				copy(x.IndexValues[i], ranges.Ranges[i].LowVal)
+				for j := range x.IndexValues[i] {
+					x.IndexValues[i][j] = *ranges.Ranges[i].LowVal[j]
+				}
 			}
 		} else {
 			var pkCol *expression.Column

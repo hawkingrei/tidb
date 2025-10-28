@@ -2695,6 +2695,19 @@ func EstimatedMemUsage(array []Datum, numOfRows int) int64 {
 	return bytesConsumed * int64(numOfRows)
 }
 
+// EstimatedMemUsageForPointer returns the estimated bytes consumed of a one-dimensional
+// or two-dimensional datum array.
+func EstimatedMemUsageForPointer(array []*Datum, numOfRows int) int64 {
+	if numOfRows == 0 {
+		return 0
+	}
+	var bytesConsumed int64
+	for _, d := range array {
+		bytesConsumed += d.EstimatedMemUsage()
+	}
+	return bytesConsumed * int64(numOfRows)
+}
+
 // EstimatedMemUsage returns the estimated bytes consumed of a Datum.
 func (d Datum) EstimatedMemUsage() int64 {
 	bytesConsumed := sizeOfEmptyDatum

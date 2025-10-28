@@ -181,12 +181,12 @@ func (s *PartitionProcessor) getUsedHashPartitions(ctx base.PlanContext,
 			if col, ok := hashExpr.(*expression.Column); ok && col.RetType.EvalType() == types.ETInt {
 				numPartitions := len(pi.Definitions)
 
-				posHigh, highIsNull, err := hashExpr.EvalInt(ctx.GetExprCtx().GetEvalCtx(), chunk.MutRowFromDatums(r.HighVal).ToRow())
+				posHigh, highIsNull, err := hashExpr.EvalInt(ctx.GetExprCtx().GetEvalCtx(), chunk.MutRowPointerFromDatums(r.HighVal).ToRow())
 				if err != nil {
 					return nil, err
 				}
 
-				posLow, lowIsNull, err := hashExpr.EvalInt(ctx.GetExprCtx().GetEvalCtx(), chunk.MutRowFromDatums(r.LowVal).ToRow())
+				posLow, lowIsNull, err := hashExpr.EvalInt(ctx.GetExprCtx().GetEvalCtx(), chunk.MutRowPointerFromDatums(r.LowVal).ToRow())
 				if err != nil {
 					return nil, err
 				}
@@ -253,9 +253,9 @@ func (s *PartitionProcessor) getUsedHashPartitions(ctx base.PlanContext,
 			used = []int{FullRange}
 			break
 		}
-		vals := make([]types.Datum, 0, len(partCols))
+		vals := make([]*types.Datum, 0, len(partCols))
 		vals = append(vals, r.HighVal...)
-		pos, isNull, err := hashExpr.EvalInt(ctx.GetExprCtx().GetEvalCtx(), chunk.MutRowFromDatums(vals).ToRow())
+		pos, isNull, err := hashExpr.EvalInt(ctx.GetExprCtx().GetEvalCtx(), chunk.MutRowPointerFromDatums(vals).ToRow())
 		if err != nil {
 			// If we failed to get the point position, we can just skip and ignore it.
 			continue
@@ -291,12 +291,12 @@ func (s *PartitionProcessor) getUsedKeyPartitions(ctx base.PlanContext,
 		if !r.IsPointNullable(tc) {
 			if len(partCols) == 1 && partCols[0].RetType.EvalType() == types.ETInt {
 				col := partCols[0]
-				posHigh, highIsNull, err := col.EvalInt(ctx.GetExprCtx().GetEvalCtx(), chunk.MutRowFromDatums(r.HighVal).ToRow())
+				posHigh, highIsNull, err := col.EvalInt(ctx.GetExprCtx().GetEvalCtx(), chunk.MutRowPointerFromDatums(r.HighVal).ToRow())
 				if err != nil {
 					return nil, err
 				}
 
-				posLow, lowIsNull, err := col.EvalInt(ctx.GetExprCtx().GetEvalCtx(), chunk.MutRowFromDatums(r.LowVal).ToRow())
+				posLow, lowIsNull, err := col.EvalInt(ctx.GetExprCtx().GetEvalCtx(), chunk.MutRowPointerFromDatums(r.LowVal).ToRow())
 				if err != nil {
 					return nil, err
 				}
@@ -336,7 +336,7 @@ func (s *PartitionProcessor) getUsedKeyPartitions(ctx base.PlanContext,
 						} else {
 							d = types.NewIntDatum(posLow + int64(i))
 						}
-						idx, err := pe.LocateKeyPartition(pi.Num, []types.Datum{d})
+						idx, err := pe.LocateKeyPartition(pi.Num, &d)
 						if err != nil {
 							// If we failed to get the point position, we can just skip and ignore it.
 							continue
@@ -362,9 +362,9 @@ func (s *PartitionProcessor) getUsedKeyPartitions(ctx base.PlanContext,
 			break
 		}
 
-		colVals := make([]types.Datum, 0, len(r.HighVal))
+		colVals := make([]*types.Datum, 0, len(r.HighVal))
 		colVals = append(colVals, r.HighVal...)
-		idx, err := pe.LocateKeyPartition(pi.Num, colVals)
+		idx, err := pe.LocateKeyPartition(pi.Num, colVals...)
 		if err != nil {
 			// If we failed to get the point position, we can just skip and ignore it.
 			continue
@@ -661,7 +661,7 @@ func (l *listPartitionPruner) locateColumnPartitionsByCondition(cond expression.
 		}
 		var locations []tables.ListPartitionLocation
 		if r.IsPointNullable(tc) {
-			location, err := colPrune.LocatePartition(tc, ec, r.HighVal[0])
+			location, err := colPrune.LocatePartition(tc, ec, *r.HighVal[0])
 			if types.ErrOverflow.Equal(err) {
 				return nil, true, nil // return full-scan if over-flow
 			}
@@ -789,7 +789,7 @@ func (l *listPartitionPruner) findUsedListPartitions(conds []expression.Expressi
 				return nil, err
 			}
 		} else {
-			value, isNull, err := pruneExpr.EvalInt(l.ctx.GetExprCtx().GetEvalCtx(), chunk.MutRowFromDatums(r.HighVal).ToRow())
+			value, isNull, err := pruneExpr.EvalInt(l.ctx.GetExprCtx().GetEvalCtx(), chunk.MutRowPointerFromDatums(r.HighVal).ToRow())
 			if err != nil {
 				return nil, err
 			}
@@ -1193,7 +1193,7 @@ func MakePartitionByFnCol(sctx base.PlanContext, columns []*expression.Column, n
 	return col, fn, monotonous, nil
 }
 
-func minCmp(ctx base.PlanContext, lowVal []types.Datum, columnsPruner *RangeColumnsPruner, comparer []collate.Collator, lowExclude bool, gotError *bool) func(i int) bool {
+func minCmp(ctx base.PlanContext, lowVal []*types.Datum, columnsPruner *RangeColumnsPruner, comparer []collate.Collator, lowExclude bool, gotError *bool) func(i int) bool {
 	return func(i int) bool {
 		for j := range lowVal {
 			expr := columnsPruner.LessThan[i][j]
@@ -1208,7 +1208,7 @@ func minCmp(ctx base.PlanContext, lowVal []types.Datum, columnsPruner *RangeColu
 				return true
 			}
 			// Add Null as point here?
-			cmp, err := con.Value.Compare(ctx.GetSessionVars().StmtCtx.TypeCtx(), &lowVal[j], comparer[j])
+			cmp, err := con.Value.Compare(ctx.GetSessionVars().StmtCtx.TypeCtx(), lowVal[j], comparer[j])
 			if err != nil {
 				*gotError = true
 			}
@@ -1273,7 +1273,7 @@ func minCmp(ctx base.PlanContext, lowVal []types.Datum, columnsPruner *RangeColu
 	}
 }
 
-func maxCmp(ctx base.PlanContext, hiVal []types.Datum, columnsPruner *RangeColumnsPruner, comparer []collate.Collator, hiExclude bool, gotError *bool) func(i int) bool {
+func maxCmp(ctx base.PlanContext, hiVal []*types.Datum, columnsPruner *RangeColumnsPruner, comparer []collate.Collator, hiExclude bool, gotError *bool) func(i int) bool {
 	return func(i int) bool {
 		for j := range hiVal {
 			expr := columnsPruner.LessThan[i][j]
@@ -1287,7 +1287,7 @@ func maxCmp(ctx base.PlanContext, hiVal []types.Datum, columnsPruner *RangeColum
 				return false
 			}
 			// Add Null as point here?
-			cmp, err := con.Value.Compare(ctx.GetSessionVars().StmtCtx.TypeCtx(), &hiVal[j], comparer[j])
+			cmp, err := con.Value.Compare(ctx.GetSessionVars().StmtCtx.TypeCtx(), hiVal[j], comparer[j])
 			if err != nil {
 				*gotError = true
 				// error pushed, we will still use the cmp value

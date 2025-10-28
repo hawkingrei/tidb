@@ -358,7 +358,25 @@ func (pe *PartitionExpr) GetPartColumnsForKeyPartition(columns []*expression.Col
 }
 
 // LocateKeyPartition is the common interface used to locate the destination partition
-func (kp *ForKeyPruning) LocateKeyPartition(numParts uint64, r []types.Datum) (int, error) {
+func (kp *ForKeyPruning) LocateKeyPartition(numParts uint64, r ...*types.Datum) (int, error) {
+	h := crc32.NewIEEE()
+	for _, col := range kp.KeyPartCols {
+		val := r[col.Index]
+		if val.Kind() == types.KindNull {
+			h.Write([]byte{0})
+		} else {
+			data, err := val.ToHashKey()
+			if err != nil {
+				return 0, err
+			}
+			h.Write(data)
+		}
+	}
+	return int(h.Sum32() % uint32(numParts)), nil
+}
+
+// LocateKeyPartitionForPointers is the common interface used to locate the destination partition
+func (kp *ForKeyPruning) LocateKeyPartitionForPointers(numParts uint64, r ...types.Datum) (int, error) {
 	h := crc32.NewIEEE()
 	for _, col := range kp.KeyPartCols {
 		val := r[col.Index]
@@ -1447,7 +1465,7 @@ func (t *partitionedTable) locatePartitionCommon(ctx expression.EvalContext, tp 
 		// Note that only LIST and RANGE supports REORGANIZE PARTITION
 		idx, err = t.locateHashPartition(ctx, partitionExpr, num, r)
 	case ast.PartitionTypeKey:
-		idx, err = partitionExpr.LocateKeyPartition(num, r)
+		idx, err = partitionExpr.LocateKeyPartitionForPointers(num, r...)
 	case ast.PartitionTypeList:
 		idx, err = partitionExpr.locateListPartition(ctx, r)
 		pi := t.Meta().Partition

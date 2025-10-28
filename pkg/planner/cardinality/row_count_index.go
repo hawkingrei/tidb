@@ -116,7 +116,7 @@ func getIndexRowCountForStatsV1(sctx planctx.PlanContext, coll *statistics.HistC
 		var rangeVals []types.Datum
 		// Try to enum the last range values.
 		if rangePosition != len(ran.LowVal) {
-			rangeVals = statistics.EnumRangeValues(ran.LowVal[rangePosition], ran.HighVal[rangePosition], ran.LowExclude, ran.HighExclude)
+			rangeVals = statistics.EnumRangeValues(*ran.LowVal[rangePosition], *ran.HighVal[rangePosition], ran.LowExclude, ran.HighExclude)
 			if rangeVals != nil {
 				rangePosition++
 			}
@@ -140,7 +140,7 @@ func getIndexRowCountForStatsV1(sctx planctx.PlanContext, coll *statistics.HistC
 		var selectivity float64
 		// use CM Sketch to estimate the equal conditions
 		if rangeVals == nil {
-			bytes, err := codec.EncodeKey(sc.TimeZone(), nil, ran.LowVal[:rangePosition]...)
+			bytes, err := codec.EncodeForPointerSlices(sc.TimeZone(), nil, ran.LowVal[:rangePosition]...)
 			err = sc.HandleError(err)
 			if err != nil {
 				return 0, errors.Trace(err)
@@ -150,7 +150,7 @@ func getIndexRowCountForStatsV1(sctx planctx.PlanContext, coll *statistics.HistC
 				return 0, errors.Trace(err)
 			}
 		} else {
-			bytes, err := codec.EncodeKey(sc.TimeZone(), nil, ran.LowVal[:rangePosition-1]...)
+			bytes, err := codec.EncodeForPointerSlices(sc.TimeZone(), nil, ran.LowVal[:rangePosition-1]...)
 			err = sc.HandleError(err)
 			if err != nil {
 				return 0, errors.Trace(err)
@@ -173,9 +173,9 @@ func getIndexRowCountForStatsV1(sctx planctx.PlanContext, coll *statistics.HistC
 		// use histogram to estimate the range condition
 		if rangePosition != len(ran.LowVal) {
 			rang := ranger.Range{
-				LowVal:      []types.Datum{ran.LowVal[rangePosition]},
+				LowVal:      []*types.Datum{ran.LowVal[rangePosition]},
 				LowExclude:  ran.LowExclude,
-				HighVal:     []types.Datum{ran.HighVal[rangePosition]},
+				HighVal:     []*types.Datum{ran.HighVal[rangePosition]},
 				HighExclude: ran.HighExclude,
 				Collators:   []collate.Collator{ran.Collators[rangePosition]},
 			}
@@ -240,12 +240,12 @@ func getIndexRowCountForStatsV2(sctx planctx.PlanContext, idx *statistics.Index,
 	for _, indexRange := range indexRanges {
 		var count statistics.RowEstimate
 		var lb, rb []byte
-		lb, err = codec.EncodeKey(sc.TimeZone(), nil, indexRange.LowVal...)
+		lb, err = codec.EncodeForPointerSlices(sc.TimeZone(), nil, indexRange.LowVal...)
 		err = sc.HandleError(err)
 		if err != nil {
 			return statistics.DefaultRowEst(0), err
 		}
-		rb, err = codec.EncodeKey(sc.TimeZone(), nil, indexRange.HighVal...)
+		rb, err = codec.EncodeForPointerSlices(sc.TimeZone(), nil, indexRange.HighVal...)
 		err = sc.HandleError(err)
 		if err != nil {
 			return statistics.DefaultRowEst(0), err
@@ -364,7 +364,7 @@ func getIndexRowCountForStatsV2(sctx planctx.PlanContext, idx *statistics.Index,
 				isSingleColRange := len(indexRange.LowVal) == len(indexRange.HighVal) && len(indexRange.LowVal) == 1
 				if isSingleColRange && c != nil && c.Histogram.NDV > 0 {
 					histNDV = c.Histogram.NDV - int64(c.TopN.Num())
-					count.Add(c.Histogram.OutOfRangeRowCount(sctx, &indexRange.LowVal[0], &indexRange.HighVal[0], realtimeRowCount, modifyCount, histNDV))
+					count.Add(c.Histogram.OutOfRangeRowCount(sctx, indexRange.LowVal[0], indexRange.HighVal[0], realtimeRowCount, modifyCount, histNDV))
 				} else {
 					// TODO: Extend original datatype out-of-range estimation to multi-column
 					histNDV -= int64(idx.TopN.Num())
@@ -532,8 +532,8 @@ func expBackoffEstimation(sctx planctx.PlanContext, idx *statistics.Index, coll 
 	}
 	tmpRan := []*ranger.Range{
 		{
-			LowVal:    make([]types.Datum, 1),
-			HighVal:   make([]types.Datum, 1),
+			LowVal:    make([]*types.Datum, 1),
+			HighVal:   make([]*types.Datum, 1),
 			Collators: make([]collate.Collator, 1),
 		},
 	}
@@ -678,7 +678,7 @@ func betweenRowCountOnIndex(sctx planctx.PlanContext, idx *statistics.Index, l, 
 func getOrdinalOfRangeCond(sc *stmtctx.StatementContext, ran *ranger.Range) int {
 	for i := range ran.LowVal {
 		a, b := ran.LowVal[i], ran.HighVal[i]
-		cmp, err := a.Compare(sc.TypeCtx(), &b, ran.Collators[0])
+		cmp, err := a.Compare(sc.TypeCtx(), b, ran.Collators[0])
 		if err != nil {
 			return 0
 		}

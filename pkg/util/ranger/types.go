@@ -377,7 +377,7 @@ func extendBound(bound []*types.Datum, lowIndex int, highIndex int, low bool, op
 		if low {
 			if open {
 				// Open lower bound → +∞ (exclude the current value)
-				bound = append(bound, &maxValueDatum)
+				bound = append(bound, &MaxValueDatum)
 			} else {
 				// Closed lower bound → –∞ (include all lower values)
 				bound = append(bound, &minNotNullValueDatum)
@@ -388,7 +388,7 @@ func extendBound(bound []*types.Datum, lowIndex int, highIndex int, low bool, op
 				bound = append(bound, &minNotNullValueDatum)
 			} else {
 				// Closed upper bound → +∞ (include all higher values)
-				bound = append(bound, &maxValueDatum)
+				bound = append(bound, &MaxValueDatum)
 			}
 		}
 	}
