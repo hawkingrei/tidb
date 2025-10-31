@@ -416,7 +416,12 @@ func (d *rangeDetacher) detachCNFCondAndBuildRangeForIndex(conditions []expressi
 		newConditions = append(newConditions, remainedConds...)
 	}
 	for ; eqCount < len(accessConds); eqCount++ {
-		if accessConds[eqCount].(*expression.ScalarFunction).FuncName.L != ast.EQ {
+		switch sc := accessConds[eqCount].(type) {
+		case *expression.ScalarFunction:
+			if sc.FuncName.L != ast.EQ {
+				break
+			}
+		case *expression.Constant:
 			break
 		}
 	}

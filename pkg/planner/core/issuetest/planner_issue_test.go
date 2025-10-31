@@ -16,6 +16,7 @@ package issuetest
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	"github.com/pingcap/tidb/pkg/parser"
@@ -23,6 +24,7 @@ import (
 	"github.com/pingcap/tidb/pkg/planner/core/base"
 	"github.com/pingcap/tidb/pkg/planner/core/operator/physicalop"
 	"github.com/pingcap/tidb/pkg/planner/core/resolve"
+	"github.com/pingcap/tidb/pkg/session/sessmgr"
 	"github.com/pingcap/tidb/pkg/testkit"
 	"github.com/stretchr/testify/require"
 )
@@ -336,4 +338,39 @@ func TestOnlyFullGroupCantFeelUnaryConstant(t *testing.T) {
 		testKit.MustQuery("select a,min(a) from t where a=-1;").Check(testkit.Rows("<nil> <nil>"))
 		testKit.MustQuery("select a,min(a) from t where -1=a;").Check(testkit.Rows("<nil> <nil>"))
 	})
+}
+
+func TestABC(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec(`CREATE TABLE t0(c0 DOUBLE );`)
+	tk.MustExec(`CREATE TABLE t1 LIKE t0;`)
+	tk.MustExec(`CREATE INDEX i0 ON t1(c0 ASC);`)
+	tk.MustExec(`ALTER TABLE t1  CHANGE c0 c0 DOUBLE NOT NULL ;`)
+	tk.MustExec(`SET @a = 0.7481117056976476;`)
+	tk.MustExec(`SET @b = NULL;`)
+	tk.MustExec(`SET @c = NULL;`)
+	tk.MustExec(`PREPARE prepare_query FROM 'SELECT t0.c0 FROM t0, t1 WHERE ? OR (? <=> t1.c0) AND (? <=> t1.c0)';`)
+	tk.MustQuery(`EXECUTE prepare_query USING @a,@b,@c;`)
+	tkProcess := tk.Session().ShowProcess()
+	ps := []*sessmgr.ProcessInfo{tkProcess}
+	tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
+	tk.MustQuery("explain for connection " + strconv.FormatUint(tkProcess.ID, 10)).Check(testkit.Rows(
+		`HashJoin_22 100000000.00 0 root  time:0s, open:0s, close:0s, loops:0 CARTESIAN inner join N/A N/A`,
+		`├─IndexReader_30(Build) 10000.00 0 root  time:0s, open:0s, close:0s, loops:0 index:IndexFullScan_29 N/A N/A`,
+		`│ └─IndexFullScan_29 10000.00 0 cop[tikv] table:t1, index:i0(c0)  keep order:false, stats:pseudo N/A N/A`,
+		`└─TableReader_25(Probe) 10000.00 0 root  time:0s, open:0s, close:0s, loops:0 data:TableFullScan_24 N/A N/A`,
+		`  └─TableFullScan_24 10000.00 0 cop[tikv] table:t0  keep order:false, stats:pseudo N/A N/A`))
+	tk.MustExec(`SET @a = 0`)
+	tk.MustExec(`SET @b = NULL;`)
+	tk.MustExec(`SET @c = NULL;`)
+	tk.MustExec(`PREPARE prepare_query FROM 'SELECT t0.c0 FROM t0, t1 WHERE ? OR (? <=> t1.c0) AND (? <=> t1.c0)';`)
+	tk.MustQuery(`EXECUTE prepare_query USING @a,@b,@c;`)
+	tk.MustQuery("explain for connection " + strconv.FormatUint(tkProcess.ID, 10)).Check(testkit.Rows(
+		`HashJoin_22 100000000.00 0 root  time:0s, open:0s, close:0s, loops:0 CARTESIAN inner join N/A N/A`,
+		`├─IndexReader_30(Build) 10000.00 0 root  time:0s, open:0s, close:0s, loops:0 index:IndexFullScan_29 N/A N/A`,
+		`│ └─IndexFullScan_29 10000.00 0 cop[tikv] table:t1, index:i0(c0)  keep order:false, stats:pseudo N/A N/A`,
+		`└─TableReader_25(Probe) 10000.00 0 root  time:0s, open:0s, close:0s, loops:0 data:TableFullScan_24 N/A N/A`,
+		`  └─TableFullScan_24 10000.00 0 cop[tikv] table:t0  keep order:false, stats:pseudo N/A N/A`))
 }
