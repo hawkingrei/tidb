@@ -415,14 +415,15 @@ func (d *rangeDetacher) detachCNFCondAndBuildRangeForIndex(conditions []expressi
 		filterConds = removeConditions(d.sctx.ExprCtx.GetEvalCtx(), filterConds, remainedConds)
 		newConditions = append(newConditions, remainedConds...)
 	}
+EQCOUNTLOOP:
 	for ; eqCount < len(accessConds); eqCount++ {
 		switch sc := accessConds[eqCount].(type) {
 		case *expression.ScalarFunction:
 			if sc.FuncName.L != ast.EQ {
-				break
+				break EQCOUNTLOOP
 			}
 		case *expression.Constant:
-			break
+			break EQCOUNTLOOP
 		}
 	}
 	eqOrInCount := len(accessConds)
