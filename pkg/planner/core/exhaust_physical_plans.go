@@ -2697,6 +2697,9 @@ func exhaustPhysicalPlans4LogicalJoin(super base.LogicalPlan, prop *property.Phy
 			}
 		}
 	}
+	if !super.SCtx().GetSessionVars().InRestrictedSQL && p.JoinType == base.InnerJoin {
+		fmt.Println("wwz")
+	}
 	if prop.MPPPartitionTp == property.BroadcastType {
 		return nil, false, nil
 	}
