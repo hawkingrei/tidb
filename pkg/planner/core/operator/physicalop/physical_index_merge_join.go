@@ -44,7 +44,7 @@ type PhysicalIndexMergeJoin struct {
 // Init initializes PhysicalIndexMergeJoin.
 func (p PhysicalIndexMergeJoin) Init(ctx base.PlanContext) *PhysicalIndexMergeJoin {
 	p.SetTP(plancodec.TypeIndexMergeJoin)
-	p.SetID(int(ctx.GetSessionVars().PlanID.Add(1)))
+	p.SetID(int(ctx.GetSessionVars().AllocNewPlanID()))
 	p.SetSCtx(ctx)
 	p.Self = &p
 	return &p

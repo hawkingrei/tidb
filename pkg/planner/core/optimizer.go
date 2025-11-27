@@ -333,6 +333,9 @@ func CascadesOptimize(ctx context.Context, sctx base.PlanContext, flag uint64, l
 // VolcanoOptimize includes: logicalOptimize, physicalOptimize
 func VolcanoOptimize(ctx context.Context, sctx base.PlanContext, flag uint64, logic base.LogicalPlan) (base.LogicalPlan, base.PhysicalPlan, float64, error) {
 	sessVars := sctx.GetSessionVars()
+	if !sessVars.InRestrictedSQL {
+		fmt.Println("wwz")
+	}
 	flag = adjustOptimizationFlags(flag, logic)
 	logic, err := logicalOptimize(ctx, flag, logic)
 	if err != nil {

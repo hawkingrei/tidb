@@ -35,7 +35,7 @@ type PhysicalIndexHashJoin struct {
 // Init initializes PhysicalIndexHashJoin.
 func (p PhysicalIndexHashJoin) Init(ctx base.PlanContext) *PhysicalIndexHashJoin {
 	p.SetTP(plancodec.TypeIndexHashJoin)
-	p.SetID(int(ctx.GetSessionVars().PlanID.Add(1)))
+	p.SetID(int(ctx.GetSessionVars().AllocNewPlanID()))
 	p.SetSCtx(ctx)
 	p.Self = &p
 	return &p

@@ -419,19 +419,6 @@ WHERE
   )
 GROUP BY
   useridx`).Check(testkit.Rows(
-			`Projection root  dh_app_552.dh_active_bet_summary.site_code, dh_app_552.dh_active_bet_summary.useridx, Column#41, Column#42, Column#43, Column#44, Column#45, Column#46, Column#47, Column#48`,
-			`└─HashAgg root  group by:Column#85, funcs:sum(Column#76)->Column#41, funcs:sum(Column#77)->Column#42, funcs:sum(Column#78)->Column#43, funcs:max(Column#79)->Column#44, funcs:max(Column#80)->Column#45, funcs:min(Column#81)->Column#46, funcs:max(Column#82)->Column#47, funcs:max(Column#83)->Column#48, funcs:firstrow(Column#84)->dh_app_552.dh_active_bet_summary.site_code, funcs:firstrow(Column#85)->dh_app_552.dh_active_bet_summary.useridx`,
-			`  └─Projection root  cast(dh_app_552.dh_active_bet_summary.betitem_num, decimal(10,0) BINARY)->Column#76, dh_app_552.dh_active_bet_summary.valid_bet_total->Column#77, dh_app_552.dh_active_bet_summary.profit_total->Column#78, dh_app_552.dh_active_bet_summary.max_valid_bet->Column#79, dh_app_552.dh_active_bet_summary.max_profit->Column#80, dh_app_552.dh_active_bet_summary.min_profit->Column#81, dh_app_552.dh_active_bet_summary.settle_day->Column#82, dh_app_552.dh_active_bet_summary.bet_update_time->Column#83, dh_app_552.dh_active_bet_summary.site_code->Column#84, dh_app_552.dh_active_bet_summary.useridx->Column#85`,
-			`    └─IndexHashJoin root  inner join, inner:IndexLookUp, outer key:dh_app_552.dh_active_bet_summary.useridx, inner key:dh_app_552.dh_active_bet_summary.useridx, equal cond:eq(dh_app_552.dh_active_bet_summary.useridx, dh_app_552.dh_active_bet_summary.useridx)`,
-			`      ├─HashAgg(Build) root  group by:dh_app_552.dh_active_bet_summary.useridx, funcs:firstrow(dh_app_552.dh_active_bet_summary.useridx)->dh_app_552.dh_active_bet_summary.useridx`,
-			`      │ └─IndexLookUp root  `,
-			`      │   ├─Selection(Build) cop[tikv]  eq(dh_app_552.dh_active_bet_summary.site_code, "552")`,
-			`      │   │ └─IndexRangeScan cop[tikv] table:dh_active_bet_summary, index:idx_dh_active_bet_summary_settleday_betupdatetime_sitecode(settle_day, bet_update_time, site_code) range:[20251103 "2025-11-08 07:50:21",20251103 +inf], [20251104 "2025-11-08 07:50:21",20251104 +inf], [20251105 "2025-11-08 07:50:21",20251105 +inf], [20251106 "2025-11-08 07:50:21",20251106 +inf], [20251107 "2025-11-08 07:50:21",20251107 +inf], [20251108 "2025-11-08 07:50:21",20251108 +inf], [20251109 "2025-11-08 07:50:21",20251109 +inf], keep order:false`,
-			`      │   └─HashAgg(Probe) cop[tikv]  group by:dh_app_552.dh_active_bet_summary.useridx, `,
-			`      │     └─TableRowIDScan cop[tikv] table:dh_active_bet_summary keep order:false`,
-			`      └─IndexLookUp(Probe) root  `,
-			`        ├─IndexRangeScan(Build) cop[tikv] table:dh_active_bet_summary, index:idx_active_bet_summary_game_useridx_sitecode(useridx, site_code, settle_day) range: decided by [eq(dh_app_552.dh_active_bet_summary.useridx, dh_app_552.dh_active_bet_summary.useridx) eq(dh_app_552.dh_active_bet_summary.site_code, 552) ge(dh_app_552.dh_active_bet_summary.settle_day, 20251103) le(dh_app_552.dh_active_bet_summary.settle_day, 20251109)], keep order:false`,
-			`        └─Selection(Probe) cop[tikv]  ge(dh_app_552.dh_active_bet_summary.game_id, 0)`,
-			`          └─TableRowIDScan cop[tikv] table:dh_active_bet_summary keep order:false`))
+			))
 	}
 }

@@ -38,7 +38,7 @@ type Plan struct {
 
 // NewBasePlan creates a new base plan.
 func NewBasePlan(ctx planctx.PlanContext, tp string, qbBlock int) Plan {
-	id := ctx.GetSessionVars().PlanID.Add(1)
+	id := ctx.GetSessionVars().AllocNewPlanID()
 	return Plan{
 		tp:      tp,
 		id:      int(id),
@@ -50,7 +50,7 @@ func NewBasePlan(ctx planctx.PlanContext, tp string, qbBlock int) Plan {
 // ReAlloc4Cascades is to reset the plan for cascades.
 func (p *Plan) ReAlloc4Cascades(tp string) {
 	p.tp = tp
-	p.id = int(p.ctx.GetSessionVars().PlanID.Add(1))
+	p.id = int(p.ctx.GetSessionVars().AllocNewPlanID())
 	p.stats = nil
 	// the context and qb should keep the same.
 }

@@ -38,7 +38,7 @@ type PhysicalLocalIndexLookUp struct {
 }
 
 func resetPlanIDRecursively(ctx base.PlanContext, p base.PhysicalPlan) {
-	p.SetID(int(ctx.GetSessionVars().PlanID.Add(1)))
+	p.SetID(int(ctx.GetSessionVars().AllocNewPlanID()))
 	for _, child := range p.Children() {
 		resetPlanIDRecursively(ctx, child)
 	}

@@ -2040,7 +2040,11 @@ func (s *SessionVars) BuildParserConfig() parser.ParserConfig {
 
 // AllocNewPlanID alloc new ID
 func (s *SessionVars) AllocNewPlanID() int {
-	return int(s.PlanID.Add(1))
+	result := int(s.PlanID.Add(1))
+	if !s.InRestrictedSQL {
+		logutil.BgLogger().Info("wwz! Alloc new plan ID", zap.Int("planID", result))
+	}
+	return result
 }
 
 // GetTotalCostDuration returns the total cost duration of the last statement in the current session.
