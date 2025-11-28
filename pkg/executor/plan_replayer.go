@@ -287,7 +287,7 @@ func loadSetTiFlashReplica(ctx sessionctx.Context, z *zip.Reader) error {
 				}
 				r := strings.Split(row, "\t")
 				if len(r) < 3 {
-					logutil.BgLogger().Debug("plan replayer: skip error",
+					logutil.BgLogger().Info("plan replayer: skip error",
 						zap.Error(errors.New("setting tiflash replicas failed")))
 					continue
 				}
@@ -297,7 +297,7 @@ func loadSetTiFlashReplica(ctx sessionctx.Context, z *zip.Reader) error {
 				// Though we record tiflash replica in txt, we only set 1 tiflash replica as it's enough for reproduce the plan
 				sql := fmt.Sprintf("alter table %s.%s set tiflash replica 1", dbName, tableName)
 				_, err = ctx.GetSQLExecutor().Execute(c, sql)
-				logutil.BgLogger().Debug("plan replayer: skip error", zap.Error(err))
+				logutil.BgLogger().Info("plan replayer: skip error", zap.Error(err))
 			}
 		}
 	}

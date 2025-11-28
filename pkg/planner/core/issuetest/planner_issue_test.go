@@ -343,11 +343,13 @@ func TestOnlyFullGroupCantFeelUnaryConstant(t *testing.T) {
 }
 
 func TestABC(t *testing.T) {
-	store, dom := testkit.CreateMockStoreAndDomain(t)
-	tk := testkit.NewTestKit(t, store)
-	tk.MustExec(`create database dh_app_552`)
-	tk.MustExec("use dh_app_552;")
-	tk.MustExec(`CREATE TABLE dh_active_bet_summary (
+
+	for range 100 {
+		store, dom := testkit.CreateMockStoreAndDomain(t)
+		tk := testkit.NewTestKit(t, store)
+		tk.MustExec(`create database dh_app_552`)
+		tk.MustExec("use dh_app_552;")
+		tk.MustExec(`CREATE TABLE dh_active_bet_summary (
   id bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
   site_code varchar(64) NOT NULL DEFAULT '' COMMENT '品牌id',
   useridx bigint NOT NULL DEFAULT '0' COMMENT '会员账号',
@@ -380,15 +382,14 @@ func TestABC(t *testing.T) {
   KEY idx_dh_active_bet_summary_settle_useridx_currency_sitecode (settle_day,useridx,currency,site_code),
   KEY idx_active_bet_summary_betitem_num_sitecode (betitem_num,site_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin AUTO_INCREMENT=143305894 /*T! SHARD_ROW_ID_BITS=4 */ COMMENT='会员细分投注统计表'`)
-	testkit.LoadTableStats(`dh_app_552.dh_active_bet_summary.json`, dom)
+		testkit.LoadTableStats(`dh_app_552.dh_active_bet_summary.json`, dom)
 
-	// open file , then give socks into LoadConfig
-	fs, err := os.ReadFile("./testdata/variables.toml")
-	require.NoError(t, err)
-	r := io.NopCloser(bytes.NewReader(fs))
-	config.LoadConfig(tk.Session(), r)
-
-	for range 100 {
+		// open file , then give socks into LoadConfig
+		fs, err := os.ReadFile("./testdata/variables.toml")
+		require.NoError(t, err)
+		r := io.NopCloser(bytes.NewReader(fs))
+		config.LoadConfig(tk.Session(), r)
+		testkit.SetTiFlashReplica(t, dom, "dh_app_552", "dh_active_bet_summary")
 		tk.MustQuery(`explain format='verbose' SELECT
   site_code,
   useridx,
@@ -418,7 +419,15 @@ WHERE
       AND settle_day IN ( 20251103, 20251104, 20251105, 20251106, 20251107, 20251108, 20251109)
   )
 GROUP BY
-  useridx`).Check(testkit.Rows(
-			))
+  useridx`)
+		tk.MustQuery(`show warnings;`).Check(testkit.Rows(
+			`Note 1105 [dh_active_bet_summary(tiflash)] remain after pruning paths for dh_active_bet_summary given Prop{SortItems: [], TaskTp: mppTask}`,
+			`Note 1105 [dh_active_bet_summary(tiflash)] remain after pruning paths for dh_active_bet_summary given Prop{SortItems: [], TaskTp: mppTask}`,
+			`Note 1105 [dh_active_bet_summary(tiflash)] remain after pruning paths for dh_active_bet_summary given Prop{SortItems: [], TaskTp: mppTask}`,
+			`Note 1105 [dh_active_bet_summary,dh_active_bet_summary(tiflash),udx_dh_active_bet_summary_sitecode,idx_dh_active_bet_summary_settleday_betupdatetime_sitecode,idx_day_currency_category_platform_sitecode,idx_dh_active_bet_summary_settle_useridx_currency_sitecode] remain after pruning paths for dh_active_bet_summary given Prop{SortItems: [{dh_app_552.dh_active_bet_summary.useridx asc}], TaskTp: rootTask}`,
+			`Note 1105 [dh_active_bet_summary,dh_active_bet_summary(tiflash),idx_dh_active_bet_summary_settleday_betupdatetime_sitecode,idx_dh_active_bet_summary_settle_useridx_currency_sitecode] remain after pruning paths for dh_active_bet_summary given Prop{SortItems: [{dh_app_552.dh_active_bet_summary.useridx asc}], TaskTp: rootTask}`,
+			`Note 1105 [dh_active_bet_summary,dh_active_bet_summary(tiflash),idx_dh_active_bet_summary_settleday_betupdatetime_sitecode,idx_day_currency_category_platform_sitecode,idx_dh_active_bet_summary_settle_useridx_currency_sitecode] remain after pruning paths for dh_active_bet_summary given Prop{SortItems: [], TaskTp: rootTask}`,
+			`Note 1105 [dh_active_bet_summary(tiflash),idx_dh_active_bet_summary_settleday_betupdatetime_sitecode] remain after pruning paths for dh_active_bet_summary given Prop{SortItems: [], TaskTp: copMultiReadTask}`,
+			`Note 1105 [dh_active_bet_summary(tiflash),idx_dh_active_bet_summary_settleday_betupdatetime_sitecode] remain after pruning paths for dh_active_bet_summary given Prop{SortItems: [], TaskTp: rootTask}`))
 	}
 }

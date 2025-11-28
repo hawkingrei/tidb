@@ -439,7 +439,7 @@ func SetTiFlashReplica(t testing.TB, dom *domain.Domain, dbName, tableName strin
 	tblInfo, err := is.TableByName(context.Background(), ast.NewCIStr(dbName), ast.NewCIStr(tableName))
 	require.NoError(t, err)
 	tblInfo.Meta().TiFlashReplica = &model.TiFlashReplicaInfo{
-		Count:     1,
+		Count:     3,
 		Available: true,
 	}
 }
