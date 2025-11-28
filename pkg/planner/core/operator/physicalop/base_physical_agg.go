@@ -938,15 +938,21 @@ func ExhaustPhysicalPlans4LogicalAggregation(lp base.LogicalPlan, prop *property
 	preferHash, preferStream := la.ResetHintIfConflicted()
 	hashAggs := getHashAggs(la, prop)
 	if len(hashAggs) > 0 && preferHash {
-		logutil.BgLogger().Info("wwz get perfer hash")
+		if !lp.SCtx().GetSessionVars().InRestrictedSQL {
+			logutil.BgLogger().Info("wwz get perfer hash")
+		}
 		return hashAggs, true, nil
 	}
 	streamAggs := getStreamAggs(la, prop)
 	if len(streamAggs) > 0 && preferStream {
-		logutil.BgLogger().Info("wwz get perfer stream")
+		if !lp.SCtx().GetSessionVars().InRestrictedSQL {
+			logutil.BgLogger().Info("wwz get perfer stream")
+		}
 		return streamAggs, true, nil
 	}
-	logutil.BgLogger().Info("wwz append stream into hash app")
+	if !lp.SCtx().GetSessionVars().InRestrictedSQL {
+		logutil.BgLogger().Info("wwz append stream into hash app")
+	}
 	aggs := append(hashAggs, streamAggs...)
 
 	if streamAggs == nil && preferStream && !prop.IsSortItemEmpty() {
