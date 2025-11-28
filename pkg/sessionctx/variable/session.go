@@ -2042,8 +2042,14 @@ func (s *SessionVars) BuildParserConfig() parser.ParserConfig {
 func (s *SessionVars) AllocNewPlanID() int {
 	result := int(s.PlanID.Add(1))
 	if !s.InRestrictedSQL {
-		logutil.BgLogger().Info("wwz! Alloc new plan ID", zap.Uint64("connectionID", s.ConnectionID),
-			zap.Int("planID", result))
+		if result == 166 {
+			logutil.BgLogger().Info("wwz! Alloc new plan ID", zap.Uint64("connectionID", s.ConnectionID),
+				zap.Int("planID", result), zap.Stack("stack"))
+		} else {
+			logutil.BgLogger().Info("wwz! Alloc new plan ID", zap.Uint64("connectionID", s.ConnectionID),
+				zap.Int("planID", result))
+		}
+
 	}
 	return result
 }
