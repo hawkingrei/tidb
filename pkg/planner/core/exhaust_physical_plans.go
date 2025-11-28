@@ -67,6 +67,9 @@ func exhaustPhysicalPlans(lp base.LogicalPlan, prop *property.PhysicalProperty) 
 		ops, hintCanWork, err = physicalop.ExhaustPhysicalPlans4LogicalLock(x, prop)
 	case *logicalop.LogicalJoin:
 		ops, hintCanWork, err = exhaustPhysicalPlans4LogicalJoin(x, prop)
+		if !lp.SCtx().GetSessionVars().InRestrictedSQL {
+			logutil.BgLogger().Info("wwz exhaust join", zap.Int("num", len(ops)))
+		}
 	case *logicalop.LogicalApply:
 		ops, hintCanWork, err = exhaustPhysicalPlans4LogicalApply(x, prop)
 	case *logicalop.LogicalLimit:
@@ -89,6 +92,9 @@ func exhaustPhysicalPlans(lp base.LogicalPlan, prop *property.PhysicalProperty) 
 		ops, hintCanWork, err = physicalop.ExhaustPhysicalPlans4LogicalProjection(x, prop)
 	case *logicalop.LogicalAggregation:
 		ops, hintCanWork, err = physicalop.ExhaustPhysicalPlans4LogicalAggregation(x, prop)
+		if !lp.SCtx().GetSessionVars().InRestrictedSQL {
+			logutil.BgLogger().Info("wwz exhaust agg", zap.Int("num", len(ops)))
+		}
 	case *logicalop.LogicalPartitionUnionAll:
 		ops, hintCanWork, err = physicalop.ExhaustPhysicalPlans4LogicalPartitionUnionAll(x, prop)
 	case *memo.GroupExpression:
