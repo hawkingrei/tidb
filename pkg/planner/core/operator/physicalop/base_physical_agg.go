@@ -33,6 +33,7 @@ import (
 	"github.com/pingcap/tidb/pkg/planner/property"
 	"github.com/pingcap/tidb/pkg/planner/util"
 	"github.com/pingcap/tidb/pkg/types"
+	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/plancodec"
 	"github.com/pingcap/tidb/pkg/util/size"
 )
@@ -937,12 +938,15 @@ func ExhaustPhysicalPlans4LogicalAggregation(lp base.LogicalPlan, prop *property
 	preferHash, preferStream := la.ResetHintIfConflicted()
 	hashAggs := getHashAggs(la, prop)
 	if len(hashAggs) > 0 && preferHash {
+		logutil.BgLogger().Info("wwz get perfer hash")
 		return hashAggs, true, nil
 	}
 	streamAggs := getStreamAggs(la, prop)
 	if len(streamAggs) > 0 && preferStream {
+		logutil.BgLogger().Info("wwz get perfer stream")
 		return streamAggs, true, nil
 	}
+	logutil.BgLogger().Info("wwz append stream into hash app")
 	aggs := append(hashAggs, streamAggs...)
 
 	if streamAggs == nil && preferStream && !prop.IsSortItemEmpty() {
