@@ -262,7 +262,51 @@ func (p *LogicalJoin) PredicatePushDown(predicates []expression.Expression) (ret
 	p.updateEQCond()
 	ruleutil.BuildKeyInfoPortal(p)
 	newnChild, err := p.SemiJoinRewrite()
+	if join, ok := newnChild.(*LogicalJoin); ok {
+		ret, ok = join.canConvertAntiJoin(ret)
+		if ok {
+			join.JoinType = base.AntiSemiJoin
+		}
+	}
 	return ret, newnChild, err
+}
+
+func (p *LogicalJoin) canConvertAntiJoin(ret []expression.Expression) (newRet []expression.Expression, canConvert bool) {
+	switch p.JoinType {
+	case base.LeftOuterJoin:
+		ch := p.Children()[0]
+		newRet = make([]expression.Expression, 0, len(ret))
+		for _, expr := range ret {
+			var sf *expression.ScalarFunction
+			var ok bool
+			if sf, ok = expr.(*expression.ScalarFunction); !ok {
+				newRet = append(newRet, expr)
+				continue
+			}
+			if sf.FuncName.L != ast.IsNull {
+				newRet = append(newRet, expr)
+				continue
+			}
+			args := sf.GetArgs()
+			if len(args) == 1 {
+				// It is a Not expression. then we check whether it has a IsNull expression.
+				if col, ok := args[0].(*expression.Column); ok {
+					if !slices.ContainsFunc(ch.Schema().Columns, func(c *expression.Column) bool {
+						return c.UniqueID == col.UniqueID
+					}) && slices.ContainsFunc(p.FullSchema.Columns, func(c *expression.Column) bool {
+						return c.UniqueID == col.UniqueID
+					}) {
+						canConvert = true
+					} else {
+						newRet = append(newRet, expr)
+					}
+				}
+			}
+		}
+		return newRet, canConvert
+	default:
+		return nil, false
+	}
 }
 
 // simplifyOuterJoin transforms "LeftOuterJoin/RightOuterJoin" to "InnerJoin" if possible.
