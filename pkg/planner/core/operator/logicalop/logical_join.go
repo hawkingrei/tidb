@@ -305,7 +305,7 @@ func (p *LogicalJoin) canConvertAntiJoin(ret []expression.Expression) (newRet []
 		}
 		return newRet, canConvert
 	default:
-		return nil, false
+		return ret, false
 	}
 }
 
