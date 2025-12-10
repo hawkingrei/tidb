@@ -262,12 +262,6 @@ func (p *LogicalJoin) PredicatePushDown(predicates []expression.Expression) (ret
 	p.updateEQCond()
 	ruleutil.BuildKeyInfoPortal(p)
 	newnChild, err := p.SemiJoinRewrite()
-	if join, ok := newnChild.(*LogicalJoin); ok {
-		ret, ok = join.canConvertAntiJoin(ret)
-		if ok {
-			join.JoinType = base.AntiSemiJoin
-		}
-	}
 	return ret, newnChild, err
 }
 
