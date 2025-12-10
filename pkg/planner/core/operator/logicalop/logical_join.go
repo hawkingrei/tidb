@@ -268,9 +268,6 @@ func (p *LogicalJoin) PredicatePushDown(predicates []expression.Expression) (ret
 func (p *LogicalJoin) canConvertAntiJoin(ret []expression.Expression) (newRet []expression.Expression, canConvert bool) {
 	switch p.JoinType {
 	case base.LeftOuterJoin:
-		if len(p.EqualConditions) == 0 {
-			return ret, false
-		}
 		ch := p.Children()[0]
 		newRet = make([]expression.Expression, 0, len(ret))
 		for _, expr := range ret {
