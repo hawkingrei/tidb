@@ -103,8 +103,7 @@ func AddSelection(p base.LogicalPlan, child base.LogicalPlan, conditions []expre
 		return
 	}
 	if join, ok := child.(*LogicalJoin); ok {
-		switch join.JoinType {
-		case base.LeftOuterJoin:
+		if join.JoinType == base.LeftOuterJoin {
 			var ok bool
 			if conditions, ok = join.canConvertAntiJoin(conditions); ok {
 				join.JoinType = base.AntiSemiJoin
