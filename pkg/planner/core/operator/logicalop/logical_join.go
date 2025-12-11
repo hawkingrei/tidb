@@ -272,7 +272,7 @@ func (p *LogicalJoin) CanConvertAntiJoin(ret []expression.Expression, selectSch 
 		inner := p.Children()[0]
 		newRet = make([]expression.Expression, 0, len(ret))
 		var outerSch []*expression.Column
-		if len(ret) > 0 {
+		if len(ret) > 0 && len(p.FullSchema.Columns) > 0 {
 			fullJoinOutPutColumns := slices.Clone(p.FullSchema.Columns)
 			innerSch := inner.Schema()
 			outerSch = slices.DeleteFunc(fullJoinOutPutColumns, func(c *expression.Column) bool {
