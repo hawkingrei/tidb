@@ -14,4 +14,20 @@
 
 package rule
 
+import (
+	"context"
 
+	"github.com/pingcap/tidb/pkg/planner/core/base"
+)
+
+type OuterJoinToSemiJoin struct{}
+
+// Name implements base.LogicalOptRule.<1st> interface.
+func (*OuterJoinToSemiJoin) Name() string {
+	return "outer_join_semi_join"
+}
+
+// Optimize implements base.LogicalOptRule.<0th> interface.
+func (o *OuterJoinToSemiJoin) Optimize(_ context.Context, p base.LogicalPlan) (base.LogicalPlan, bool, error) {
+	return p,false, nil
+}
