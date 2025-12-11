@@ -276,7 +276,7 @@ func (p *LogicalJoin) CanConvertAntiJoin(ret []expression.Expression, selectSch 
 			fullJoinOutPutColumns := slices.Clone(p.Schema().Columns)
 			innerSch := inner.Schema()
 			outerSch = slices.DeleteFunc(fullJoinOutPutColumns, func(c *expression.Column) bool {
-				return !innerSch.Contains(c)
+				return innerSch.Contains(c)
 			})
 		}
 		for _, expr := range ret {
@@ -294,13 +294,16 @@ func (p *LogicalJoin) CanConvertAntiJoin(ret []expression.Expression, selectSch 
 			if len(args) == 1 {
 				// It is a Not expression. then we check whether it has a IsNull expression.
 				if col, ok := args[0].(*expression.Column); ok {
-					// selection's schema doesn't contain the outer side columns.
+
 					// column in IsNull expression is from the outer side columns.
-					if slices.ContainsFunc(outerSch, func(c *expression.Column) bool {
+					selConditionColInOuter := slices.ContainsFunc(outerSch, func(c *expression.Column) bool {
 						return c.UniqueID == col.UniqueID
-					}) && !slices.ContainsFunc(outerSch, func(c *expression.Column) bool {
-						return selectSch.Contains(c)
-					}) {
+					})
+					// selection's schema doesn't contain the outer side columns.
+					selOutColNotInOuter := !slices.ContainsFunc(outerSch, func(c *expression.Column) bool {
+						return selectSch.Contains(c) && !c.Equals(col)
+					})
+					if selConditionColInOuter && selOutColNotInOuter {
 						canConvert = true
 					} else {
 						newRet = append(newRet, expr)
