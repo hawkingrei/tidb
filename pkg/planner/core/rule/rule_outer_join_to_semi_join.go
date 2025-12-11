@@ -21,6 +21,7 @@ import (
 	"github.com/pingcap/tidb/pkg/planner/core/operator/logicalop"
 )
 
+// OuterJoinToSemiJoin is a logical optimization rule that converts outer joins followed by selections into semi-joins.
 type OuterJoinToSemiJoin struct{}
 
 // Optimize implements base.LogicalOptRule.<0th> interface.
