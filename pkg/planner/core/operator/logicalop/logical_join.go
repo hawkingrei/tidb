@@ -294,7 +294,6 @@ func (p *LogicalJoin) CanConvertAntiJoin(ret []expression.Expression, selectSch 
 			if len(args) == 1 {
 				// It is a Not expression. then we check whether it has a IsNull expression.
 				if col, ok := args[0].(*expression.Column); ok {
-
 					// column in IsNull expression is from the outer side columns.
 					selConditionColInOuter := slices.ContainsFunc(outerSch, func(c *expression.Column) bool {
 						return c.UniqueID == col.UniqueID
