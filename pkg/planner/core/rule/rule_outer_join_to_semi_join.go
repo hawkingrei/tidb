@@ -18,16 +18,41 @@ import (
 	"context"
 
 	"github.com/pingcap/tidb/pkg/planner/core/base"
+	"github.com/pingcap/tidb/pkg/planner/core/operator/logicalop"
 )
 
 type OuterJoinToSemiJoin struct{}
 
+// Optimize implements base.LogicalOptRule.<0th> interface.
+func (o *OuterJoinToSemiJoin) Optimize(_ context.Context, p base.LogicalPlan) (base.LogicalPlan, bool, error) {
+	return p, false, nil
+}
+
+func (e *OuterJoinToSemiJoin) recursivePlan(p base.LogicalPlan) (base.LogicalPlan, bool) {
+	var isChanged bool
+	for _, child := range p.Children() {
+		if sel, ok := child.(*logicalop.LogicalSelection); ok {
+			join, ok := sel.Children()[0].(*logicalop.LogicalJoin)
+			if ok {
+				newRet, ok := join.CanConvertAntiJoin(sel.Conditions, sel.Schema())
+				if ok {
+					join.JoinType = base.AntiSemiJoin
+					if len(newRet) == 0 {
+						p.SetChildren(join)
+					} else {
+						sel.Conditions = newRet
+					}
+					isChanged = true
+				}
+			}
+		}
+		_, changed := e.recursivePlan(child)
+		isChanged = isChanged || changed
+	}
+	return p, isChanged
+}
+
 // Name implements base.LogicalOptRule.<1st> interface.
 func (*OuterJoinToSemiJoin) Name() string {
 	return "outer_join_semi_join"
-}
-
-// Optimize implements base.LogicalOptRule.<0th> interface.
-func (o *OuterJoinToSemiJoin) Optimize(_ context.Context, p base.LogicalPlan) (base.LogicalPlan, bool, error) {
-	return p,false, nil
 }

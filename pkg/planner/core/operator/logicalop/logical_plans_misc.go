@@ -102,11 +102,6 @@ func AddSelection(p base.LogicalPlan, child base.LogicalPlan, conditions []expre
 		p.Children()[chIdx] = dual
 		return
 	}
-	if join, ok := child.(*LogicalJoin); ok {
-		if conditions, ok = join.canConvertAntiJoin(conditions); ok {
-			join.JoinType = base.AntiSemiJoin
-		}
-	}
 	selection := LogicalSelection{Conditions: conditions}.Init(p.SCtx(), p.QueryBlockOffset())
 	selection.SetChildren(child)
 	p.Children()[chIdx] = selection
