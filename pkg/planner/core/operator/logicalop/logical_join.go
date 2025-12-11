@@ -303,6 +303,7 @@ func (p *LogicalJoin) CanConvertAntiJoin(ret []expression.Expression, selectSch 
 					selOutColNotInOuter := !slices.ContainsFunc(outerSch, func(c *expression.Column) bool {
 						return selectSch.Contains(c) && !c.Equals(col)
 					})
+					// 如果 outer side 有多个列，可以直接其中一个列是 is null，并且这两个列，都是 join condition，另外一个 outer column 一定是 null
 					if selConditionColInOuter && selOutColNotInOuter {
 						canConvert = true
 					} else {
