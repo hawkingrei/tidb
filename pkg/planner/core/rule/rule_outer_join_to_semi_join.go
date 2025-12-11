@@ -25,10 +25,11 @@ type OuterJoinToSemiJoin struct{}
 
 // Optimize implements base.LogicalOptRule.<0th> interface.
 func (o *OuterJoinToSemiJoin) Optimize(_ context.Context, p base.LogicalPlan) (base.LogicalPlan, bool, error) {
-	return p, false, nil
+	result, isChanged := o.recursivePlan(p)
+	return result, isChanged, nil
 }
 
-func (e *OuterJoinToSemiJoin) recursivePlan(p base.LogicalPlan) (base.LogicalPlan, bool) {
+func (o *OuterJoinToSemiJoin) recursivePlan(p base.LogicalPlan) (base.LogicalPlan, bool) {
 	var isChanged bool
 	for _, child := range p.Children() {
 		if sel, ok := child.(*logicalop.LogicalSelection); ok {
@@ -46,7 +47,7 @@ func (e *OuterJoinToSemiJoin) recursivePlan(p base.LogicalPlan) (base.LogicalPla
 				}
 			}
 		}
-		_, changed := e.recursivePlan(child)
+		_, changed := o.recursivePlan(child)
 		isChanged = isChanged || changed
 	}
 	return p, isChanged
