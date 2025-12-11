@@ -267,12 +267,15 @@ func (p *LogicalJoin) PredicatePushDown(predicates []expression.Expression) (ret
 
 // CanConvertAntiJoin is used in outer-join-to-semi-join rule.
 func (p *LogicalJoin) CanConvertAntiJoin(ret []expression.Expression, selectSch *expression.Schema) (newRet []expression.Expression, canConvert bool) {
+	if p.FullSchema == nil {
+		return nil, false
+	}
 	switch p.JoinType {
 	case base.LeftOuterJoin:
 		inner := p.Children()[0]
 		newRet = make([]expression.Expression, 0, len(ret))
 		var outerSch []*expression.Column
-		if len(ret) > 0 && p.FullSchema != nil {
+		if len(ret) > 0 {
 			fullJoinOutPutColumns := slices.Clone(p.FullSchema.Columns)
 			innerSch := inner.Schema()
 			outerSch = slices.DeleteFunc(fullJoinOutPutColumns, func(c *expression.Column) bool {
