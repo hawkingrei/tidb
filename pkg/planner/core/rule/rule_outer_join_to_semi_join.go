@@ -36,14 +36,16 @@ func (o *OuterJoinToSemiJoin) recursivePlan(p base.LogicalPlan) (base.LogicalPla
 		if sel, ok := child.(*logicalop.LogicalSelection); ok {
 			join, ok := sel.Children()[0].(*logicalop.LogicalJoin)
 			if ok {
-				newRet, ok := join.CanConvertAntiJoin(sel.Conditions, sel.Schema())
-				if ok {
+				proj, tp := join.CanConvertAntiJoin(sel.Conditions, sel.Schema())
+				switch tp {
+				case logicalop.DisableOuterTransfor:
+				case logicalop.EnableOuterToSemiJoin:
 					join.JoinType = base.AntiSemiJoin
-					if len(newRet) == 0 {
-						p.SetChildren(join)
-					} else {
-						sel.Conditions = newRet
-					}
+					p.SetChildren(join)
+					isChanged = true
+				case logicalop.ReturnTableDual:
+					join.JoinType = base.AntiSemiJoin
+					p.SetChildren(proj)
 					isChanged = true
 				}
 			}

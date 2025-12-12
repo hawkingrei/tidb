@@ -265,56 +265,88 @@ func (p *LogicalJoin) PredicatePushDown(predicates []expression.Expression) (ret
 	return ret, newnChild, err
 }
 
+// OuterTransformType is the type of outer join transformation.
+type OuterTransformType int
+
+const (
+	DisableOuterTransfor = iota
+	EnableOuterToSemiJoin
+	ReturnTableDual
+)
+
 // CanConvertAntiJoin is used in outer-join-to-semi-join rule.
-func (p *LogicalJoin) CanConvertAntiJoin(ret []expression.Expression, selectSch *expression.Schema) (newRet []expression.Expression, canConvert bool) {
-	switch p.JoinType {
-	case base.LeftOuterJoin:
-		inner := p.Children()[0]
-		newRet = make([]expression.Expression, 0, len(ret))
-		var outerSch []*expression.Column
-		if len(ret) > 0 {
+func (p *LogicalJoin) CanConvertAntiJoin(ret []expression.Expression, selectSch *expression.Schema) (base.LogicalPlan, OuterTransformType) {
+	if len(ret) == 1 {
+		switch p.JoinType {
+		case base.LeftOuterJoin:
+			inner := p.Children()[0]
+			var outerSch []*expression.Column
 			fullJoinOutPutColumns := slices.Clone(p.Schema().Columns)
 			innerSch := inner.Schema()
 			outerSch = slices.DeleteFunc(fullJoinOutPutColumns, func(c *expression.Column) bool {
 				return innerSch.Contains(c)
 			})
-		}
-		for _, expr := range ret {
 			var sf *expression.ScalarFunction
 			var ok bool
-			if sf, ok = expr.(*expression.ScalarFunction); !ok {
-				newRet = append(newRet, expr)
-				continue
+			if sf, ok = ret[0].(*expression.ScalarFunction); !ok {
+				return nil, DisableOuterTransfor
 			}
 			if sf.FuncName.L != ast.IsNull {
-				newRet = append(newRet, expr)
-				continue
+				return nil, DisableOuterTransfor
 			}
 			args := sf.GetArgs()
 			if len(args) == 1 {
 				// It is a Not expression. then we check whether it has a IsNull expression.
-				if col, ok := args[0].(*expression.Column); ok {
+				if IsNullcol, ok := args[0].(*expression.Column); ok {
 					// column in IsNull expression is from the outer side columns.
 					selConditionColInOuter := slices.ContainsFunc(outerSch, func(c *expression.Column) bool {
-						return c.UniqueID == col.UniqueID
+						return c.UniqueID == IsNullcol.UniqueID
 					})
 					// selection's schema doesn't contain the outer side columns.
 					selOutColNotInOuter := !slices.ContainsFunc(outerSch, func(c *expression.Column) bool {
-						return selectSch.Contains(c) && !c.Equals(col)
+						return selectSch.Contains(c) && !c.Equals(IsNullcol)
 					})
-					// 如果 outer side 有多个列，可以直接其中一个列是 is null，并且这两个列，都是 join condition，另外一个 outer column 一定是 null
-					if selConditionColInOuter && selOutColNotInOuter {
-						canConvert = true
-					} else {
-						newRet = append(newRet, expr)
+					if selConditionColInOuter {
+						if selOutColNotInOuter {
+							return nil, EnableOuterToSemiJoin
+						} else {
+							joinConditionColumn := make(map[int64]*expression.Column, 8)
+							expression.ExtractColumnsMapFromExpressionsWithReusedMap(joinConditionColumn,
+								nil, expression.ScalarFuncs2Exprs(p.EqualConditions)...)
+							expression.ExtractColumnsMapFromExpressionsWithReusedMap(joinConditionColumn, nil, p.OtherConditions...)
+							keepColumns := make([]expression.Expression, 0, len(selectSch.Columns))
+
+							for _, c := range selectSch.Columns {
+								if c.Equals(IsNullcol) {
+									continue
+								}
+								isFromOuter := slices.ContainsFunc(outerSch, func(out *expression.Column) bool {
+									return out.UniqueID == c.UniqueID
+								})
+								if isFromOuter {
+									if _, ok := joinConditionColumn[c.UniqueID]; ok {
+										keepColumns = append(keepColumns, expression.NewNull())
+									} else {
+										return nil, DisableOuterTransfor
+									}
+								} else {
+									keepColumns = append(keepColumns, c)
+								}
+							}
+							proj := LogicalProjection{Exprs: make([]expression.Expression, 0, selectSch.Len())}.Init(p.SCtx(), p.QueryBlockOffset())
+							proj.Exprs = keepColumns
+							proj.SetSchema(selectSch)
+							proj.SetChildren(p)
+							return proj, ReturnTableDual
+						}
 					}
 				}
 			}
+		default:
+			return nil, DisableOuterTransfor
 		}
-		return newRet, canConvert
-	default:
-		return ret, false
 	}
+	return nil, DisableOuterTransfor
 }
 
 // simplifyOuterJoin transforms "LeftOuterJoin/RightOuterJoin" to "InnerJoin" if possible.
