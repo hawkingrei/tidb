@@ -802,7 +802,8 @@ func TestIssue29101(t *testing.T) {
 		`  ├─Point_Get_27(Build) 1.00 root table:customer, index:PRIMARY(c_w_id, c_d_id, c_id) `,
 		`  └─TableReader_30(Probe) 0.00 root  data:Selection_29`,
 		`    └─Selection_29 0.00 cop[tikv]  eq(test.warehouse.w_id, 936)`,
-		`      └─TableRangeScan_28 1.00 cop[tikv] table:warehouse range: decided by [test.customer.c_w_id], keep order:false, stats:pseudo`))
+		`      └─TableRangeScan_28 1.00 cop[tikv] table:warehouse range: decided by [test.customer.c_w_id], keep order:false, stats:pseudo`,
+	))
 	tk.MustQuery(`execute s1 using @a,@b,@c`).Check(testkit.Rows())
 	tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("1")) // can use the plan-cache
 
@@ -825,15 +826,15 @@ func TestIssue29101(t *testing.T) {
 	ps = []*sessmgr.ProcessInfo{tkProcess}
 	tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
 	tk.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID)).Check(testkit.Rows( // can use index-join
-		`StreamAgg_14 1.00 root  funcs:count(distinct test.stock.s_i_id)->Column#11`,
-		`└─IndexJoin_43 1.25 root  inner join, inner:IndexLookUp_36, outer key:test.order_line.ol_i_id, inner key:test.stock.s_i_id, equal cond:eq(test.order_line.ol_i_id, test.stock.s_i_id)`,
-		`  ├─IndexLookUp_32(Build) 1.25 root  `,
-		`  │ ├─IndexRangeScan_30(Build) 1.25 cop[tikv] table:order_line, index:PRIMARY(ol_w_id, ol_d_id, ol_o_id, ol_number) range:[391 1 3038,391 1 3058), keep order:false, stats:pseudo`,
-		`  │ └─TableRowIDScan_31(Probe) 1.25 cop[tikv] table:order_line keep order:false, stats:pseudo`,
-		`  └─IndexLookUp_36(Probe) 1.25 root  `,
-		`    ├─IndexRangeScan_33(Build) 1.25 cop[tikv] table:stock, index:PRIMARY(s_w_id, s_i_id) range: decided by [eq(test.stock.s_i_id, test.order_line.ol_i_id) eq(test.stock.s_w_id, 391)], keep order:false, stats:pseudo`,
-		`    └─Selection_35(Probe) 1.25 cop[tikv]  lt(test.stock.s_quantity, 18)`,
-		`      └─TableRowIDScan_34 1.25 cop[tikv] table:stock keep order:false, stats:pseudo`))
+		`StreamAgg_13 1.00 root  funcs:count(distinct test.stock.s_i_id)->Column#11`,
+		`└─IndexJoin_42 1.25 root  inner join, inner:IndexLookUp_35, outer key:test.order_line.ol_i_id, inner key:test.stock.s_i_id, equal cond:eq(test.order_line.ol_i_id, test.stock.s_i_id)`,
+		`  ├─IndexLookUp_31(Build) 1.25 root  `,
+		`  │ ├─IndexRangeScan_29(Build) 1.25 cop[tikv] table:order_line, index:PRIMARY(ol_w_id, ol_d_id, ol_o_id, ol_number) range:[391 1 3038,391 1 3058), keep order:false, stats:pseudo`,
+		`  │ └─TableRowIDScan_30(Probe) 1.25 cop[tikv] table:order_line keep order:false, stats:pseudo`,
+		`  └─IndexLookUp_35(Probe) 1.25 root  `,
+		`    ├─IndexRangeScan_32(Build) 1.25 cop[tikv] table:stock, index:PRIMARY(s_w_id, s_i_id) range: decided by [eq(test.stock.s_i_id, test.order_line.ol_i_id) eq(test.stock.s_w_id, 391)], keep order:false, stats:pseudo`,
+		`    └─Selection_34(Probe) 1.25 cop[tikv]  lt(test.stock.s_quantity, 18)`,
+		`      └─TableRowIDScan_33 1.25 cop[tikv] table:stock keep order:false, stats:pseudo`))
 	tk.MustExec(`execute s1 using @a,@b,@c,@c,@a,@d`)
 	tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("1")) // can use the plan-cache
 }
