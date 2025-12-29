@@ -87,6 +87,7 @@ func TestQ2(t *testing.T) {
 }
 
 func TestQ3(t *testing.T) {
+<<<<<<< HEAD
 	store, dom := testkit.CreateMockStoreAndDomain(t)
 	tk := testkit.NewTestKit(t, store)
 	tk.MustExec("use test")
@@ -112,6 +113,63 @@ func TestQ3(t *testing.T) {
 			output[i].Result = testdata.ConvertRowsToStrings(tk.MustQuery(input[i]).Rows())
 		})
 		tk.MustQuery(input[i]).Check(testkit.Rows(output[i].Result...))
+	}
+=======
+	testkit.RunTestUnderCascadesWithDomain(t, func(t *testing.T, tk *testkit.TestKit, dom *domain.Domain, cascades, caller string) {
+		testQ3(t, tk, dom, cascades, caller, false)
+	})
+>>>>>>> 1776433ee09 (planner: fix no access path when TiKV read is disabled under RC isolation (#65127))
+}
+
+func TestQ3RCAndDisableTikv(t *testing.T) {
+	testkit.RunTestUnderCascadesWithDomain(t, func(t *testing.T, tk *testkit.TestKit, dom *domain.Domain, cascades, caller string) {
+		testQ3(t, tk, dom, cascades, caller, true)
+	})
+}
+
+func testQ3(t *testing.T, tk *testkit.TestKit, dom *domain.Domain, cascades, caller string, enableRC bool) {
+	tk.MustExec("use test")
+	createCustomer(t, tk, dom)
+	createOrders(t, tk, dom)
+	createLineItem(t, tk, dom)
+	if enableRC {
+		tk.MustExec(`set tx_isolation="READ-COMMITTED";`)
+		tk.MustExec("begin;")
+		tk.MustExec("set @@session.tidb_isolation_read_engines=\"tidb,tiflash\"")
+	}
+	tk.MustExec("set @@session.tidb_broadcast_join_threshold_size = 0")
+	tk.MustExec("set @@session.tidb_broadcast_join_threshold_count = 0")
+
+	integrationSuiteData := GetTPCHSuiteData()
+	var (
+		input  []string
+		output []struct {
+			SQL                 string
+			Result              []string
+			ForUpdate           []string
+			ForUpdateAndEnforce []string
+		}
+	)
+	integrationSuiteData.LoadTestCases(t, &input, &output, cascades, caller)
+	for i := range input {
+		testdata.OnRecord(func() {
+			output[i].SQL = input[i]
+		})
+		testdata.OnRecord(func() {
+			output[i].Result = testdata.ConvertRowsToStrings(tk.MustQuery(input[i]).Rows())
+			output[i].ForUpdate = testdata.ConvertRowsToStrings(tk.MustQuery(input[i] + " for update").Rows())
+			tk.MustExec("SET tidb_enforce_mpp=1")
+			output[i].ForUpdateAndEnforce = testdata.ConvertRowsToStrings(tk.MustQuery(input[i] + " for update").Rows())
+			tk.MustExec("SET tidb_enforce_mpp=0")
+		})
+		tk.MustQuery(input[i]).Check(testkit.Rows(output[i].Result...))
+		tk.MustQuery(input[i] + " for update").Check(testkit.Rows(output[i].ForUpdate...))
+		tk.MustExec("SET tidb_enforce_mpp=1")
+		tk.MustQuery(input[i] + " for update").Check(testkit.Rows(output[i].ForUpdateAndEnforce...))
+		tk.MustExec("SET tidb_enforce_mpp=0")
+	}
+	if enableRC {
+		tk.MustExec(`commit;`)
 	}
 }
 

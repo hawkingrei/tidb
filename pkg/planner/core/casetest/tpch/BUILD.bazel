@@ -9,7 +9,11 @@ go_test(
     ],
     data = glob(["testdata/**"]),
     flaky = True,
+<<<<<<< HEAD
     shard_count = 11,
+=======
+    shard_count = 13,
+>>>>>>> 1776433ee09 (planner: fix no access path when TiKV read is disabled under RC isolation (#65127))
     deps = [
         "//pkg/config",
         "//pkg/domain",

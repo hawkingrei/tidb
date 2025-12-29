@@ -1538,7 +1538,9 @@ func findBestTask4LogicalDataSource(lp base.LogicalPlan, prop *property.Physical
 		planCounter.Dec(1)
 		return nil, 1, nil
 	}
-	if ds.IsForUpdateRead && ds.SCtx().GetSessionVars().TxnCtx.IsExplicit {
+	sessionVars := ds.SCtx().GetSessionVars()
+	_, isolationReadEnginesHasTiKV := sessionVars.GetIsolationReadEngines()[kv.TiKV]
+	if ds.IsForUpdateRead && sessionVars.TxnCtx.IsExplicit && isolationReadEnginesHasTiKV {
 		hasPointGetPath := false
 		for _, path := range ds.PossibleAccessPaths {
 			if isPointGetPath(ds, path) {
