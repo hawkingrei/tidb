@@ -27,7 +27,7 @@ import (
 // The core idea is to identify when an Outer Join (LEFT or RIGHT) behaves like an Inner Join
 // or an Anti Join due to "null-rejecting" conditions in the WHERE clause.
 //
-// 1.  LEFT JOIN to SEMI JOIN:
+//  1. LEFT JOIN to SEMI JOIN:
 //     When a WHERE clause condition rejects NULL values from the inner table (the right table
 //     in a LEFT JOIN), it effectively filters out all rows where the join condition failed.
 //     This makes the LEFT JOIN behave like an INNER JOIN. If the query only selects columns
@@ -36,7 +36,7 @@ import (
 //     Example: `SELECT a.* FROM a LEFT JOIN b ON a.id=b.id WHERE b.val > 0`
 //     can be converted to `SELECT a.* FROM a SEMI JOIN b ON a.id=b.id WHERE b.val > 0`.
 //
-// 2.  LEFT JOIN to ANTI SEMI JOIN:
+//  2. LEFT JOIN to ANTI SEMI JOIN:
 //     When a WHERE clause condition specifically checks for `IS NULL` on a NOT NULL column
 //     of the inner table, it means the query is looking for rows in the outer table that
 //     have NO match in the inner table. This is the exact definition of an ANTI SEMI JOIN.

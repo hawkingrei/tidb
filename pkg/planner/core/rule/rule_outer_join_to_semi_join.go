@@ -29,14 +29,14 @@ import (
 //
 // This rule identifies two main patterns that can be transformed into a `LogicalSemiJoin` operator:
 //
-// 1.  With a standard `SemiJoin` mode:
+//  1. With a standard `SemiJoin` mode:
 //     When a `WHERE` clause contains a "null-rejecting" predicate on the inner table of a
 //     `LEFT JOIN`, it filters out all non-matching rows. If the query only needs to check for
 //     the existence of matching rows, the `LogicalJoin` can be converted to a `LogicalSemiJoin`.
 //     SQL Example: `SELECT a.* FROM a LEFT JOIN b ON a.id=b.id WHERE b.val > 0`
 //     This is transformed internally into a plan with a `LogicalSemiJoin` operator.
 //
-// 2.  With an `Anti` mode (`AntiSemiJoin`):
+//  2. With an `Anti` mode (`AntiSemiJoin`):
 //     When a `WHERE` clause checks for `IS NULL` on a `NOT NULL` column of the inner table,
 //     it's a clear indication that the query seeks rows from the outer table that have NO match.
 //     This pattern is transformed internally into a `LogicalSemiJoin` operator with its `JoinType`
