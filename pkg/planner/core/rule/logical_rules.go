@@ -30,7 +30,6 @@ const (
 	FlagConstantPropagation
 	FlagConvertOuterToInnerJoin
 	FlagPredicatePushDown
-	FlagOuterJoinToSemiJoin
 	FlagEliminateOuterJoin
 	FlagPartitionProcessor
 	FlagCollectPredicateColumnsPoint
@@ -39,6 +38,7 @@ const (
 	FlagPredicateSimplification
 	FlagPushDownTopN
 	FlagSyncWaitStatsLoadPoint
+	FlagOuterJoinToSemiJoin
 	FlagJoinReOrder
 	FlagPruneColumnsAgain
 	FlagPushDownSequence
