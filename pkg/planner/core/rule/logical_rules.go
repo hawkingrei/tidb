@@ -38,8 +38,8 @@ const (
 	FlagPredicateSimplification
 	FlagPushDownTopN
 	FlagSyncWaitStatsLoadPoint
-	FlagOuterJoinToSemiJoin
 	FlagJoinReOrder
+	FlagOuterJoinToSemiJoin
 	FlagPruneColumnsAgain
 	FlagPushDownSequence
 	FlagEliminateUnionAllDualItem
