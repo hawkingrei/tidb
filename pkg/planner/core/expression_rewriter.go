@@ -1980,6 +1980,9 @@ func (er *expressionRewriter) isTrueToScalarFunc(v *ast.IsTruthExpr) {
 // a in (b, c, d) will be rewritten as `(a = b) or (a = c) or (a = d)`.
 func (er *expressionRewriter) inToExpression(lLen int, not bool, tp *types.FieldType) {
 	stkLen := len(er.ctxStack)
+	if er.sctx.ConnectionID() != 0 {
+		fmt.Println("wwz")
+	}
 	l := expression.GetRowLen(er.ctxStack[stkLen-lLen-1])
 	for i := range lLen {
 		if l != expression.GetRowLen(er.ctxStack[stkLen-lLen+i]) {

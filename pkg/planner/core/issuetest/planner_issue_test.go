@@ -355,3 +355,11 @@ func TestIssue64645(t *testing.T) {
 	tk.MustQuery("select @@last_plan_from_cache;").Check(testkit.Rows("0"))
 	tk.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID)).MultiCheckContain([]string{"IndexRangeScan"})
 }
+
+func TestABC(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec(`use test`)
+	tk.MustExec(`CREATE TABLE t0 (c1 FLOAT8, c2 DOUBLE, UNIQUE (c2, c1));`)
+	tk.MustQuery(`SELECT t0.c1 AS ca1, t0.c1 AS ca2, t0.c2 AS ca3 FROM t0 WHERE ((t0.c2) IN (SELECT t0.c1 AS ca4 FROM t0)) NOT IN (((t0.c1 IS FALSE)), ((((BINARY (NULL ^ TRUE)) NOT REGEXP ((BINARY BIT_LENGTH((DEFAULT(t0.c2))) >> 17))) IS NOT TRUE)));`)
+}
