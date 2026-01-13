@@ -941,8 +941,8 @@ func TestIndexEstimationCrossValidate(t *testing.T) {
 	tk.MustExec("analyze table t")
 	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/statistics/table/mockQueryBytesMaxUint64", `return(100000)`))
 	tk.MustQuery("explain select * from t where a = 1 and b = 2").Check(testkit.Rows(
-		"IndexReader_7 1.00 root  index:IndexRangeScan_6",
-		"└─IndexRangeScan_6 1.00 cop[tikv] table:t, index:a(a, b) range:[1 2,1 2], keep order:false"))
+		"IndexReader_6 1.00 root  index:IndexRangeScan_5",
+		"└─IndexRangeScan_5 1.00 cop[tikv] table:t, index:a(a, b) range:[1 2,1 2], keep order:false"))
 	require.NoError(t, failpoint.Disable("github.com/pingcap/tidb/pkg/statistics/table/mockQueryBytesMaxUint64"))
 
 	// Test issue 22466
@@ -954,9 +954,9 @@ func TestIndexEstimationCrossValidate(t *testing.T) {
 	tk.MustQuery("select * from t2 where b=2")
 	tk.MustExec("analyze table t2 index b")
 	tk.MustQuery("explain select * from t2 where b=2").Check(testkit.Rows(
-		"TableReader_8 1.00 root  data:Selection_7",
-		"└─Selection_7 1.00 cop[tikv]  eq(test.t2.b, 2)",
-		"  └─TableFullScan_6 5.00 cop[tikv] table:t2 keep order:false"))
+		"TableReader_7 1.00 root  data:Selection_6",
+		"└─Selection_6 1.00 cop[tikv]  eq(test.t2.b, 2)",
+		"  └─TableFullScan_5 5.00 cop[tikv] table:t2 keep order:false"))
 }
 
 func TestRangeStepOverflow(t *testing.T) {
