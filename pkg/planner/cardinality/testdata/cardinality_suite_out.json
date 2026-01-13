@@ -7,14 +7,14 @@
         "test t  a 0 \u0000B\u0000B\u0000B 2"
       ],
       [
-        "TableReader_8 2.00 root  data:Selection_7",
-        "└─Selection_7 2.00 cop[tikv]  eq(test.t.a, \"aÄa\")",
-        "  └─TableFullScan_6 4.00 cop[tikv] table:t keep order:false"
+        "TableReader_7 2.00 root  data:Selection_6",
+        "└─Selection_6 2.00 cop[tikv]  eq(test.t.a, \"aÄa\")",
+        "  └─TableFullScan_5 4.00 cop[tikv] table:t keep order:false"
       ],
       [
-        "TableReader_8 2.00 root  data:Selection_7",
-        "└─Selection_7 2.00 cop[tikv]  gt(test.t.a, \"aÄa\")",
-        "  └─TableFullScan_6 4.00 cop[tikv] table:t keep order:false"
+        "TableReader_7 2.00 root  data:Selection_6",
+        "└─Selection_6 2.00 cop[tikv]  gt(test.t.a, \"aÄa\")",
+        "  └─TableFullScan_5 4.00 cop[tikv] table:t keep order:false"
       ]
     ]
   },
