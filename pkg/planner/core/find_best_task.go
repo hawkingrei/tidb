@@ -2364,6 +2364,7 @@ func convertToTableScan(ds *logicalop.DataSource, prop *property.PhysicalPropert
 	if !prop.IsSortItemEmpty() && candidate.path.ForceNoKeepOrder {
 		return base.InvalidTask, nil
 	}
+	hasTiflash := ds.TableInfo.TiFlashReplica != nil
 	ts, _ := physicalop.GetOriginalPhysicalTableScan(ds, prop, candidate.path, candidate.matchPropResult.Matched())
 	// In disaggregated tiflash mode, only MPP is allowed, cop and batchCop is deprecated.
 	// So if prop.TaskTp is RootTaskType, have to use mppTask then convert to rootTask.
