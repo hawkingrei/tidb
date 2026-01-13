@@ -363,13 +363,13 @@ func TestIssue40093(t *testing.T) {
 
 	tk.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID)).CheckAt([]int{0},
 		[][]any{
-			{"Projection_10"},
-			{"└─HashJoin_25"},
-			{"  ├─IndexReader_27(Build)"},
-			{"  │ └─IndexRangeScan_26"}, // RangeScan instead of FullScan
-			{"  └─TableReader_33(Probe)"},
-			{"    └─Selection_32"},
-			{"      └─TableFullScan_31"},
+			{"Projection_9"},
+			{"└─HashJoin_23"},
+			{"  ├─IndexReader_25(Build)"},
+			{"  │ └─IndexRangeScan_24"}, // RangeScan instead of FullScan
+			{"  └─TableReader_31(Probe)"},
+			{"    └─Selection_30"},
+			{"      └─TableFullScan_29"},
 		})
 
 	tk.MustExec("execute st using @b")
