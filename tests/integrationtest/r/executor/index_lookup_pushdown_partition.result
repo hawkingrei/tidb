@@ -8,13 +8,13 @@ create table tp1 (a int primary key, b int, c int, key b(b), key c(c) global) pa
 insert into tp1 values (1, 10, 10), (2, 9, 20), (3, 8, 30), (4, 7, 40), (5, 6, 50), (6, 5, 60);
 explain select /*+ index_lookup_pushdown(tp1, b) */ * from tp1 where b < 10 and a > 1 limit 3;
 id	estRows	task	access object	operator info
-IndexLookUp_16	3.00	root	partition:all	limit embedded(offset:0, count:3)
-├─LocalIndexLookUp_18(Build)	3.00	cop[tikv]		index handle offsets:[1]
-│ ├─Limit_15(Build)	3.00	cop[tikv]		offset:0, count:3
-│ │ └─Selection_14	14.05	cop[tikv]		gt(executor__index_lookup_pushdown_partition.tp1.a, 1)
-│ │   └─IndexRangeScan_12	42.14	cop[tikv]	table:tp1, index:b(b)	range:[-inf,10), keep order:false, stats:pseudo
-│ └─TableRowIDScan_17(Probe)	3.00	cop[tikv]	table:tp1	keep order:false, stats:pseudo
-└─TableRowIDScan_13(Probe)	0.00	cop[tikv]	table:tp1	keep order:false, stats:pseudo
+IndexLookUp_15	3.00	root	partition:all	limit embedded(offset:0, count:3)
+├─LocalIndexLookUp_17(Build)	3.00	cop[tikv]		index handle offsets:[1]
+│ ├─Limit_14(Build)	3.00	cop[tikv]		offset:0, count:3
+│ │ └─Selection_13	14.05	cop[tikv]		gt(executor__index_lookup_pushdown_partition.tp1.a, 1)
+│ │   └─IndexRangeScan_11	42.14	cop[tikv]	table:tp1, index:b(b)	range:[-inf,10), keep order:false, stats:pseudo
+│ └─TableRowIDScan_16(Probe)	3.00	cop[tikv]	table:tp1	keep order:false, stats:pseudo
+└─TableRowIDScan_12(Probe)	0.00	cop[tikv]	table:tp1	keep order:false, stats:pseudo
 select /*+ index_lookup_pushdown(tp1, b) */ * from tp1 where b < 10 and a > 1 limit 3;
 a	b	c
 4	7	40
@@ -99,12 +99,12 @@ insert into tp2 values
 ('h', 8, 22, 80);
 explain select /*+ index_lookup_pushdown(tp2, a) */ * from tp2 where a > 33 limit 5;
 id	estRows	task	access object	operator info
-IndexLookUp_15	5.00	root	partition:all	limit embedded(offset:0, count:5)
-├─LocalIndexLookUp_17(Build)	5.00	cop[tikv]		index handle offsets:[]
-│ ├─Limit_14(Build)	5.00	cop[tikv]		offset:0, count:5
-│ │ └─IndexRangeScan_12	5.00	cop[tikv]	table:tp2, index:a(a)	range:(33,+inf], keep order:false, stats:pseudo
-│ └─TableRowIDScan_16(Probe)	5.00	cop[tikv]	table:tp2	keep order:false, stats:pseudo
-└─TableRowIDScan_13(Probe)	0.00	cop[tikv]	table:tp2	keep order:false, stats:pseudo
+IndexLookUp_14	5.00	root	partition:all	limit embedded(offset:0, count:5)
+├─LocalIndexLookUp_16(Build)	5.00	cop[tikv]		index handle offsets:[]
+│ ├─Limit_13(Build)	5.00	cop[tikv]		offset:0, count:5
+│ │ └─IndexRangeScan_11	5.00	cop[tikv]	table:tp2, index:a(a)	range:(33,+inf], keep order:false, stats:pseudo
+│ └─TableRowIDScan_15(Probe)	5.00	cop[tikv]	table:tp2	keep order:false, stats:pseudo
+└─TableRowIDScan_12(Probe)	0.00	cop[tikv]	table:tp2	keep order:false, stats:pseudo
 select /*+ index_lookup_pushdown(tp2, a) */ * from tp2 where a > 33 limit 5;
 id1	id2	a	b
 a	1	99	10
