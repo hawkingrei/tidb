@@ -331,8 +331,9 @@ IndexReader_7	10000.00	root		index:IndexFullScan_6
 alter table t set hypo tiflash replica 1;
 explain select a from t;
 id	estRows	task	access object	operator info
-TableReader_7	10000.00	root		data:TableFullScan_6
-└─TableFullScan_6	10000.00	cop[tiflash]	table:t	keep order:false, stats:pseudo
+TableReader_8	10000.00	root		MppVersion: 3, data:ExchangeSender_7
+└─ExchangeSender_7	10000.00	mpp[tiflash]		ExchangeType: PassThrough
+  └─TableFullScan_6	10000.00	mpp[tiflash]	table:t	keep order:false, stats:pseudo
 alter table t set hypo tiflash replica 0;
 explain select a from t;
 id	estRows	task	access object	operator info
