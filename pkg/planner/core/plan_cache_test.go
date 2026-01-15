@@ -974,7 +974,7 @@ func TestIssue42125(t *testing.T) {
 	ps := []*sessmgr.ProcessInfo{tkProcess}
 	tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
 	rows := tk.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID)).Rows()
-	require.Equal(t, rows[0][0], "Batch_Point_Get_6") // use BatchPointGet
+	require.Equal(t, rows[0][0], "Batch_Point_Get_5") // use BatchPointGet
 	tk.MustExec("execute st using @a, @b")
 	tk.MustQuery("show warnings").Check(testkit.Rows("Warning 1105 skip prepared plan-cache: Batch/PointGet plans may be over-optimized"))
 
@@ -986,7 +986,7 @@ func TestIssue42125(t *testing.T) {
 	ps = []*sessmgr.ProcessInfo{tkProcess}
 	tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
 	rows = tk.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID)).Rows()
-	require.Equal(t, rows[0][0], "Point_Get_6") // use Point_Get_5
+	require.Equal(t, rows[0][0], "Point_Get_5")
 	tk.MustExec("execute st using @a, @b")
 	tk.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("0")) // cannot hit
 
