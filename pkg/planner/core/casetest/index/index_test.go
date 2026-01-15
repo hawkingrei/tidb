@@ -227,18 +227,18 @@ func TestOrderedIndexWithIsNull(t *testing.T) {
 		testKit.MustExec("CREATE TABLE t1 (a int key, b int, c int, index (b, c));")
 		testKit.MustQuery("explain select a from t1 where b is null order by c").Check(testkit.Rows(
 			"Projection_6 10.00 root  test.t1.a",
-			"└─IndexReader_14 10.00 root  index:IndexRangeScan_13",
-			"  └─IndexRangeScan_13 10.00 cop[tikv] table:t1, index:b(b, c) range:[NULL,NULL], keep order:true, stats:pseudo",
+			"└─IndexReader_13 10.00 root  index:IndexRangeScan_12",
+			"  └─IndexRangeScan_12 10.00 cop[tikv] table:t1, index:b(b, c) range:[NULL,NULL], keep order:true, stats:pseudo",
 		))
 		// https://github.com/pingcap/tidb/issues/56116
 		testKit.MustExec("create table t2(id bigint(20) DEFAULT NULL, UNIQUE KEY index_on_id (id))")
 		testKit.MustExec("insert into t2 values (), (), ()")
 		testKit.MustExec("analyze table t2")
 		testKit.MustQuery("explain select count(*) from t2 where id is null;").Check(testkit.Rows(
-			`StreamAgg_18 1.00 root  funcs:count(Column#5)->Column#3`,
-			`└─IndexReader_19 1.00 root  index:StreamAgg_10`,
-			`  └─StreamAgg_10 1.00 cop[tikv]  funcs:count(1)->Column#5`,
-			`    └─IndexRangeScan_17 3.00 cop[tikv] table:t2, index:index_on_id(id) range:[NULL,NULL], keep order:false`))
+			`StreamAgg_17 1.00 root  funcs:count(Column#5)->Column#3`,
+			`└─IndexReader_18 1.00 root  index:StreamAgg_9`,
+			`  └─StreamAgg_9 1.00 cop[tikv]  funcs:count(1)->Column#5`,
+			`    └─IndexRangeScan_16 3.00 cop[tikv] table:t2, index:index_on_id(id) range:[NULL,NULL], keep order:false`))
 	})
 }
 
