@@ -1772,18 +1772,18 @@ func TestIgnoreRealtimeStats(t *testing.T) {
 	// From the real-time stats, we are able to know the total count is 11.
 	testKit.MustExec("set @@tidb_opt_objective = 'moderate'")
 	testKit.MustQuery("explain select * from t where a = 1 and b > 2").Check(testkit.Rows(
-		"TableReader_8 1.00 root  data:Selection_7",
-		"└─Selection_7 1.00 cop[tikv]  eq(test.t.a, 1), gt(test.t.b, 2)",
-		"  └─TableFullScan_6 11.00 cop[tikv] table:t keep order:false, stats:pseudo",
+		"TableReader_7 1.00 root  data:Selection_6",
+		"└─Selection_6 1.00 cop[tikv]  eq(test.t.a, 1), gt(test.t.b, 2)",
+		"  └─TableFullScan_5 11.00 cop[tikv] table:t keep order:false, stats:pseudo",
 	))
 
 	// 1-2. ignore real-time stats.
 	// Use pseudo stats table. The total row count is 10000.
 	testKit.MustExec("set @@tidb_opt_objective = 'determinate'")
 	testKit.MustQuery("explain select * from t where a = 1 and b > 2").Check(testkit.Rows(
-		"TableReader_8 3.33 root  data:Selection_7",
-		"└─Selection_7 3.33 cop[tikv]  eq(test.t.a, 1), gt(test.t.b, 2)",
-		"  └─TableFullScan_6 10000.00 cop[tikv] table:t keep order:false, stats:pseudo",
+		"TableReader_7 3.33 root  data:Selection_6",
+		"└─Selection_6 3.33 cop[tikv]  eq(test.t.a, 1), gt(test.t.b, 2)",
+		"  └─TableFullScan_5 10000.00 cop[tikv] table:t keep order:false, stats:pseudo",
 	))
 
 	// 2. After ANALYZE.
@@ -1792,9 +1792,9 @@ func TestIgnoreRealtimeStats(t *testing.T) {
 
 	// The execution plans are the same no matter we ignore the real-time stats or not.
 	analyzedPlan := []string{
-		"TableReader_8 2.73 root  data:Selection_7",
-		"└─Selection_7 2.73 cop[tikv]  eq(test.t.a, 1), gt(test.t.b, 2)",
-		"  └─TableFullScan_6 11.00 cop[tikv] table:t keep order:false",
+		"TableReader_7 2.73 root  data:Selection_6",
+		"└─Selection_6 2.73 cop[tikv]  eq(test.t.a, 1), gt(test.t.b, 2)",
+		"  └─TableFullScan_5 11.00 cop[tikv] table:t keep order:false",
 	}
 	testKit.MustExec("set @@tidb_opt_objective = 'moderate'")
 	testKit.MustQuery("explain select * from t where a = 1 and b > 2").Check(testkit.Rows(analyzedPlan...))
@@ -1811,9 +1811,9 @@ func TestIgnoreRealtimeStats(t *testing.T) {
 	// Selectivity is not changed: 15 * (2.73 / 11) = 3.72
 	testKit.MustExec("set @@tidb_opt_objective = 'moderate'")
 	testKit.MustQuery("explain select * from t where a = 1 and b > 2").Check(testkit.Rows(
-		"TableReader_8 3.72 root  data:Selection_7",
-		"└─Selection_7 3.72 cop[tikv]  eq(test.t.a, 1), gt(test.t.b, 2)",
-		"  └─TableFullScan_6 15.00 cop[tikv] table:t keep order:false",
+		"TableReader_7 3.72 root  data:Selection_6",
+		"└─Selection_6 3.72 cop[tikv]  eq(test.t.a, 1), gt(test.t.b, 2)",
+		"  └─TableFullScan_5 15.00 cop[tikv] table:t keep order:false",
 	))
 
 	// 3-2. ignore real-time stats.
