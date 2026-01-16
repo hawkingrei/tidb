@@ -281,7 +281,7 @@
     "Name": "TestUniqCompEqualEst",
     "Cases": [
       [
-        "Point_Get_6 1.00 root table:t, clustered index:PRIMARY(a, b) "
+        "Point_Get_5 1.00 root table:t, clustered index:PRIMARY(a, b) "
       ]
     ]
   },
