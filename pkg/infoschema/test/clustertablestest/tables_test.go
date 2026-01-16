@@ -883,9 +883,9 @@ func TestStmtSummaryTable(t *testing.T) {
 		"from information_schema.statements_summary " +
 		"where digest_text like 'select * from `t`%'"
 	tk.MustQuery(sql).Check(testkit.Rows("Select test test.t t:k 1 0 0 0 0 0 0 0 0 0 0 select * from t where a=2 \tid                       \ttask     \testRows\toperator info\n" +
-		"\tIndexLookUp_8            \troot     \t100    \t\n" +
-		"\t├─IndexRangeScan_6(Build)\tcop[tikv]\t100    \ttable:t, index:k(a), range:[2,2], keep order:false, stats:pseudo\n" +
-		"\t└─TableRowIDScan_7(Probe)\tcop[tikv]\t100    \ttable:t, keep order:false, stats:pseudo"))
+		"\tIndexLookUp_7            \troot     \t100    \t\n" +
+		"\t├─IndexRangeScan_5(Build)\tcop[tikv]\t100    \ttable:t, index:k(a), range:[2,2], keep order:false, stats:pseudo\n" +
+		"\t└─TableRowIDScan_6(Probe)\tcop[tikv]\t100    \ttable:t, keep order:false, stats:pseudo"))
 
 	// select ... order by
 	tk.MustQuery(`select stmt_type, schema_name, table_names, index_names, exec_count, sum_cop_task_num, avg_total_keys,
