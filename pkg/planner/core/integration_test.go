@@ -1973,8 +1973,8 @@ func TestVirtualExprPushDown(t *testing.T) {
 		// Projection to tikv.
 		rows = [][]any{
 			{"Projection_3", "root", "plus(test.t.c1, test.t.c2)->Column#4"},
-			{"└─TableReader_6", "root", "data:TableFullScan_5"},
-			{"  └─TableFullScan_5", "cop[tikv]", "keep order:false, stats:pseudo"},
+			{"└─TableReader_5", "root", "data:TableFullScan_4"},
+			{"  └─TableFullScan_4", "cop[tikv]", "keep order:false, stats:pseudo"},
 		}
 		tk.MustExec("set session tidb_opt_projection_push_down='ON';")
 		tk.MustQuery("explain select c1 + c2 from t;").CheckAt([]int{0, 2, 4}, rows)
@@ -1982,9 +1982,9 @@ func TestVirtualExprPushDown(t *testing.T) {
 
 		// Selection to tikv.
 		rows = [][]any{
-			{"Selection_8", "root", "gt(test.t.c2, 1)"},
-			{"└─TableReader_7", "root", "data:TableFullScan_6"},
-			{"  └─TableFullScan_6", "cop[tikv]", "keep order:false, stats:pseudo"},
+			{"Selection_7", "root", "gt(test.t.c2, 1)"},
+			{"└─TableReader_6", "root", "data:TableFullScan_5"},
+			{"  └─TableFullScan_5", "cop[tikv]", "keep order:false, stats:pseudo"},
 		}
 		tk.MustQuery("explain select * from t where c2 > 1;").CheckAt([]int{0, 2, 4}, rows)
 
