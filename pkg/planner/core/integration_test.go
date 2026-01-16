@@ -268,17 +268,17 @@ func TestBitColumnPushDown(t *testing.T) {
 		testKit.MustQuery(sql).Sort().Check(testkit.Rows("2", "2", "3", "3", "4", "4"))
 		rows := [][]any{
 			{"Projection_15", "root", "test.t1.b"},
-			{"└─Apply_19", "root", "CARTESIAN inner join, other cond:gt(test.t1.b, Column#7)"},
-			{"  ├─TableReader_22(Build)", "root", "data:Selection_21"},
-			{"  │ └─Selection_21", "cop[tikv]", "not(isnull(test.t1.b))"},
-			{"  │   └─TableFullScan_20", "cop[tikv]", "keep order:false, stats:pseudo"},
-			{"  └─Selection_23(Probe)", "root", "not(isnull(Column#7))"},
-			{"    └─StreamAgg_29", "root", "funcs:min(test.t2.b)->Column#7"},
-			{"      └─TopN_30", "root", "test.t2.b, offset:0, count:1"},
-			{"        └─TableReader_40", "root", "data:TopN_39"},
-			{"          └─TopN_39", "cop[tikv]", "test.t2.b, offset:0, count:1"},
-			{"            └─Selection_38", "cop[tikv]", "lt(test.t2.a, test.t1.a), not(isnull(test.t2.b))"},
-			{"              └─TableFullScan_37", "cop[tikv]", "keep order:false, stats:pseudo"},
+			{"└─Apply_18", "root", "CARTESIAN inner join, other cond:gt(test.t1.b, Column#7)"},
+			{"  ├─TableReader_21(Build)", "root", "data:Selection_20"},
+			{"  │ └─Selection_20", "cop[tikv]", "not(isnull(test.t1.b))"},
+			{"  │   └─TableFullScan_19", "cop[tikv]", "keep order:false, stats:pseudo"},
+			{"  └─Selection_22(Probe)", "root", "not(isnull(Column#7))"},
+			{"    └─StreamAgg_28", "root", "funcs:min(test.t2.b)->Column#7"},
+			{"      └─TopN_29", "root", "test.t2.b, offset:0, count:1"},
+			{"        └─TableReader_39", "root", "data:TopN_38"},
+			{"          └─TopN_38", "cop[tikv]", "test.t2.b, offset:0, count:1"},
+			{"            └─Selection_37", "cop[tikv]", "lt(test.t2.a, test.t1.a), not(isnull(test.t2.b))"},
+			{"              └─TableFullScan_36", "cop[tikv]", "keep order:false, stats:pseudo"},
 		}
 		testKit.MustQuery(fmt.Sprintf("explain analyze %s", sql)).CheckAt([]int{0, 3, 6}, rows)
 		testKit.MustExec("insert t1 values ('A', 1);")
