@@ -333,7 +333,6 @@ func TestMPPHintsScope(t *testing.T) {
 		testKit.MustExec("select /*+ broadcast_join(t1, t2) */ * from t t1, t t2 where t1.a=t2.a")
 		testKit.MustQuery("show warnings").Check(testkit.Rows(
 			"Warning 1815 The join can not push down to the MPP side, the broadcast_join() hint is invalid",
-			"Warning 1815 The join can not push down to the MPP side, the broadcast_join() hint is invalid",
 			"Warning 1815 The join can not push down to the MPP side, the broadcast_join() hint is invalid"))
 
 		var input []string
