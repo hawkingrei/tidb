@@ -43,7 +43,7 @@ TableReader	root		data:TableRangeScan
 explain format = 'plan_tree' select t1.c1, t1.c2 from t1 where t1.c2 = 1;
 id	task	access object	operator info
 IndexReader	root		index:IndexRangeScan
-└─IndexRangeScan	cop[tikv]	table:t1, index:c2(c2)	range:[1,1], keep order:false, stats:partial[c2:missing]
+└─IndexRangeScan	cop[tikv]	table:t1, index:c2(c2)	range:[1,1], keep order:false, stats:partial[c2:unInitialized]
 explain format = 'plan_tree' select * from t1 left join t2 on t1.c2 = t2.c1 where t1.c1 > 1;
 id	task	access object	operator info
 HashJoin	root		left outer join, left side:TableReader, equal:[eq(explain_easy_stats.t1.c2, explain_easy_stats.t2.c1)]
@@ -60,7 +60,7 @@ explain format = 'plan_tree' delete from t1 where t1.c2 = 1;
 id	task	access object	operator info
 Delete	root		N/A
 └─IndexReader	root		index:IndexRangeScan
-  └─IndexRangeScan	cop[tikv]	table:t1, index:c2(c2)	range:[1,1], keep order:false, stats:partial[c2:missing]
+  └─IndexRangeScan	cop[tikv]	table:t1, index:c2(c2)	range:[1,1], keep order:false, stats:partial[c2:unInitialized]
 explain format = 'plan_tree' select count(b.c2) from t1 a, t2 b where a.c1 = b.c2 group by a.c1;
 id	task	access object	operator info
 Projection	root		Column
@@ -80,9 +80,9 @@ TopN	root		explain_easy_stats.t2.c2, offset:0, count:1
 explain format = 'plan_tree' select * from t1 where c1 > 1 and c2 = 1 and c3 < 1;
 id	task	access object	operator info
 IndexLookUp	root		
-├─IndexRangeScan(Build)	cop[tikv]	table:t1, index:c2(c2)	range:(1 1,1 +inf], keep order:false, stats:partial[c2:missing]
+├─IndexRangeScan(Build)	cop[tikv]	table:t1, index:c2(c2)	range:(1 1,1 +inf], keep order:false, stats:partial[c2:unInitialized]
 └─Selection(Probe)	cop[tikv]		lt(explain_easy_stats.t1.c3, 1)
-  └─TableRowIDScan	cop[tikv]	table:t1	keep order:false, stats:partial[c2:missing]
+  └─TableRowIDScan	cop[tikv]	table:t1	keep order:false, stats:partial[c2:unInitialized]
 explain format = 'plan_tree' select * from t1 where c1 = 1 and c2 > 1;
 id	task	access object	operator info
 Selection	root		gt(explain_easy_stats.t1.c2, 1)
@@ -128,28 +128,28 @@ HashJoin	root		CARTESIAN left outer semi join, left side:IndexReader, other cond
 explain format="dot" select 1 in (select c2 from t2) from t1;
 dot contents
 
-digraph HashJoin_16 {
-subgraph cluster16{
+digraph HashJoin_14 {
+subgraph cluster14{
 node [style=filled, color=lightgrey]
 color=black
 label = "root"
-"HashJoin_16" -> "IndexReader_20"
-"HashJoin_16" -> "TableReader_22"
+"HashJoin_14" -> "IndexReader_18"
+"HashJoin_14" -> "TableReader_20"
+}
+subgraph cluster17{
+node [style=filled, color=lightgrey]
+color=black
+label = "cop"
+"IndexFullScan_17"
 }
 subgraph cluster19{
 node [style=filled, color=lightgrey]
 color=black
 label = "cop"
-"IndexFullScan_19"
+"TableFullScan_19"
 }
-subgraph cluster21{
-node [style=filled, color=lightgrey]
-color=black
-label = "cop"
-"TableFullScan_21"
-}
-"IndexReader_20" -> "IndexFullScan_19"
-"TableReader_22" -> "TableFullScan_21"
+"IndexReader_18" -> "IndexFullScan_17"
+"TableReader_20" -> "TableFullScan_19"
 }
 
 explain format = 'plan_tree' select * from index_prune WHERE a = 1010010404050976781 AND b = 26467085526790 LIMIT 1;
