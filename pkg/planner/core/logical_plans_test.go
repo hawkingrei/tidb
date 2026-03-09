@@ -680,6 +680,34 @@ func TestYannakakisPlusDistinctRewrite(t *testing.T) {
 	require.Equal(t, 1, groupedCountBaseAggs)
 	require.Equal(t, 3, groupedCountYannakakisAggs)
 
+	countColumnSQL := "select count(t1.c) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b"
+	countColumnBase, countColumnBaseAggs := buildPlanSummary(s, countColumnSQL, baseFlags)
+	countColumnYannakakis, countColumnYannakakisAggs := buildPlanSummary(s, countColumnSQL, yannakakisFlags)
+	require.NotEqual(t, countColumnBase, countColumnYannakakis)
+	require.Equal(t, 1, countColumnBaseAggs)
+	require.Equal(t, 3, countColumnYannakakisAggs)
+
+	sumSQL := "select sum(t1.c) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b"
+	sumBase, sumBaseAggs := buildPlanSummary(s, sumSQL, baseFlags)
+	sumYannakakis, sumYannakakisAggs := buildPlanSummary(s, sumSQL, yannakakisFlags)
+	require.NotEqual(t, sumBase, sumYannakakis)
+	require.Equal(t, 1, sumBaseAggs)
+	require.Equal(t, 3, sumYannakakisAggs)
+
+	groupedSumSQL := "select t1.a, sum(t3.b) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b group by t1.a"
+	groupedSumBase, groupedSumBaseAggs := buildPlanSummary(s, groupedSumSQL, baseFlags)
+	groupedSumYannakakis, groupedSumYannakakisAggs := buildPlanSummary(s, groupedSumSQL, yannakakisFlags)
+	require.NotEqual(t, groupedSumBase, groupedSumYannakakis)
+	require.Equal(t, 1, groupedSumBaseAggs)
+	require.Equal(t, 3, groupedSumYannakakisAggs)
+
+	mixedWeightedSQL := "select count(t3.b), sum(t3.b) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b"
+	mixedWeightedBase, mixedWeightedBaseAggs := buildPlanSummary(s, mixedWeightedSQL, baseFlags)
+	mixedWeightedYannakakis, mixedWeightedYannakakisAggs := buildPlanSummary(s, mixedWeightedSQL, yannakakisFlags)
+	require.NotEqual(t, mixedWeightedBase, mixedWeightedYannakakis)
+	require.Equal(t, 1, mixedWeightedBaseAggs)
+	require.Equal(t, 3, mixedWeightedYannakakisAggs)
+
 	minSQL := "select min(t1.c) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b"
 	minBase, minBaseAggs := buildPlanSummary(s, minSQL, baseFlags)
 	minYannakakis, minYannakakisAggs := buildPlanSummary(s, minSQL, yannakakisFlags)
@@ -718,6 +746,12 @@ func TestYannakakisPlusDistinctRewrite(t *testing.T) {
 	nonDominatedCountYannakakis, nonDominatedCountYannakakisAggs := buildPlanSummary(s, nonDominatedCountSQL, yannakakisFlags)
 	require.Equal(t, nonDominatedCountBase, nonDominatedCountYannakakis)
 	require.Equal(t, nonDominatedCountBaseAggs, nonDominatedCountYannakakisAggs)
+
+	nonDominatedWeightedSQL := "select t1.a, count(t3.c), sum(t3.c) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b group by t1.a"
+	nonDominatedWeightedBase, nonDominatedWeightedBaseAggs := buildPlanSummary(s, nonDominatedWeightedSQL, baseFlags)
+	nonDominatedWeightedYannakakis, nonDominatedWeightedYannakakisAggs := buildPlanSummary(s, nonDominatedWeightedSQL, yannakakisFlags)
+	require.Equal(t, nonDominatedWeightedBase, nonDominatedWeightedYannakakis)
+	require.Equal(t, nonDominatedWeightedBaseAggs, nonDominatedWeightedYannakakisAggs)
 
 	nonDominatedMinMaxSQL := "select min(t1.c), max(t3.c) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b"
 	nonDominatedMinMaxBase, nonDominatedMinMaxBaseAggs := buildPlanSummary(s, nonDominatedMinMaxSQL, baseFlags)

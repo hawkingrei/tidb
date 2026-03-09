@@ -5,8 +5,9 @@
 - Entry point: `pkg/planner/core/rule_yannakakis_plus.go`.
 - Current rewrite scope is intentionally narrower than the paper:
   - top-level `DISTINCT` represented as `LogicalAggregation(first_row(...))`;
-  - top-level `COUNT(*)` / `COUNT(1)` represented as one `count(constant)` plus
-    optional `first_row(group_by_col)` outputs;
+  - top-level weighted aggregates represented as `count(constant)`,
+    `count(root_col)`, and `sum(root_col)` plus optional
+    `first_row(group_by_col)` outputs;
   - top-level duplicate-insensitive `MIN/MAX(column)` represented as one or
     more `min/max(column)` plus optional `first_row(group_by_col)` outputs;
   - all output attribute classes must be dominated by the same leaf relation;
@@ -23,8 +24,11 @@
 - `MIN/MAX` are added only for the duplicate-insensitive subset, so the current
   rewrite can reuse interface-level `DISTINCT` reductions without introducing a
   separate multiplicity summary.
-- Restricting the `COUNT` rewrite to `count(constant)` avoids remapping
-  null-sensitive arguments before we have a broader aggregate-annotation model.
+- `COUNT(root_col)` is limited to direct column arguments so the rewrite only
+  needs root-local null checks, not arbitrary expression remapping.
+- `SUM(root_col)` is limited to numeric root columns so the weighted
+  contribution stays within the same arithmetic subset already supported by
+  TiDB's aggregate type inference.
 - Phase 1 only permits remapping to equality-equivalent root columns with
   identical field types; it still avoids general expression remapping.
 
@@ -43,8 +47,8 @@ At the root, `reduceDistinctSubtree(root, nil)` returns the reduced join subtree
 without the final root projection because the top-level `DISTINCT` aggregation
 still sits above it.
 
-For the count rewrite, let `summarizeCountSubtree(v, p)` denote the grouped
-summary produced for a non-root node. Its invariant is:
+For the weighted-aggregate rewrite, let `summarizeMultiplicitySubtree(v, p)`
+denote the grouped summary produced for a non-root node. Its invariant is:
 
 - the output schema contains `I(v, p)` and one multiplicity column `m(v, p)`;
 - for every interface assignment `x`, `m(v, p, x)` equals the number of tuples
@@ -69,10 +73,10 @@ summary produced for a non-root node. Its invariant is:
      equality-equivalent root columns with identical field types, the original
      result is preserved after child subtrees are reduced to their join
      interfaces.
-4. COUNT summary base case:
+4. Multiplicity summary base case:
    - If `v` is a leaf, grouping the leaf by `I(v, p)` and aggregating
      `count(1)` yields exactly the multiplicity of each interface assignment.
-5. COUNT summary inductive step:
+5. Multiplicity summary inductive step:
    - Assume each child summary already exposes the exact multiplicity for its
      interface with `v`.
    - Joining the current relation with all child summaries reconstructs the
@@ -80,11 +84,14 @@ summary produced for a non-root node. Its invariant is:
      number of descendant combinations attached to each current row.
    - Grouping by `I(v, p)` and summing that product yields the exact subtree
      multiplicity for each interface assignment.
-6. COUNT root:
-   - At the root, summing the product of child multiplicities over the chosen
-     root relation yields the original join count.
-   - Scalar count rewrites add `ifnull(..., 0)` above the rewritten `sum(...)`
-     so the empty-input result stays equal to `count(*)`.
+6. Weighted root aggregates:
+   - `count(constant)` at the root becomes `sum(multiplicity)`; scalar count
+     rewrites add `ifnull(..., 0)` so empty-input semantics stay unchanged.
+   - `count(root_col)` becomes `sum(if(root_col is null, 0, multiplicity))`,
+     which preserves SQL's null-insensitive count semantics.
+   - `sum(root_col)` becomes `sum(root_col * multiplicity)`; `NULL` root values
+     remain `NULL` contributions and are ignored by `SUM`, just as in the
+     original join result.
 7. MIN/MAX root:
    - Child subtree duplicates can be collapsed to interface-level `DISTINCT`
      because `MIN/MAX` depend only on which root tuples survive the join, not
@@ -102,8 +109,8 @@ transitive inside the connected component.
 
 - `isDistinctLikeAgg` accepts only the exact `DISTINCT`-style aggregation
   shape.
-- `extractCountLikeAggInfo` accepts only one `count(constant)` plus optional
-  `first_row(group_by_col)` outputs.
+- `extractWeightedAggInfo` accepts only `count(constant)`, `count(column)`,
+  `sum(column)`, and optional `first_row(group_by_col)` outputs.
 - `extractMinMaxAggInfo` accepts only `min/max(column)` plus optional
   `first_row(group_by_col)` outputs.
 - `collectInnerJoinGraph` rejects anything outside inner equi-joins.
@@ -111,12 +118,16 @@ transitive inside the connected component.
   single relation and rejects disconnected relation sets.
 - `deriveAcyclicRelationTree` uses GYO-style elimination and rejects graphs
   that cannot be reduced to one relation.
+- `isSupportedYannakakisSumArg` keeps `SUM` inside the numeric subset where the
+  weighted arithmetic stays explicit and reviewable.
 
 ## What Phase 1 Does Not Prove
 
 - Generic `GROUP BY` with decomposable aggregates.
-- `COUNT(expr)` where `expr` may become `NULL` after remapping.
-- duplicate-sensitive aggregates such as generic `SUM` and `AVG`.
+- `COUNT(expr)` where `expr` is not a direct dominated root column.
+- `SUM(expr)` where `expr` is not a direct numeric dominated root column.
+- generic `AVG` and other duplicate-sensitive aggregates beyond the weighted
+  root-column subset.
 - Output remapping when the root representative would change field type.
 - Cost-based selection among multiple legal join trees.
 - Semijoin reduction with foreign-key or Bloom-filter style extensions.
@@ -128,11 +139,15 @@ transitive inside the connected component.
   - `select distinct t1.a, t3.b from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b`
   - `select count(*) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b`
   - `select t1.a, count(*) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b group by t1.a`
+  - `select count(t1.c) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b`
+  - `select sum(t1.c) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b`
+  - `select t1.a, sum(t3.b) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b group by t1.a`
   - `select min(t1.c) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b`
   - `select t1.a, max(t3.b) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b group by t1.a`
 - Negative regressions:
   - cyclic join graph;
   - single-table `count(*)`;
   - grouped count whose output attribute classes are not dominated by one relation;
+  - weighted aggregates whose output and argument attribute classes are not dominated by one relation;
   - `min/max` whose arguments and outputs are not dominated by one relation;
   - `DISTINCT` whose output attribute classes are not dominated by one relation.

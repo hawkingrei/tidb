@@ -31,9 +31,9 @@ import (
 
 // YannakakisPlusSolver applies a safe MVP rewrite inspired by Yannakakis+.
 //
-// This stage intentionally handles only conservative DISTINCT and COUNT(*)
-// rewrites whose output attribute classes are dominated by the same leaf
-// relation of an acyclic inner equi-join.
+// This stage intentionally handles only conservative DISTINCT and root-local
+// weighted aggregate rewrites whose output attribute classes are dominated by
+// the same leaf relation of an acyclic inner equi-join.
 // The recursive invariant is:
 // reduceDistinctSubtree(node, parent) returns a plan equivalent to the DISTINCT
 // projection of the original subtree on the interface columns shared with parent.
@@ -46,9 +46,14 @@ type yannakakisMinMaxAggInfo struct {
 	outputCols       []*expression.Column
 }
 
-type yannakakisCountLikeAggInfo struct {
-	countIndex       int
-	countFunc        *aggregation.AggFuncDesc
+type yannakakisWeightedAggTarget struct {
+	aggIndex int
+	aggFunc  *aggregation.AggFuncDesc
+	argCol   *expression.Column
+}
+
+type yannakakisWeightedAggInfo struct {
+	targets          []yannakakisWeightedAggTarget
 	outputAggIndices []int
 	outputCols       []*expression.Column
 }
@@ -72,7 +77,7 @@ type yannakakisUnionFind struct {
 	parent map[int64]int64
 }
 
-type yannakakisCountSummary struct {
+type yannakakisMultiplicitySummary struct {
 	plan     base.LogicalPlan
 	countCol *expression.Column
 }
@@ -120,7 +125,7 @@ func (s *YannakakisPlusSolver) rewriteRecursive(p base.LogicalPlan) (base.Logica
 	if rewrittenChanged {
 		return rewritten, true, nil
 	}
-	rewritten, rewrittenChanged, err = s.tryRewriteCountAgg(agg)
+	rewritten, rewrittenChanged, err = s.tryRewriteWeightedAgg(agg)
 	if err != nil {
 		return nil, false, err
 	}
@@ -180,8 +185,8 @@ func (s *YannakakisPlusSolver) tryRewriteDistinctAgg(agg *logicalop.LogicalAggre
 	return agg, true, nil
 }
 
-func (s *YannakakisPlusSolver) tryRewriteCountAgg(agg *logicalop.LogicalAggregation) (base.LogicalPlan, bool, error) {
-	info, ok := extractCountLikeAggInfo(agg)
+func (s *YannakakisPlusSolver) tryRewriteWeightedAgg(agg *logicalop.LogicalAggregation) (base.LogicalPlan, bool, error) {
+	info, ok := extractWeightedAggInfo(agg)
 	if !ok || len(agg.Children()) != 1 {
 		return agg, false, nil
 	}
@@ -192,15 +197,15 @@ func (s *YannakakisPlusSolver) tryRewriteCountAgg(agg *logicalop.LogicalAggregat
 		return agg, false, nil
 	}
 
-	outputAttrs, ok := extractCountOutputAttrs(info, graph)
+	relevantAttrs, ok := extractWeightedRelevantAttrs(info, graph)
 	if !ok {
 		return agg, false, nil
 	}
-	rootRelID, ok := findDominatingRelationByAttrs(graph.relations, outputAttrs)
+	rootRelID, ok := findDominatingRelationByAttrs(graph.relations, relevantAttrs)
 	if !ok {
 		return agg, false, nil
 	}
-	remappedGroupBy, remappedOutputCols, ok := remapCountAggToRelation(agg, info, graph, graph.relations[rootRelID])
+	remappedGroupBy, remappedOutputCols, remappedTargetCols, ok := remapWeightedAggToRelation(agg, info, graph, graph.relations[rootRelID])
 	if !ok {
 		return agg, false, nil
 	}
@@ -209,7 +214,7 @@ func (s *YannakakisPlusSolver) tryRewriteCountAgg(agg *logicalop.LogicalAggregat
 	if !ok {
 		return agg, false, nil
 	}
-	rootPlan, childCountCols, err := s.assembleCountSubtree(agg, graph, edges, tree, rootRelID, -1)
+	rootPlan, childCountCols, err := s.assembleMultiplicitySubtree(agg, graph, edges, tree, rootRelID, -1)
 	if err != nil || len(childCountCols) == 0 {
 		return agg, false, nil
 	}
@@ -222,20 +227,25 @@ func (s *YannakakisPlusSolver) tryRewriteCountAgg(agg *logicalop.LogicalAggregat
 	}
 
 	multiplicityExpr := buildMultiplicityExpr(agg.SCtx(), childCountCols)
-	sumDesc, err := aggregation.NewAggFuncDesc(agg.SCtx().GetExprCtx(), ast.AggFuncSum, []expression.Expression{multiplicityExpr}, false)
-	if err != nil {
-		return agg, false, nil
-	}
-	sumDesc.TypeInfer4FinalCount(info.countFunc.RetTp)
-	agg.AggFuncs[info.countIndex] = sumDesc
-	if agg.Schema() != nil && info.countIndex < agg.Schema().Len() {
-		agg.Schema().Columns[info.countIndex].RetType = sumDesc.RetTp
+	scalarCountIndices := make([]int, 0, len(info.targets))
+	for idx, target := range info.targets {
+		rewrittenDesc, rewriteScalarCount, err := rewriteWeightedAggDesc(agg, target, remappedTargetCols[idx], multiplicityExpr)
+		if err != nil {
+			return agg, false, nil
+		}
+		agg.AggFuncs[target.aggIndex] = rewrittenDesc
+		if agg.Schema() != nil && target.aggIndex < agg.Schema().Len() {
+			agg.Schema().Columns[target.aggIndex].RetType = rewrittenDesc.RetTp
+		}
+		if rewriteScalarCount {
+			scalarCountIndices = append(scalarCountIndices, target.aggIndex)
+		}
 	}
 	agg.SetChildren(rootPlan)
-	if len(agg.GroupByItems) > 0 {
+	if len(agg.GroupByItems) > 0 || len(scalarCountIndices) == 0 {
 		return agg, true, nil
 	}
-	return wrapScalarCountWithIfNull(agg, info.countIndex), true, nil
+	return wrapScalarAggsWithIfNull(agg, scalarCountIndices), true, nil
 }
 
 func (s *YannakakisPlusSolver) tryRewriteMinMaxAgg(agg *logicalop.LogicalAggregation) (base.LogicalPlan, bool, error) {
@@ -321,7 +331,7 @@ func (s *YannakakisPlusSolver) reduceDistinctSubtree(
 	return buildDistinctOnCols(agg, current, interfaceCols)
 }
 
-func (s *YannakakisPlusSolver) assembleCountSubtree(
+func (s *YannakakisPlusSolver) assembleMultiplicitySubtree(
 	agg *logicalop.LogicalAggregation,
 	graph *yannakakisGraph,
 	edges map[yannakakisEdgeKey][]int,
@@ -335,7 +345,7 @@ func (s *YannakakisPlusSolver) assembleCountSubtree(
 		if childID == parentID {
 			continue
 		}
-		childSummary, err := s.summarizeCountSubtree(agg, graph, edges, tree, childID, nodeID)
+		childSummary, err := s.summarizeMultiplicitySubtree(agg, graph, edges, tree, childID, nodeID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -352,15 +362,15 @@ func (s *YannakakisPlusSolver) assembleCountSubtree(
 	return current, childCountCols, nil
 }
 
-func (s *YannakakisPlusSolver) summarizeCountSubtree(
+func (s *YannakakisPlusSolver) summarizeMultiplicitySubtree(
 	agg *logicalop.LogicalAggregation,
 	graph *yannakakisGraph,
 	edges map[yannakakisEdgeKey][]int,
 	tree map[int][]int,
 	nodeID int,
 	parentID int,
-) (*yannakakisCountSummary, error) {
-	current, childCountCols, err := s.assembleCountSubtree(agg, graph, edges, tree, nodeID, parentID)
+) (*yannakakisMultiplicitySummary, error) {
+	current, childCountCols, err := s.assembleMultiplicitySubtree(agg, graph, edges, tree, nodeID, parentID)
 	if err != nil {
 		return nil, err
 	}
@@ -368,7 +378,7 @@ func (s *YannakakisPlusSolver) summarizeCountSubtree(
 	if len(interfaceCols) == 0 {
 		return nil, errors.New("empty projection interface in Yannakakis+ count rewrite")
 	}
-	return buildCountSummaryOnCols(agg, current, interfaceCols, buildMultiplicityExpr(agg.SCtx(), childCountCols), len(childCountCols) == 0)
+	return buildMultiplicitySummaryOnCols(agg, current, interfaceCols, buildMultiplicityExpr(agg.SCtx(), childCountCols), len(childCountCols) == 0)
 }
 
 func buildMultiplicityExpr(ctx base.PlanContext, countCols []*expression.Column) expression.Expression {
@@ -383,13 +393,13 @@ func buildMultiplicityExpr(ctx base.PlanContext, countCols []*expression.Column)
 	return expr
 }
 
-func buildCountSummaryOnCols(
+func buildMultiplicitySummaryOnCols(
 	agg *logicalop.LogicalAggregation,
 	child base.LogicalPlan,
 	interfaceCols []*expression.Column,
 	multiplicity expression.Expression,
 	useCount bool,
-) (*yannakakisCountSummary, error) {
+) (*yannakakisMultiplicitySummary, error) {
 	indices := child.Schema().ColumnsIndices(interfaceCols)
 	if indices == nil {
 		return nil, errors.New("failed to locate count summary interface columns")
@@ -435,13 +445,20 @@ func buildCountSummaryOnCols(
 	}
 	summary.SetSchema(expression.NewSchema(schemaCols...))
 	summary.SetOutputNames(outputNames)
-	return &yannakakisCountSummary{plan: summary, countCol: countCol}, nil
+	return &yannakakisMultiplicitySummary{plan: summary, countCol: countCol}, nil
 }
 
-func wrapScalarCountWithIfNull(agg *logicalop.LogicalAggregation, countIndex int) base.LogicalPlan {
+func wrapScalarAggsWithIfNull(agg *logicalop.LogicalAggregation, aggIndices []int) base.LogicalPlan {
+	if len(aggIndices) == 0 {
+		return agg
+	}
+	indexSet := make(map[int]struct{}, len(aggIndices))
+	for _, idx := range aggIndices {
+		indexSet[idx] = struct{}{}
+	}
 	exprs := make([]expression.Expression, 0, agg.Schema().Len())
 	for idx, col := range agg.Schema().Columns {
-		if idx != countIndex {
+		if _, ok := indexSet[idx]; !ok {
 			exprs = append(exprs, col)
 			continue
 		}
@@ -565,7 +582,7 @@ func remapDistinctColumnToRelation(
 	return rootCol, true
 }
 
-func extractCountLikeAggInfo(agg *logicalop.LogicalAggregation) (*yannakakisCountLikeAggInfo, bool) {
+func extractWeightedAggInfo(agg *logicalop.LogicalAggregation) (*yannakakisWeightedAggInfo, bool) {
 	groupByCounts := make(map[int64]int, len(agg.GroupByItems))
 	for _, gby := range agg.GroupByItems {
 		col, ok := gby.(*expression.Column)
@@ -575,22 +592,43 @@ func extractCountLikeAggInfo(agg *logicalop.LogicalAggregation) (*yannakakisCoun
 		groupByCounts[col.UniqueID]++
 	}
 
-	info := &yannakakisCountLikeAggInfo{
-		countIndex:       -1,
+	info := &yannakakisWeightedAggInfo{
+		targets:          make([]yannakakisWeightedAggTarget, 0, len(agg.AggFuncs)),
 		outputAggIndices: make([]int, 0, len(agg.AggFuncs)),
 		outputCols:       make([]*expression.Column, 0, len(agg.AggFuncs)),
 	}
 	for idx, aggFunc := range agg.AggFuncs {
 		switch aggFunc.Name {
 		case ast.AggFuncCount:
-			if info.countIndex != -1 || aggFunc.HasDistinct || len(aggFunc.OrderByItems) > 0 || len(aggFunc.Args) != 1 {
+			if aggFunc.HasDistinct || len(aggFunc.OrderByItems) > 0 || len(aggFunc.Args) != 1 {
 				return nil, false
 			}
+			var argCol *expression.Column
 			if !isNonNullCountArg(aggFunc.Args[0]) {
+				col, ok := aggFunc.Args[0].(*expression.Column)
+				if !ok {
+					return nil, false
+				}
+				argCol = col
+			}
+			info.targets = append(info.targets, yannakakisWeightedAggTarget{
+				aggIndex: idx,
+				aggFunc:  aggFunc,
+				argCol:   argCol,
+			})
+		case ast.AggFuncSum:
+			if aggFunc.HasDistinct || len(aggFunc.OrderByItems) > 0 || len(aggFunc.Args) != 1 {
 				return nil, false
 			}
-			info.countIndex = idx
-			info.countFunc = aggFunc
+			col, ok := aggFunc.Args[0].(*expression.Column)
+			if !ok || !isSupportedYannakakisSumArg(col.RetType) {
+				return nil, false
+			}
+			info.targets = append(info.targets, yannakakisWeightedAggTarget{
+				aggIndex: idx,
+				aggFunc:  aggFunc,
+				argCol:   col,
+			})
 		case ast.AggFuncFirstRow:
 			if aggFunc.HasDistinct || len(aggFunc.OrderByItems) > 0 || len(aggFunc.Args) != 1 {
 				return nil, false
@@ -609,7 +647,7 @@ func extractCountLikeAggInfo(agg *logicalop.LogicalAggregation) (*yannakakisCoun
 			return nil, false
 		}
 	}
-	if info.countIndex == -1 {
+	if len(info.targets) == 0 {
 		return nil, false
 	}
 	for _, count := range groupByCounts {
@@ -682,13 +720,22 @@ func isNonNullCountArg(arg expression.Expression) bool {
 	return ok && !con.Value.IsNull()
 }
 
-func extractCountOutputAttrs(info *yannakakisCountLikeAggInfo, graph *yannakakisGraph) ([]int, bool) {
-	attrIDs := make([]int, 0, len(info.outputCols))
+func extractWeightedRelevantAttrs(info *yannakakisWeightedAggInfo, graph *yannakakisGraph) ([]int, bool) {
+	attrIDs := make([]int, 0, len(info.outputCols)+len(info.targets))
 	for _, col := range info.outputCols {
 		if _, ok := graph.relationByCol[col.UniqueID]; !ok {
 			return nil, false
 		}
 		attrIDs = append(attrIDs, graph.attrID(col.UniqueID))
+	}
+	for _, target := range info.targets {
+		if target.argCol == nil {
+			continue
+		}
+		if _, ok := graph.relationByCol[target.argCol.UniqueID]; !ok {
+			return nil, false
+		}
+		attrIDs = append(attrIDs, graph.attrID(target.argCol.UniqueID))
 	}
 	return attrIDs, true
 }
@@ -710,17 +757,17 @@ func extractMinMaxRelevantAttrs(info *yannakakisMinMaxAggInfo, graph *yannakakis
 	return attrIDs, true
 }
 
-func remapCountAggToRelation(
+func remapWeightedAggToRelation(
 	agg *logicalop.LogicalAggregation,
-	info *yannakakisCountLikeAggInfo,
+	info *yannakakisWeightedAggInfo,
 	graph *yannakakisGraph,
 	rootRel *yannakakisRelation,
-) (groupByCols []*expression.Column, outputCols []*expression.Column, ok bool) {
+) (groupByCols []*expression.Column, outputCols []*expression.Column, targetCols []*expression.Column, ok bool) {
 	groupByCols = make([]*expression.Column, 0, len(agg.GroupByItems))
 	for _, item := range agg.GroupByItems {
 		col, ok := remapDistinctColumnToRelation(item.(*expression.Column), graph, rootRel)
 		if !ok {
-			return nil, nil, false
+			return nil, nil, nil, false
 		}
 		groupByCols = append(groupByCols, col)
 	}
@@ -728,11 +775,85 @@ func remapCountAggToRelation(
 	for _, col := range info.outputCols {
 		remapped, ok := remapDistinctColumnToRelation(col, graph, rootRel)
 		if !ok {
-			return nil, nil, false
+			return nil, nil, nil, false
 		}
 		outputCols = append(outputCols, remapped)
 	}
-	return groupByCols, outputCols, true
+	targetCols = make([]*expression.Column, 0, len(info.targets))
+	for _, target := range info.targets {
+		if target.argCol == nil {
+			targetCols = append(targetCols, nil)
+			continue
+		}
+		remapped, ok := remapDistinctColumnToRelation(target.argCol, graph, rootRel)
+		if !ok {
+			return nil, nil, nil, false
+		}
+		targetCols = append(targetCols, remapped)
+	}
+	return groupByCols, outputCols, targetCols, true
+}
+
+func isSupportedYannakakisSumArg(tp *types.FieldType) bool {
+	switch tp.GetType() {
+	case mysql.TypeTiny, mysql.TypeShort, mysql.TypeInt24, mysql.TypeLong, mysql.TypeLonglong,
+		mysql.TypeYear, mysql.TypeNewDecimal, mysql.TypeDouble, mysql.TypeFloat:
+		return true
+	default:
+		return false
+	}
+}
+
+func rewriteWeightedAggDesc(
+	agg *logicalop.LogicalAggregation,
+	target yannakakisWeightedAggTarget,
+	targetCol *expression.Column,
+	multiplicityExpr expression.Expression,
+) (*aggregation.AggFuncDesc, bool, error) {
+	switch target.aggFunc.Name {
+	case ast.AggFuncCount:
+		sumArg := multiplicityExpr
+		if targetCol != nil {
+			sumArg = buildNonNullMultiplicityExpr(agg.SCtx(), targetCol, multiplicityExpr)
+		}
+		sumDesc, err := aggregation.NewAggFuncDesc(agg.SCtx().GetExprCtx(), ast.AggFuncSum, []expression.Expression{sumArg}, false)
+		if err != nil {
+			return nil, false, err
+		}
+		sumDesc.Mode = target.aggFunc.Mode
+		sumDesc.TypeInfer4FinalCount(target.aggFunc.RetTp)
+		return sumDesc, true, nil
+	case ast.AggFuncSum:
+		weightedExpr := buildWeightedValueExpr(agg.SCtx(), targetCol, multiplicityExpr)
+		sumDesc, err := aggregation.NewAggFuncDesc(agg.SCtx().GetExprCtx(), ast.AggFuncSum, []expression.Expression{weightedExpr}, false)
+		if err != nil {
+			return nil, false, err
+		}
+		sumDesc.Mode = target.aggFunc.Mode
+		sumDesc.RetTp = target.aggFunc.RetTp.Clone()
+		return sumDesc, false, nil
+	default:
+		return nil, false, errors.Errorf("unsupported weighted aggregate %s", target.aggFunc.Name)
+	}
+}
+
+func buildNonNullMultiplicityExpr(
+	ctx base.PlanContext,
+	valueCol *expression.Column,
+	multiplicityExpr expression.Expression,
+) expression.Expression {
+	resultTp := multiplicityExpr.GetType(ctx.GetExprCtx().GetEvalCtx()).Clone()
+	zeroConst := &expression.Constant{Value: types.NewIntDatum(0), RetType: resultTp}
+	isNullExpr := expression.NewFunctionInternal(ctx.GetExprCtx(), ast.IsNull, types.NewFieldType(mysql.TypeTiny), valueCol)
+	return expression.NewFunctionInternal(ctx.GetExprCtx(), ast.If, resultTp, isNullExpr, zeroConst, multiplicityExpr)
+}
+
+func buildWeightedValueExpr(
+	ctx base.PlanContext,
+	valueCol *expression.Column,
+	multiplicityExpr expression.Expression,
+) expression.Expression {
+	return expression.NewFunctionInternal(ctx.GetExprCtx(), ast.Mul, types.NewFieldType(mysql.TypeUnspecified), valueCol, multiplicityExpr)
 }
 
 func remapMinMaxAggToRelation(
