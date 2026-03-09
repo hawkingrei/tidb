@@ -680,6 +680,20 @@ func TestYannakakisPlusDistinctRewrite(t *testing.T) {
 	require.Equal(t, 1, groupedCountBaseAggs)
 	require.Equal(t, 3, groupedCountYannakakisAggs)
 
+	minSQL := "select min(t1.c) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b"
+	minBase, minBaseAggs := buildPlanSummary(s, minSQL, baseFlags)
+	minYannakakis, minYannakakisAggs := buildPlanSummary(s, minSQL, yannakakisFlags)
+	require.NotEqual(t, minBase, minYannakakis)
+	require.Equal(t, 1, minBaseAggs)
+	require.Equal(t, 3, minYannakakisAggs)
+
+	groupedMaxSQL := "select t1.a, max(t3.b) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b group by t1.a"
+	groupedMaxBase, groupedMaxBaseAggs := buildPlanSummary(s, groupedMaxSQL, baseFlags)
+	groupedMaxYannakakis, groupedMaxYannakakisAggs := buildPlanSummary(s, groupedMaxSQL, yannakakisFlags)
+	require.NotEqual(t, groupedMaxBase, groupedMaxYannakakis)
+	require.Equal(t, 1, groupedMaxBaseAggs)
+	require.Equal(t, 3, groupedMaxYannakakisAggs)
+
 	singleTableCountSQL := "select count(*) from t1"
 	singleTableCountBase, singleTableCountBaseAggs := buildPlanSummary(s, singleTableCountSQL, baseFlags)
 	singleTableCountYannakakis, singleTableCountYannakakisAggs := buildPlanSummary(s, singleTableCountSQL, yannakakisFlags)
@@ -704,6 +718,12 @@ func TestYannakakisPlusDistinctRewrite(t *testing.T) {
 	nonDominatedCountYannakakis, nonDominatedCountYannakakisAggs := buildPlanSummary(s, nonDominatedCountSQL, yannakakisFlags)
 	require.Equal(t, nonDominatedCountBase, nonDominatedCountYannakakis)
 	require.Equal(t, nonDominatedCountBaseAggs, nonDominatedCountYannakakisAggs)
+
+	nonDominatedMinMaxSQL := "select min(t1.c), max(t3.c) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b"
+	nonDominatedMinMaxBase, nonDominatedMinMaxBaseAggs := buildPlanSummary(s, nonDominatedMinMaxSQL, baseFlags)
+	nonDominatedMinMaxYannakakis, nonDominatedMinMaxYannakakisAggs := buildPlanSummary(s, nonDominatedMinMaxSQL, yannakakisFlags)
+	require.Equal(t, nonDominatedMinMaxBase, nonDominatedMinMaxYannakakis)
+	require.Equal(t, nonDominatedMinMaxBaseAggs, nonDominatedMinMaxYannakakisAggs)
 
 	cyclicSQL := "select distinct t1.a from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b and t3.c = t1.c"
 	cyclicBase, cyclicBaseAggs := buildPlanSummary(s, cyclicSQL, baseFlags)

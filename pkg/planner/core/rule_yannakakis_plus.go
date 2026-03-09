@@ -39,6 +39,13 @@ import (
 // projection of the original subtree on the interface columns shared with parent.
 type YannakakisPlusSolver struct{}
 
+type yannakakisMinMaxAggInfo struct {
+	targetAggIndices []int
+	targetCols       []*expression.Column
+	outputAggIndices []int
+	outputCols       []*expression.Column
+}
+
 type yannakakisCountLikeAggInfo struct {
 	countIndex       int
 	countFunc        *aggregation.AggFuncDesc
@@ -114,6 +121,13 @@ func (s *YannakakisPlusSolver) rewriteRecursive(p base.LogicalPlan) (base.Logica
 		return rewritten, true, nil
 	}
 	rewritten, rewrittenChanged, err = s.tryRewriteCountAgg(agg)
+	if err != nil {
+		return nil, false, err
+	}
+	if rewrittenChanged {
+		return rewritten, true, nil
+	}
+	rewritten, rewrittenChanged, err = s.tryRewriteMinMaxAgg(agg)
 	if err != nil {
 		return nil, false, err
 	}
@@ -222,6 +236,53 @@ func (s *YannakakisPlusSolver) tryRewriteCountAgg(agg *logicalop.LogicalAggregat
 		return agg, true, nil
 	}
 	return wrapScalarCountWithIfNull(agg, info.countIndex), true, nil
+}
+
+func (s *YannakakisPlusSolver) tryRewriteMinMaxAgg(agg *logicalop.LogicalAggregation) (base.LogicalPlan, bool, error) {
+	info, ok := extractMinMaxAggInfo(agg)
+	if !ok || len(agg.Children()) != 1 {
+		return agg, false, nil
+	}
+
+	joinRoot := agg.Children()[0]
+	graph, edges, ok := buildYannakakisGraph(joinRoot)
+	if !ok || len(graph.relations) < 2 {
+		return agg, false, nil
+	}
+
+	relevantAttrs, ok := extractMinMaxRelevantAttrs(info, graph)
+	if !ok {
+		return agg, false, nil
+	}
+	rootRelID, ok := findDominatingRelationByAttrs(graph.relations, relevantAttrs)
+	if !ok {
+		return agg, false, nil
+	}
+	remappedGroupBy, remappedOutputCols, remappedTargetCols, ok := remapMinMaxAggToRelation(agg, info, graph, graph.relations[rootRelID])
+	if !ok {
+		return agg, false, nil
+	}
+
+	tree, ok := deriveAcyclicRelationTree(graph.relations, rootRelID)
+	if !ok {
+		return agg, false, nil
+	}
+	rewrittenChild, err := s.reduceDistinctSubtree(agg, graph, edges, tree, rootRelID, -1)
+	if err != nil {
+		return agg, false, nil
+	}
+
+	for idx, col := range remappedGroupBy {
+		agg.GroupByItems[idx] = col
+	}
+	for idx, aggIdx := range info.outputAggIndices {
+		agg.AggFuncs[aggIdx].Args[0] = remappedOutputCols[idx]
+	}
+	for idx, aggIdx := range info.targetAggIndices {
+		agg.AggFuncs[aggIdx].Args[0] = remappedTargetCols[idx]
+	}
+	agg.SetChildren(rewrittenChild)
+	return agg, true, nil
 }
 
 func (s *YannakakisPlusSolver) reduceDistinctSubtree(
@@ -559,6 +620,63 @@ func extractCountLikeAggInfo(agg *logicalop.LogicalAggregation) (*yannakakisCoun
 	return info, true
 }
 
+func extractMinMaxAggInfo(agg *logicalop.LogicalAggregation) (*yannakakisMinMaxAggInfo, bool) {
+	groupByCounts := make(map[int64]int, len(agg.GroupByItems))
+	for _, gby := range agg.GroupByItems {
+		col, ok := gby.(*expression.Column)
+		if !ok {
+			return nil, false
+		}
+		groupByCounts[col.UniqueID]++
+	}
+
+	info := &yannakakisMinMaxAggInfo{
+		targetAggIndices: make([]int, 0, len(agg.AggFuncs)),
+		targetCols:       make([]*expression.Column, 0, len(agg.AggFuncs)),
+		outputAggIndices: make([]int, 0, len(agg.AggFuncs)),
+		outputCols:       make([]*expression.Column, 0, len(agg.AggFuncs)),
+	}
+	for idx, aggFunc := range agg.AggFuncs {
+		switch aggFunc.Name {
+		case ast.AggFuncMin, ast.AggFuncMax:
+			if aggFunc.HasDistinct || len(aggFunc.OrderByItems) > 0 || len(aggFunc.Args) != 1 {
+				return nil, false
+			}
+			col, ok := aggFunc.Args[0].(*expression.Column)
+			if !ok {
+				return nil, false
+			}
+			info.targetAggIndices = append(info.targetAggIndices, idx)
+			info.targetCols = append(info.targetCols, col)
+		case ast.AggFuncFirstRow:
+			if aggFunc.HasDistinct || len(aggFunc.OrderByItems) > 0 || len(aggFunc.Args) != 1 {
+				return nil, false
+			}
+			col, ok := aggFunc.Args[0].(*expression.Column)
+			if !ok {
+				return nil, false
+			}
+			groupByCounts[col.UniqueID]--
+			if groupByCounts[col.UniqueID] < 0 {
+				return nil, false
+			}
+			info.outputAggIndices = append(info.outputAggIndices, idx)
+			info.outputCols = append(info.outputCols, col)
+		default:
+			return nil, false
+		}
+	}
+	if len(info.targetAggIndices) == 0 {
+		return nil, false
+	}
+	for _, count := range groupByCounts {
+		if count != 0 {
+			return nil, false
+		}
+	}
+	return info, true
+}
+
 func isNonNullCountArg(arg expression.Expression) bool {
 	con, ok := arg.(*expression.Constant)
 	return ok && !con.Value.IsNull()
@@ -567,6 +685,23 @@ func isNonNullCountArg(arg expression.Expression) bool {
 func extractCountOutputAttrs(info *yannakakisCountLikeAggInfo, graph *yannakakisGraph) ([]int, bool) {
 	attrIDs := make([]int, 0, len(info.outputCols))
 	for _, col := range info.outputCols {
+		if _, ok := graph.relationByCol[col.UniqueID]; !ok {
+			return nil, false
+		}
+		attrIDs = append(attrIDs, graph.attrID(col.UniqueID))
+	}
+	return attrIDs, true
+}
+
+func extractMinMaxRelevantAttrs(info *yannakakisMinMaxAggInfo, graph *yannakakisGraph) ([]int, bool) {
+	attrIDs := make([]int, 0, len(info.outputCols)+len(info.targetCols))
+	for _, col := range info.outputCols {
+		if _, ok := graph.relationByCol[col.UniqueID]; !ok {
+			return nil, false
+		}
+		attrIDs = append(attrIDs, graph.attrID(col.UniqueID))
+	}
+	for _, col := range info.targetCols {
 		if _, ok := graph.relationByCol[col.UniqueID]; !ok {
 			return nil, false
 		}
@@ -598,6 +733,39 @@ func remapCountAggToRelation(
 		outputCols = append(outputCols, remapped)
 	}
 	return groupByCols, outputCols, true
+}
+
+func remapMinMaxAggToRelation(
+	agg *logicalop.LogicalAggregation,
+	info *yannakakisMinMaxAggInfo,
+	graph *yannakakisGraph,
+	rootRel *yannakakisRelation,
+) (groupByCols []*expression.Column, outputCols []*expression.Column, targetCols []*expression.Column, ok bool) {
+	groupByCols = make([]*expression.Column, 0, len(agg.GroupByItems))
+	for _, item := range agg.GroupByItems {
+		col, ok := remapDistinctColumnToRelation(item.(*expression.Column), graph, rootRel)
+		if !ok {
+			return nil, nil, nil, false
+		}
+		groupByCols = append(groupByCols, col)
+	}
+	outputCols = make([]*expression.Column, 0, len(info.outputCols))
+	for _, col := range info.outputCols {
+		remapped, ok := remapDistinctColumnToRelation(col, graph, rootRel)
+		if !ok {
+			return nil, nil, nil, false
+		}
+		outputCols = append(outputCols, remapped)
+	}
+	targetCols = make([]*expression.Column, 0, len(info.targetCols))
+	for _, col := range info.targetCols {
+		remapped, ok := remapDistinctColumnToRelation(col, graph, rootRel)
+		if !ok {
+			return nil, nil, nil, false
+		}
+		targetCols = append(targetCols, remapped)
+	}
+	return groupByCols, outputCols, targetCols, true
 }
 
 func buildYannakakisGraph(p base.LogicalPlan) (*yannakakisGraph, map[yannakakisEdgeKey][]int, bool) {

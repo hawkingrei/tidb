@@ -7,6 +7,8 @@
   - top-level `DISTINCT` represented as `LogicalAggregation(first_row(...))`;
   - top-level `COUNT(*)` / `COUNT(1)` represented as one `count(constant)` plus
     optional `first_row(group_by_col)` outputs;
+  - top-level duplicate-insensitive `MIN/MAX(column)` represented as one or
+    more `min/max(column)` plus optional `first_row(group_by_col)` outputs;
   - all output attribute classes must be dominated by the same leaf relation;
   - child is an acyclic inner equi-join component;
   - no outer join, non-equality join predicate, or generic aggregation yet.
@@ -18,6 +20,9 @@
 - TiDB already has distributed partial/final aggregation for single-relation
   `COUNT`; the Yannakakis+ rule therefore only targets join-count cases where
   subtree reduction can shrink intermediate joins.
+- `MIN/MAX` are added only for the duplicate-insensitive subset, so the current
+  rewrite can reuse interface-level `DISTINCT` reductions without introducing a
+  separate multiplicity summary.
 - Restricting the `COUNT` rewrite to `count(constant)` avoids remapping
   null-sensitive arguments before we have a broader aggregate-annotation model.
 - Phase 1 only permits remapping to equality-equivalent root columns with
@@ -80,6 +85,12 @@ summary produced for a non-root node. Its invariant is:
      root relation yields the original join count.
    - Scalar count rewrites add `ifnull(..., 0)` above the rewritten `sum(...)`
      so the empty-input result stays equal to `count(*)`.
+7. MIN/MAX root:
+   - Child subtree duplicates can be collapsed to interface-level `DISTINCT`
+     because `MIN/MAX` depend only on which root tuples survive the join, not
+     on how many descendant witnesses each tuple has.
+   - After remapping to equality-equivalent root columns, evaluating the
+     original `MIN/MAX` over the reduced root join returns the same result.
 
 The only non-obvious step is synthetic edge selection: the implementation may
 join two relations that were not direct neighbors in the original left-deep
@@ -93,6 +104,8 @@ transitive inside the connected component.
   shape.
 - `extractCountLikeAggInfo` accepts only one `count(constant)` plus optional
   `first_row(group_by_col)` outputs.
+- `extractMinMaxAggInfo` accepts only `min/max(column)` plus optional
+  `first_row(group_by_col)` outputs.
 - `collectInnerJoinGraph` rejects anything outside inner equi-joins.
 - `buildYannakakisGraph` rejects duplicate equality-class columns inside a
   single relation and rejects disconnected relation sets.
@@ -103,6 +116,7 @@ transitive inside the connected component.
 
 - Generic `GROUP BY` with decomposable aggregates.
 - `COUNT(expr)` where `expr` may become `NULL` after remapping.
+- duplicate-sensitive aggregates such as generic `SUM` and `AVG`.
 - Output remapping when the root representative would change field type.
 - Cost-based selection among multiple legal join trees.
 - Semijoin reduction with foreign-key or Bloom-filter style extensions.
@@ -114,8 +128,11 @@ transitive inside the connected component.
   - `select distinct t1.a, t3.b from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b`
   - `select count(*) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b`
   - `select t1.a, count(*) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b group by t1.a`
+  - `select min(t1.c) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b`
+  - `select t1.a, max(t3.b) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b group by t1.a`
 - Negative regressions:
   - cyclic join graph;
   - single-table `count(*)`;
   - grouped count whose output attribute classes are not dominated by one relation;
+  - `min/max` whose arguments and outputs are not dominated by one relation;
   - `DISTINCT` whose output attribute classes are not dominated by one relation.
