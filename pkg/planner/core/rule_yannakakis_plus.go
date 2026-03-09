@@ -465,8 +465,8 @@ func remapDistinctAggToRelation(
 	agg *logicalop.LogicalAggregation,
 	graph *yannakakisGraph,
 	rootRel *yannakakisRelation,
-) ([]*expression.Column, []*expression.Column, bool) {
-	groupByCols := make([]*expression.Column, 0, len(agg.GroupByItems))
+) (groupByCols []*expression.Column, aggArgCols []*expression.Column, ok bool) {
+	groupByCols = make([]*expression.Column, 0, len(agg.GroupByItems))
 	for _, item := range agg.GroupByItems {
 		col, ok := remapDistinctColumnToRelation(item.(*expression.Column), graph, rootRel)
 		if !ok {
@@ -474,7 +474,7 @@ func remapDistinctAggToRelation(
 		}
 		groupByCols = append(groupByCols, col)
 	}
-	aggArgCols := make([]*expression.Column, 0, len(agg.AggFuncs))
+	aggArgCols = make([]*expression.Column, 0, len(agg.AggFuncs))
 	for _, aggFunc := range agg.AggFuncs {
 		col, ok := remapDistinctColumnToRelation(aggFunc.Args[0].(*expression.Column), graph, rootRel)
 		if !ok {
@@ -580,8 +580,8 @@ func remapCountAggToRelation(
 	info *yannakakisCountLikeAggInfo,
 	graph *yannakakisGraph,
 	rootRel *yannakakisRelation,
-) ([]*expression.Column, []*expression.Column, bool) {
-	groupByCols := make([]*expression.Column, 0, len(agg.GroupByItems))
+) (groupByCols []*expression.Column, outputCols []*expression.Column, ok bool) {
+	groupByCols = make([]*expression.Column, 0, len(agg.GroupByItems))
 	for _, item := range agg.GroupByItems {
 		col, ok := remapDistinctColumnToRelation(item.(*expression.Column), graph, rootRel)
 		if !ok {
@@ -589,7 +589,7 @@ func remapCountAggToRelation(
 		}
 		groupByCols = append(groupByCols, col)
 	}
-	outputCols := make([]*expression.Column, 0, len(info.outputCols))
+	outputCols = make([]*expression.Column, 0, len(info.outputCols))
 	for _, col := range info.outputCols {
 		remapped, ok := remapDistinctColumnToRelation(col, graph, rootRel)
 		if !ok {
@@ -655,7 +655,7 @@ func buildYannakakisGraph(p base.LogicalPlan) (*yannakakisGraph, map[yannakakisE
 
 	edgeAttrs := make(map[yannakakisEdgeKey][]int, len(graph.relations))
 	degree := make([]int, len(graph.relations))
-	for i := 0; i < len(graph.relations); i++ {
+	for i := range len(graph.relations) {
 		for j := i + 1; j < len(graph.relations); j++ {
 			attrs := intersectAttrSets(graph.relations[i].attrSet, graph.relations[j].attrSet)
 			if len(attrs) == 0 {
