@@ -672,11 +672,18 @@ func TestYannakakisPlusDistinctRewrite(t *testing.T) {
 	require.Equal(t, countBase, countYannakakis)
 	require.Equal(t, countBaseAggs, countYannakakisAggs)
 
-	crossRelationDistinctSQL := "select distinct t1.a, t3.b from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b"
-	crossRelationDistinctBase, crossRelationDistinctBaseAggs := buildPlanSummary(s, crossRelationDistinctSQL, baseFlags)
-	crossRelationDistinctYannakakis, crossRelationDistinctYannakakisAggs := buildPlanSummary(s, crossRelationDistinctSQL, yannakakisFlags)
-	require.Equal(t, crossRelationDistinctBase, crossRelationDistinctYannakakis)
-	require.Equal(t, crossRelationDistinctBaseAggs, crossRelationDistinctYannakakisAggs)
+	relationDominatedDistinctSQL := "select distinct t1.a, t3.b from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b"
+	relationDominatedDistinctBase, relationDominatedDistinctBaseAggs := buildPlanSummary(s, relationDominatedDistinctSQL, baseFlags)
+	relationDominatedDistinctYannakakis, relationDominatedDistinctYannakakisAggs := buildPlanSummary(s, relationDominatedDistinctSQL, yannakakisFlags)
+	require.NotEqual(t, relationDominatedDistinctBase, relationDominatedDistinctYannakakis)
+	require.Equal(t, 1, relationDominatedDistinctBaseAggs)
+	require.Equal(t, 3, relationDominatedDistinctYannakakisAggs)
+
+	nonDominatedDistinctSQL := "select distinct t1.a, t3.c from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b"
+	nonDominatedDistinctBase, nonDominatedDistinctBaseAggs := buildPlanSummary(s, nonDominatedDistinctSQL, baseFlags)
+	nonDominatedDistinctYannakakis, nonDominatedDistinctYannakakisAggs := buildPlanSummary(s, nonDominatedDistinctSQL, yannakakisFlags)
+	require.Equal(t, nonDominatedDistinctBase, nonDominatedDistinctYannakakis)
+	require.Equal(t, nonDominatedDistinctBaseAggs, nonDominatedDistinctYannakakisAggs)
 
 	cyclicSQL := "select distinct t1.a from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b and t3.c = t1.c"
 	cyclicBase, cyclicBaseAggs := buildPlanSummary(s, cyclicSQL, baseFlags)

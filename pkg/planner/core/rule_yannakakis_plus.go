@@ -32,7 +32,8 @@ import (
 // YannakakisPlusSolver applies a safe MVP rewrite inspired by Yannakakis+.
 //
 // This first stage intentionally only handles DISTINCT rewrites whose output
-// columns all come from the same leaf relation of an acyclic inner equi-join.
+// attribute classes are dominated by the same leaf relation of an acyclic inner
+// equi-join.
 // The recursive invariant is:
 // reduceDistinctSubtree(node, parent) returns a plan equivalent to the DISTINCT
 // projection of the original subtree on the interface columns shared with parent.
@@ -114,8 +115,15 @@ func (s *YannakakisPlusSolver) tryRewriteDistinctAgg(agg *logicalop.LogicalAggre
 		return agg, false, nil
 	}
 
-	outputCols := extractGroupByColumns(agg)
-	rootRelID, ok := findDominatingRelation(graph.relations, outputCols)
+	outputAttrs, ok := extractDistinctOutputAttrs(agg, graph)
+	if !ok {
+		return agg, false, nil
+	}
+	rootRelID, ok := findDominatingRelationByAttrs(graph.relations, outputAttrs)
+	if !ok {
+		return agg, false, nil
+	}
+	remappedGroupBy, remappedAggArgs, ok := remapDistinctAggToRelation(agg, graph, graph.relations[rootRelID])
 	if !ok {
 		return agg, false, nil
 	}
@@ -128,6 +136,12 @@ func (s *YannakakisPlusSolver) tryRewriteDistinctAgg(agg *logicalop.LogicalAggre
 	rewrittenChild, err := s.reduceDistinctSubtree(agg, graph, edges, tree, rootRelID, -1)
 	if err != nil {
 		return agg, false, nil
+	}
+	for idx, col := range remappedGroupBy {
+		agg.GroupByItems[idx] = col
+	}
+	for idx, col := range remappedAggArgs {
+		agg.AggFuncs[idx].Args[0] = col
 	}
 	agg.SetChildren(rewrittenChild)
 	return agg, true, nil
@@ -202,21 +216,75 @@ func isDistinctLikeAgg(agg *logicalop.LogicalAggregation) bool {
 	return true
 }
 
-func extractGroupByColumns(agg *logicalop.LogicalAggregation) []*expression.Column {
-	cols := make([]*expression.Column, 0, len(agg.GroupByItems))
-	for _, item := range agg.GroupByItems {
-		cols = append(cols, item.(*expression.Column))
+func extractDistinctOutputAttrs(agg *logicalop.LogicalAggregation, graph *yannakakisGraph) ([]int, bool) {
+	attrIDs := make([]int, 0, len(agg.AggFuncs))
+	for _, aggFunc := range agg.AggFuncs {
+		col := aggFunc.Args[0].(*expression.Column)
+		if _, ok := graph.relationByCol[col.UniqueID]; !ok {
+			return nil, false
+		}
+		attrIDs = append(attrIDs, graph.attrID(col.UniqueID))
 	}
-	return cols
+	return attrIDs, true
 }
 
-func findDominatingRelation(relations []*yannakakisRelation, cols []*expression.Column) (int, bool) {
+func findDominatingRelationByAttrs(relations []*yannakakisRelation, attrIDs []int) (int, bool) {
 	for _, rel := range relations {
-		if rel.plan.Schema().ColumnsIndices(cols) != nil {
+		ok := true
+		for _, attrID := range attrIDs {
+			if _, exists := rel.attrSet[attrID]; !exists {
+				ok = false
+				break
+			}
+		}
+		if ok {
 			return rel.id, true
 		}
 	}
 	return 0, false
+}
+
+func remapDistinctAggToRelation(
+	agg *logicalop.LogicalAggregation,
+	graph *yannakakisGraph,
+	rootRel *yannakakisRelation,
+) ([]*expression.Column, []*expression.Column, bool) {
+	groupByCols := make([]*expression.Column, 0, len(agg.GroupByItems))
+	for _, item := range agg.GroupByItems {
+		col, ok := remapDistinctColumnToRelation(item.(*expression.Column), graph, rootRel)
+		if !ok {
+			return nil, nil, false
+		}
+		groupByCols = append(groupByCols, col)
+	}
+	aggArgCols := make([]*expression.Column, 0, len(agg.AggFuncs))
+	for _, aggFunc := range agg.AggFuncs {
+		col, ok := remapDistinctColumnToRelation(aggFunc.Args[0].(*expression.Column), graph, rootRel)
+		if !ok {
+			return nil, nil, false
+		}
+		aggArgCols = append(aggArgCols, col)
+	}
+	return groupByCols, aggArgCols, true
+}
+
+func remapDistinctColumnToRelation(
+	col *expression.Column,
+	graph *yannakakisGraph,
+	rootRel *yannakakisRelation,
+) (*expression.Column, bool) {
+	if _, ok := graph.relationByCol[col.UniqueID]; !ok {
+		return nil, false
+	}
+	attrID := graph.attrID(col.UniqueID)
+	rootCol, ok := rootRel.attrCols[attrID]
+	if !ok {
+		return nil, false
+	}
+	if !rootCol.RetType.Equal(col.RetType) {
+		return nil, false
+	}
+	return rootCol, true
 }
 
 func buildYannakakisGraph(p base.LogicalPlan) (*yannakakisGraph, map[yannakakisEdgeKey][]int, bool) {

@@ -5,7 +5,7 @@
 - Entry point: `pkg/planner/core/rule_yannakakis_plus.go`.
 - Current rewrite scope is intentionally narrower than the paper:
   - top-level `DISTINCT` represented as `LogicalAggregation(first_row(...))`;
-  - all output columns must come from the same leaf relation;
+  - all output attribute classes must be dominated by the same leaf relation;
   - child is an acyclic inner equi-join component;
   - no outer join, non-equality join predicate, or generic aggregation yet.
 
@@ -15,8 +15,8 @@
   `AggFuncs` are `first_row` and whose `GroupByItems` are output columns.
 - Restricting phase 1 to this shape avoids arguing about multiplicity-sensitive
   aggregates before we have annotation propagation or aggregate decomposition.
-- Requiring the final output columns to come from one relation avoids column
-  remapping across equality classes in the first commit.
+- Phase 1 only permits remapping to equality-equivalent root columns with
+  identical field types; it still avoids general expression remapping.
 
 ## Core Invariant
 
@@ -47,9 +47,11 @@ still sits above it.
    - Projecting the joined result back to the interface with the parent and
      applying `DISTINCT` re-establishes the invariant for `v`.
 3. Root:
-   - Because all output columns are owned by the chosen root relation, the
-     original top-level `DISTINCT` still computes the same result after child
-     subtrees are reduced to their join interfaces.
+   - Because all output attribute classes are dominated by the chosen root
+     relation, and the top-level `DISTINCT` is remapped only to
+     equality-equivalent root columns with identical field types, the original
+     result is preserved after child subtrees are reduced to their join
+     interfaces.
 
 The only non-obvious step is synthetic edge selection: the implementation may
 join two relations that were not direct neighbors in the original left-deep
@@ -70,7 +72,7 @@ transitive inside the connected component.
 ## What Phase 1 Does Not Prove
 
 - Generic `GROUP BY` with decomposable aggregates.
-- Output remapping through equivalent columns not owned by the root relation.
+- Output remapping when the root representative would change field type.
 - Cost-based selection among multiple legal join trees.
 - Semijoin reduction with foreign-key or Bloom-filter style extensions.
 
@@ -78,7 +80,8 @@ transitive inside the connected component.
 
 - Positive regression:
   - `select distinct t1.a from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b`
+  - `select distinct t1.a, t3.b from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b`
 - Negative regressions:
   - cyclic join graph;
   - `count(*)` over the same join;
-  - `DISTINCT` whose outputs come from multiple leaf relations.
+  - `DISTINCT` whose output attribute classes are not dominated by one relation.
