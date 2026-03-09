@@ -44,6 +44,7 @@ import (
 	"github.com/pingcap/tidb/pkg/testkit/testdata"
 	"github.com/pingcap/tidb/pkg/util/dbterror/plannererrors"
 	"github.com/pingcap/tidb/pkg/util/hint"
+	"github.com/pingcap/tidb/pkg/util/mock"
 	"github.com/pingcap/tipb/go-tipb"
 	"github.com/stretchr/testify/require"
 )
@@ -600,6 +601,88 @@ func TestEagerAggregation(t *testing.T) {
 		})
 		require.Equal(t, output[ith], ToString(p), fmt.Sprintf("for %s %d", tt, ith))
 	}
+}
+
+func TestYannakakisPlusDistinctRewrite(t *testing.T) {
+	buildSuite := func() *coretestsdk.PlannerSuite {
+		tbls := []*model.TableInfo{
+			coretestsdk.MockSignedTable(),
+			coretestsdk.MockSignedTable(),
+			coretestsdk.MockSignedTable(),
+		}
+		for idx, tbl := range tbls {
+			tbl.ID = int64(idx + 1)
+			tbl.Name = ast.NewCIStr(fmt.Sprintf("t%d", idx+1))
+		}
+		is := infoschema.MockInfoSchema(tbls)
+		ctx := mock.NewContext()
+		ctx.Store = &mock.Store{Client: &mock.Client{}}
+		ctx.GetSessionVars().CurrentDB = "test"
+		do := domain.NewMockDomain()
+		require.NoError(t, do.CreateStatsHandle(context.Background()))
+		ctx.BindDomainAndSchValidator(do, nil)
+		ctx.SetInfoSchema(is)
+		domain.GetDomain(ctx).MockInfoCacheAndLoadInfoSchema(is)
+		return coretestsdk.CreatePlannerSuite(ctx, is)
+	}
+
+	countAggs := func(p base.LogicalPlan) int {
+		aggCount := 0
+		var walk func(base.LogicalPlan)
+		walk = func(node base.LogicalPlan) {
+			if _, ok := node.(*logicalop.LogicalAggregation); ok {
+				aggCount++
+			}
+			for _, child := range node.Children() {
+				walk(child)
+			}
+		}
+		walk(p)
+		return aggCount
+	}
+
+	buildPlanSummary := func(s *coretestsdk.PlannerSuite, sql string, flags uint64) (string, int) {
+		stmt, err := s.GetParser().ParseOneStmt(sql, "", "")
+		require.NoError(t, err)
+		nodeW := resolve.NewNodeW(stmt)
+		p, err := BuildLogicalPlanForTest(context.Background(), s.GetSCtx(), nodeW, s.GetIS())
+		require.NoError(t, err)
+		lp := p.(base.LogicalPlan)
+		lp, err = logicalOptimize(context.Background(), flags, lp)
+		require.NoError(t, err)
+		after := ToString(lp)
+		return after, countAggs(lp)
+	}
+
+	s := buildSuite()
+	defer s.Close()
+
+	baseFlags := rule.FlagBuildKeyInfo | rule.FlagEliminateProjection | rule.FlagPredicatePushDown
+	yannakakisFlags := baseFlags | rule.FlagYannakakisPlus
+	distinctSQL := "select distinct t1.a from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b"
+	distinctBase, distinctBaseAggs := buildPlanSummary(s, distinctSQL, baseFlags)
+	distinctYannakakis, distinctYannakakisAggs := buildPlanSummary(s, distinctSQL, yannakakisFlags)
+	require.NotEqual(t, distinctBase, distinctYannakakis)
+	require.Equal(t, 1, distinctBaseAggs)
+	require.Equal(t, 3, distinctYannakakisAggs)
+
+	countSQL := "select count(*) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b"
+	countBase, countBaseAggs := buildPlanSummary(s, countSQL, baseFlags)
+	countYannakakis, countYannakakisAggs := buildPlanSummary(s, countSQL, yannakakisFlags)
+	require.Equal(t, countBase, countYannakakis)
+	require.Equal(t, countBaseAggs, countYannakakisAggs)
+
+	crossRelationDistinctSQL := "select distinct t1.a, t3.b from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b"
+	crossRelationDistinctBase, crossRelationDistinctBaseAggs := buildPlanSummary(s, crossRelationDistinctSQL, baseFlags)
+	crossRelationDistinctYannakakis, crossRelationDistinctYannakakisAggs := buildPlanSummary(s, crossRelationDistinctSQL, yannakakisFlags)
+	require.Equal(t, crossRelationDistinctBase, crossRelationDistinctYannakakis)
+	require.Equal(t, crossRelationDistinctBaseAggs, crossRelationDistinctYannakakisAggs)
+
+	cyclicSQL := "select distinct t1.a from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b and t3.c = t1.c"
+	cyclicBase, cyclicBaseAggs := buildPlanSummary(s, cyclicSQL, baseFlags)
+	cyclicYannakakis, cyclicYannakakisAggs := buildPlanSummary(s, cyclicSQL, yannakakisFlags)
+	require.Equal(t, cyclicBase, cyclicYannakakis)
+	require.Equal(t, cyclicBaseAggs, cyclicYannakakisAggs)
 }
 
 func TestColumnPruning(t *testing.T) {

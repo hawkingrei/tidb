@@ -1,0 +1,600 @@
+// Copyright 2026 PingCAP, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package core
+
+import (
+	"context"
+	"slices"
+
+	"github.com/pingcap/errors"
+	"github.com/pingcap/tidb/pkg/expression"
+	"github.com/pingcap/tidb/pkg/expression/aggregation"
+	"github.com/pingcap/tidb/pkg/parser/ast"
+	"github.com/pingcap/tidb/pkg/parser/mysql"
+	"github.com/pingcap/tidb/pkg/planner/core/base"
+	"github.com/pingcap/tidb/pkg/planner/core/operator/logicalop"
+	ruleutil "github.com/pingcap/tidb/pkg/planner/core/rule/util"
+	"github.com/pingcap/tidb/pkg/types"
+)
+
+// YannakakisPlusSolver applies a safe MVP rewrite inspired by Yannakakis+.
+//
+// This first stage intentionally only handles DISTINCT rewrites whose output
+// columns all come from the same leaf relation of an acyclic inner equi-join.
+// The recursive invariant is:
+// reduceDistinctSubtree(node, parent) returns a plan equivalent to the DISTINCT
+// projection of the original subtree on the interface columns shared with parent.
+type YannakakisPlusSolver struct{}
+
+type yannakakisRelation struct {
+	id       int
+	plan     base.LogicalPlan
+	attrSet  map[int]struct{}
+	attrCols map[int]*expression.Column
+}
+
+type yannakakisGraph struct {
+	relations     []*yannakakisRelation
+	relationByCol map[int64]int
+	attrByRoot    map[int64]int
+	nextAttrID    int
+	uf            yannakakisUnionFind
+}
+
+type yannakakisUnionFind struct {
+	parent map[int64]int64
+}
+
+// Name implements base.LogicalOptRule.
+func (*YannakakisPlusSolver) Name() string {
+	return "yannakakis_plus"
+}
+
+// Optimize implements base.LogicalOptRule.
+func (s *YannakakisPlusSolver) Optimize(_ context.Context, p base.LogicalPlan) (base.LogicalPlan, bool, error) {
+	newPlan, changed, err := s.rewriteRecursive(p)
+	if err != nil {
+		return nil, false, err
+	}
+	if changed {
+		ruleutil.BuildKeyInfoPortal(newPlan)
+	}
+	return newPlan, changed, nil
+}
+
+func (s *YannakakisPlusSolver) rewriteRecursive(p base.LogicalPlan) (base.LogicalPlan, bool, error) {
+	changed := false
+	if len(p.Children()) > 0 {
+		newChildren := make([]base.LogicalPlan, 0, len(p.Children()))
+		for _, child := range p.Children() {
+			newChild, childChanged, err := s.rewriteRecursive(child)
+			if err != nil {
+				return nil, false, err
+			}
+			changed = changed || childChanged
+			newChildren = append(newChildren, newChild)
+		}
+		p.SetChildren(newChildren...)
+	}
+
+	agg, ok := p.(*logicalop.LogicalAggregation)
+	if !ok {
+		return p, changed, nil
+	}
+	rewritten, rewrittenChanged, err := s.tryRewriteDistinctAgg(agg)
+	if err != nil {
+		return nil, false, err
+	}
+	return rewritten, changed || rewrittenChanged, nil
+}
+
+func (s *YannakakisPlusSolver) tryRewriteDistinctAgg(agg *logicalop.LogicalAggregation) (base.LogicalPlan, bool, error) {
+	if !isDistinctLikeAgg(agg) {
+		return agg, false, nil
+	}
+	if len(agg.Children()) != 1 {
+		return agg, false, nil
+	}
+
+	joinRoot := agg.Children()[0]
+	graph, edges, ok := buildYannakakisGraph(joinRoot)
+	if !ok || len(graph.relations) < 2 {
+		return agg, false, nil
+	}
+
+	outputCols := extractGroupByColumns(agg)
+	rootRelID, ok := findDominatingRelation(graph.relations, outputCols)
+	if !ok {
+		return agg, false, nil
+	}
+
+	tree, ok := deriveAcyclicRelationTree(graph.relations, rootRelID)
+	if !ok {
+		return agg, false, nil
+	}
+
+	rewrittenChild, err := s.reduceDistinctSubtree(agg, graph, edges, tree, rootRelID, -1)
+	if err != nil {
+		return agg, false, nil
+	}
+	agg.SetChildren(rewrittenChild)
+	return agg, true, nil
+}
+
+func (s *YannakakisPlusSolver) reduceDistinctSubtree(
+	agg *logicalop.LogicalAggregation,
+	graph *yannakakisGraph,
+	edges map[yannakakisEdgeKey][]int,
+	tree map[int][]int,
+	nodeID int,
+	parentID int,
+) (base.LogicalPlan, error) {
+	current := graph.relations[nodeID].plan
+	for _, childID := range tree[nodeID] {
+		if childID == parentID {
+			continue
+		}
+		childPlan, err := s.reduceDistinctSubtree(agg, graph, edges, tree, childID, nodeID)
+		if err != nil {
+			return nil, err
+		}
+		eqConds, err := synthesizeJoinConds(agg.SCtx(), graph, graph.relations[nodeID].plan, childPlan, edges[newYannakakisEdgeKey(nodeID, childID)])
+		if err != nil {
+			return nil, err
+		}
+		if len(eqConds) == 0 {
+			return nil, errors.New("empty join interface in Yannakakis+ rewrite")
+		}
+		current = buildInnerJoin(agg.SCtx(), current, childPlan, eqConds)
+	}
+	if parentID == -1 {
+		return current, nil
+	}
+	interfaceCols := columnsForAttrs(graph.relations[nodeID], edges[newYannakakisEdgeKey(nodeID, parentID)])
+	if len(interfaceCols) == 0 {
+		return nil, errors.New("empty projection interface in Yannakakis+ rewrite")
+	}
+	return buildDistinctOnCols(agg, current, interfaceCols)
+}
+
+func isDistinctLikeAgg(agg *logicalop.LogicalAggregation) bool {
+	if len(agg.GroupByItems) == 0 || len(agg.AggFuncs) == 0 || len(agg.GroupByItems) != len(agg.AggFuncs) {
+		return false
+	}
+	groupByCounts := make(map[int64]int, len(agg.GroupByItems))
+	for _, gby := range agg.GroupByItems {
+		col, ok := gby.(*expression.Column)
+		if !ok {
+			return false
+		}
+		groupByCounts[col.UniqueID]++
+	}
+	for _, aggFunc := range agg.AggFuncs {
+		if aggFunc.Name != ast.AggFuncFirstRow || aggFunc.HasDistinct || len(aggFunc.OrderByItems) > 0 || len(aggFunc.Args) != 1 {
+			return false
+		}
+		col, ok := aggFunc.Args[0].(*expression.Column)
+		if !ok {
+			return false
+		}
+		groupByCounts[col.UniqueID]--
+		if groupByCounts[col.UniqueID] < 0 {
+			return false
+		}
+	}
+	for _, count := range groupByCounts {
+		if count != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func extractGroupByColumns(agg *logicalop.LogicalAggregation) []*expression.Column {
+	cols := make([]*expression.Column, 0, len(agg.GroupByItems))
+	for _, item := range agg.GroupByItems {
+		cols = append(cols, item.(*expression.Column))
+	}
+	return cols
+}
+
+func findDominatingRelation(relations []*yannakakisRelation, cols []*expression.Column) (int, bool) {
+	for _, rel := range relations {
+		if rel.plan.Schema().ColumnsIndices(cols) != nil {
+			return rel.id, true
+		}
+	}
+	return 0, false
+}
+
+func buildYannakakisGraph(p base.LogicalPlan) (*yannakakisGraph, map[yannakakisEdgeKey][]int, bool) {
+	relations := make([]base.LogicalPlan, 0, 4)
+	eqConds := make([]*expression.ScalarFunction, 0, 8)
+	if !collectInnerJoinGraph(p, &relations, &eqConds) {
+		return nil, nil, false
+	}
+
+	graph := &yannakakisGraph{
+		relations:     make([]*yannakakisRelation, 0, len(relations)),
+		relationByCol: make(map[int64]int),
+		attrByRoot:    make(map[int64]int),
+		uf: yannakakisUnionFind{
+			parent: make(map[int64]int64),
+		},
+	}
+	for idx, relPlan := range relations {
+		rel := &yannakakisRelation{
+			id:       idx,
+			plan:     relPlan,
+			attrSet:  make(map[int]struct{}, relPlan.Schema().Len()),
+			attrCols: make(map[int]*expression.Column, relPlan.Schema().Len()),
+		}
+		for _, col := range relPlan.Schema().Columns {
+			graph.uf.add(col.UniqueID)
+			graph.relationByCol[col.UniqueID] = idx
+		}
+		graph.relations = append(graph.relations, rel)
+	}
+
+	for _, eqCond := range eqConds {
+		leftCol, rightCol := expression.ExtractColumnsFromColOpCol(eqCond)
+		if leftCol == nil || rightCol == nil {
+			return nil, nil, false
+		}
+		leftRelID, leftOK := graph.relationByCol[leftCol.UniqueID]
+		rightRelID, rightOK := graph.relationByCol[rightCol.UniqueID]
+		if !leftOK || !rightOK || leftRelID == rightRelID {
+			return nil, nil, false
+		}
+		graph.uf.union(leftCol.UniqueID, rightCol.UniqueID)
+	}
+
+	for _, rel := range graph.relations {
+		for _, col := range rel.plan.Schema().Columns {
+			attrID := graph.attrID(col.UniqueID)
+			if _, exists := rel.attrCols[attrID]; exists {
+				return nil, nil, false
+			}
+			rel.attrCols[attrID] = col
+			rel.attrSet[attrID] = struct{}{}
+		}
+	}
+
+	edgeAttrs := make(map[yannakakisEdgeKey][]int, len(graph.relations))
+	degree := make([]int, len(graph.relations))
+	for i := 0; i < len(graph.relations); i++ {
+		for j := i + 1; j < len(graph.relations); j++ {
+			attrs := intersectAttrSets(graph.relations[i].attrSet, graph.relations[j].attrSet)
+			if len(attrs) == 0 {
+				continue
+			}
+			slices.Sort(attrs)
+			edgeAttrs[newYannakakisEdgeKey(i, j)] = attrs
+			degree[i]++
+			degree[j]++
+		}
+	}
+	if len(graph.relations) > 1 {
+		for _, d := range degree {
+			if d == 0 {
+				return nil, nil, false
+			}
+		}
+	}
+	return graph, edgeAttrs, true
+}
+
+func collectInnerJoinGraph(p base.LogicalPlan, relations *[]base.LogicalPlan, eqConds *[]*expression.ScalarFunction) bool {
+	if join, ok := p.(*logicalop.LogicalJoin); ok {
+		if join.JoinType != base.InnerJoin || len(join.EqualConditions) == 0 ||
+			len(join.LeftConditions) > 0 || len(join.RightConditions) > 0 || len(join.OtherConditions) > 0 {
+			return false
+		}
+		if !collectInnerJoinGraph(join.Children()[0], relations, eqConds) {
+			return false
+		}
+		if !collectInnerJoinGraph(join.Children()[1], relations, eqConds) {
+			return false
+		}
+		*eqConds = append(*eqConds, join.EqualConditions...)
+		return true
+	}
+	if len(p.Children()) > 1 {
+		return false
+	}
+	*relations = append(*relations, p)
+	return true
+}
+
+func deriveAcyclicRelationTree(relations []*yannakakisRelation, rootID int) (map[int][]int, bool) {
+	if len(relations) == 0 {
+		return nil, false
+	}
+	activeAttrs := make([]map[int]struct{}, len(relations))
+	active := make([]bool, len(relations))
+	parent := make([]int, len(relations))
+	for i, rel := range relations {
+		activeAttrs[i] = cloneAttrSet(rel.attrSet)
+		active[i] = true
+		parent[i] = -1
+	}
+	remaining := len(relations)
+	for remaining > 1 {
+		changed := false
+		attrFreq := make(map[int]int, remaining)
+		for i := range activeAttrs {
+			if !active[i] {
+				continue
+			}
+			for attrID := range activeAttrs[i] {
+				attrFreq[attrID]++
+			}
+		}
+		for i := range activeAttrs {
+			if !active[i] {
+				continue
+			}
+			for attrID := range activeAttrs[i] {
+				if attrFreq[attrID] == 1 {
+					delete(activeAttrs[i], attrID)
+					changed = true
+				}
+			}
+		}
+
+		for i := range activeAttrs {
+			if !active[i] {
+				continue
+			}
+			for j := range activeAttrs {
+				if i == j || !active[j] {
+					continue
+				}
+				if !isSubsetAttrSet(activeAttrs[i], activeAttrs[j]) {
+					continue
+				}
+				active[i] = false
+				parent[i] = j
+				remaining--
+				changed = true
+				break
+			}
+		}
+		if !changed {
+			return nil, false
+		}
+	}
+
+	root := -1
+	for i := range active {
+		if active[i] {
+			root = i
+			break
+		}
+	}
+	if root == -1 {
+		return nil, false
+	}
+
+	adj := make(map[int][]int, len(relations))
+	for childID, parentID := range parent {
+		if parentID == -1 {
+			continue
+		}
+		adj[parentID] = append(adj[parentID], childID)
+		adj[childID] = append(adj[childID], parentID)
+	}
+	rewrittenTree := make(map[int][]int, len(relations))
+	visited := make(map[int]struct{}, len(relations))
+	if !rerootRelationTree(rootID, -1, adj, rewrittenTree, visited) {
+		return nil, false
+	}
+	if len(visited) != len(relations) {
+		return nil, false
+	}
+	return rewrittenTree, true
+}
+
+func rerootRelationTree(nodeID int, parentID int, adj map[int][]int, tree map[int][]int, visited map[int]struct{}) bool {
+	if _, seen := visited[nodeID]; seen {
+		return false
+	}
+	visited[nodeID] = struct{}{}
+	neighbors, ok := adj[nodeID]
+	if !ok && parentID == -1 {
+		tree[nodeID] = nil
+		return true
+	}
+	for _, nextID := range neighbors {
+		if nextID == parentID {
+			continue
+		}
+		tree[nodeID] = append(tree[nodeID], nextID)
+		if !rerootRelationTree(nextID, nodeID, adj, tree, visited) {
+			return false
+		}
+	}
+	return true
+}
+
+func buildDistinctOnCols(agg *logicalop.LogicalAggregation, child base.LogicalPlan, cols []*expression.Column) (base.LogicalPlan, error) {
+	indices := child.Schema().ColumnsIndices(cols)
+	if indices == nil {
+		return nil, errors.New("failed to locate distinct projection columns")
+	}
+	distinct := logicalop.LogicalAggregation{
+		AggFuncs:     make([]*aggregation.AggFuncDesc, 0, len(cols)),
+		GroupByItems: expression.Column2Exprs(cols),
+	}.Init(agg.SCtx(), child.QueryBlockOffset())
+	for _, col := range cols {
+		desc, err := aggregation.NewAggFuncDesc(agg.SCtx().GetExprCtx(), ast.AggFuncFirstRow, []expression.Expression{col}, false)
+		if err != nil {
+			return nil, err
+		}
+		distinct.AggFuncs = append(distinct.AggFuncs, desc)
+	}
+	distinct.SetChildren(child)
+	schemaCols := make([]*expression.Column, 0, len(cols))
+	outputNames := make(types.NameSlice, 0, len(cols))
+	for idx, col := range cols {
+		cloned := col.Clone().(*expression.Column)
+		cloned.RetType = distinct.AggFuncs[idx].RetTp
+		schemaCols = append(schemaCols, cloned)
+		outputNames = append(outputNames, child.OutputNames()[indices[idx]])
+	}
+	distinct.SetSchema(expression.NewSchema(schemaCols...))
+	distinct.SetOutputNames(outputNames)
+	return distinct, nil
+}
+
+func buildInnerJoin(ctx base.PlanContext, left base.LogicalPlan, right base.LogicalPlan, eqConds []*expression.ScalarFunction) *logicalop.LogicalJoin {
+	join := logicalop.LogicalJoin{JoinType: base.InnerJoin}.Init(ctx, left.QueryBlockOffset())
+	join.SetChildren(left, right)
+	join.SetSchema(expression.MergeSchema(left.Schema(), right.Schema()))
+	outputNames := make(types.NameSlice, left.Schema().Len()+right.Schema().Len())
+	copy(outputNames, left.OutputNames())
+	copy(outputNames[left.Schema().Len():], right.OutputNames())
+	join.SetOutputNames(outputNames)
+	join.FullSchema = expression.MergeSchema(left.Schema(), right.Schema())
+	join.FullNames = outputNames
+	join.EqualConditions = eqConds
+	return join
+}
+
+func synthesizeJoinConds(
+	ctx base.PlanContext,
+	graph *yannakakisGraph,
+	leftPlan base.LogicalPlan,
+	rightPlan base.LogicalPlan,
+	attrIDs []int,
+) ([]*expression.ScalarFunction, error) {
+	eqConds := make([]*expression.ScalarFunction, 0, len(attrIDs))
+	for _, attrID := range attrIDs {
+		leftCol := firstColumnByAttr(leftPlan.Schema(), attrID, graph)
+		rightCol := firstColumnByAttr(rightPlan.Schema(), attrID, graph)
+		if leftCol == nil || rightCol == nil {
+			return nil, errors.New("failed to synthesize join condition")
+		}
+		eqConds = append(eqConds, expression.NewFunctionInternal(
+			ctx.GetExprCtx(),
+			ast.EQ,
+			types.NewFieldType(mysql.TypeTiny),
+			leftCol,
+			rightCol,
+		).(*expression.ScalarFunction))
+	}
+	return eqConds, nil
+}
+
+func firstColumnByAttr(schema *expression.Schema, attrID int, graph *yannakakisGraph) *expression.Column {
+	for _, col := range schema.Columns {
+		if graph.attrID(col.UniqueID) == attrID {
+			return col
+		}
+	}
+	return nil
+}
+
+func columnsForAttrs(rel *yannakakisRelation, attrIDs []int) []*expression.Column {
+	cols := make([]*expression.Column, 0, len(attrIDs))
+	for _, attrID := range attrIDs {
+		col, ok := rel.attrCols[attrID]
+		if !ok {
+			return nil
+		}
+		cols = append(cols, col)
+	}
+	return cols
+}
+
+type yannakakisEdgeKey struct {
+	left  int
+	right int
+}
+
+func newYannakakisEdgeKey(left int, right int) yannakakisEdgeKey {
+	if left > right {
+		left, right = right, left
+	}
+	return yannakakisEdgeKey{left: left, right: right}
+}
+
+func intersectAttrSets(left map[int]struct{}, right map[int]struct{}) []int {
+	attrs := make([]int, 0, min(len(left), len(right)))
+	for attrID := range left {
+		if _, ok := right[attrID]; ok {
+			attrs = append(attrs, attrID)
+		}
+	}
+	return attrs
+}
+
+func cloneAttrSet(src map[int]struct{}) map[int]struct{} {
+	dst := make(map[int]struct{}, len(src))
+	for key := range src {
+		dst[key] = struct{}{}
+	}
+	return dst
+}
+
+func isSubsetAttrSet(left map[int]struct{}, right map[int]struct{}) bool {
+	for key := range left {
+		if _, ok := right[key]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func (g *yannakakisGraph) attrID(colID int64) int {
+	root := g.uf.find(colID)
+	if attrID, ok := g.attrByRoot[root]; ok {
+		return attrID
+	}
+	attrID := g.nextAttrID
+	g.nextAttrID++
+	g.attrByRoot[root] = attrID
+	return attrID
+}
+
+func (uf *yannakakisUnionFind) add(x int64) {
+	if _, ok := uf.parent[x]; !ok {
+		uf.parent[x] = x
+	}
+}
+
+func (uf *yannakakisUnionFind) find(x int64) int64 {
+	parent, ok := uf.parent[x]
+	if !ok {
+		uf.parent[x] = x
+		return x
+	}
+	if parent == x {
+		return x
+	}
+	root := uf.find(parent)
+	uf.parent[x] = root
+	return root
+}
+
+func (uf *yannakakisUnionFind) union(x int64, y int64) {
+	uf.add(x)
+	uf.add(y)
+	rootX := uf.find(x)
+	rootY := uf.find(y)
+	if rootX != rootY {
+		uf.parent[rootX] = rootY
+	}
+}
