@@ -657,7 +657,7 @@ func TestYannakakisPlusDistinctRewrite(t *testing.T) {
 	s := buildSuite()
 	defer s.Close()
 
-	baseFlags := rule.FlagBuildKeyInfo | rule.FlagEliminateProjection | rule.FlagPredicatePushDown
+	baseFlags := rule.FlagBuildKeyInfo | rule.FlagEliminateProjection | rule.FlagPredicatePushDown | rule.FlagPruneColumns | rule.FlagPruneColumnsAgain
 	yannakakisFlags := baseFlags | rule.FlagYannakakisPlus
 	distinctSQL := "select distinct t1.a from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b"
 	distinctBase, distinctBaseAggs := buildPlanSummary(s, distinctSQL, baseFlags)
@@ -669,8 +669,22 @@ func TestYannakakisPlusDistinctRewrite(t *testing.T) {
 	countSQL := "select count(*) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b"
 	countBase, countBaseAggs := buildPlanSummary(s, countSQL, baseFlags)
 	countYannakakis, countYannakakisAggs := buildPlanSummary(s, countSQL, yannakakisFlags)
-	require.Equal(t, countBase, countYannakakis)
-	require.Equal(t, countBaseAggs, countYannakakisAggs)
+	require.NotEqual(t, countBase, countYannakakis)
+	require.Equal(t, 1, countBaseAggs)
+	require.Equal(t, 3, countYannakakisAggs)
+
+	groupedCountSQL := "select t1.a, count(*) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b group by t1.a"
+	groupedCountBase, groupedCountBaseAggs := buildPlanSummary(s, groupedCountSQL, baseFlags)
+	groupedCountYannakakis, groupedCountYannakakisAggs := buildPlanSummary(s, groupedCountSQL, yannakakisFlags)
+	require.NotEqual(t, groupedCountBase, groupedCountYannakakis)
+	require.Equal(t, 1, groupedCountBaseAggs)
+	require.Equal(t, 3, groupedCountYannakakisAggs)
+
+	singleTableCountSQL := "select count(*) from t1"
+	singleTableCountBase, singleTableCountBaseAggs := buildPlanSummary(s, singleTableCountSQL, baseFlags)
+	singleTableCountYannakakis, singleTableCountYannakakisAggs := buildPlanSummary(s, singleTableCountSQL, yannakakisFlags)
+	require.Equal(t, singleTableCountBase, singleTableCountYannakakis)
+	require.Equal(t, singleTableCountBaseAggs, singleTableCountYannakakisAggs)
 
 	relationDominatedDistinctSQL := "select distinct t1.a, t3.b from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b"
 	relationDominatedDistinctBase, relationDominatedDistinctBaseAggs := buildPlanSummary(s, relationDominatedDistinctSQL, baseFlags)
@@ -685,11 +699,23 @@ func TestYannakakisPlusDistinctRewrite(t *testing.T) {
 	require.Equal(t, nonDominatedDistinctBase, nonDominatedDistinctYannakakis)
 	require.Equal(t, nonDominatedDistinctBaseAggs, nonDominatedDistinctYannakakisAggs)
 
+	nonDominatedCountSQL := "select t1.a, t3.c, count(*) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b group by t1.a, t3.c"
+	nonDominatedCountBase, nonDominatedCountBaseAggs := buildPlanSummary(s, nonDominatedCountSQL, baseFlags)
+	nonDominatedCountYannakakis, nonDominatedCountYannakakisAggs := buildPlanSummary(s, nonDominatedCountSQL, yannakakisFlags)
+	require.Equal(t, nonDominatedCountBase, nonDominatedCountYannakakis)
+	require.Equal(t, nonDominatedCountBaseAggs, nonDominatedCountYannakakisAggs)
+
 	cyclicSQL := "select distinct t1.a from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b and t3.c = t1.c"
 	cyclicBase, cyclicBaseAggs := buildPlanSummary(s, cyclicSQL, baseFlags)
 	cyclicYannakakis, cyclicYannakakisAggs := buildPlanSummary(s, cyclicSQL, yannakakisFlags)
 	require.Equal(t, cyclicBase, cyclicYannakakis)
 	require.Equal(t, cyclicBaseAggs, cyclicYannakakisAggs)
+
+	cyclicCountSQL := "select count(*) from t1 join t2 on t1.a = t2.a join t3 on t2.b = t3.b and t3.c = t1.c"
+	cyclicCountBase, cyclicCountBaseAggs := buildPlanSummary(s, cyclicCountSQL, baseFlags)
+	cyclicCountYannakakis, cyclicCountYannakakisAggs := buildPlanSummary(s, cyclicCountSQL, yannakakisFlags)
+	require.Equal(t, cyclicCountBase, cyclicCountYannakakis)
+	require.Equal(t, cyclicCountBaseAggs, cyclicCountYannakakisAggs)
 }
 
 func TestColumnPruning(t *testing.T) {

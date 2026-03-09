@@ -31,13 +31,20 @@ import (
 
 // YannakakisPlusSolver applies a safe MVP rewrite inspired by Yannakakis+.
 //
-// This first stage intentionally only handles DISTINCT rewrites whose output
-// attribute classes are dominated by the same leaf relation of an acyclic inner
-// equi-join.
+// This stage intentionally handles only conservative DISTINCT and COUNT(*)
+// rewrites whose output attribute classes are dominated by the same leaf
+// relation of an acyclic inner equi-join.
 // The recursive invariant is:
 // reduceDistinctSubtree(node, parent) returns a plan equivalent to the DISTINCT
 // projection of the original subtree on the interface columns shared with parent.
 type YannakakisPlusSolver struct{}
+
+type yannakakisCountLikeAggInfo struct {
+	countIndex       int
+	countFunc        *aggregation.AggFuncDesc
+	outputAggIndices []int
+	outputCols       []*expression.Column
+}
 
 type yannakakisRelation struct {
 	id       int
@@ -56,6 +63,11 @@ type yannakakisGraph struct {
 
 type yannakakisUnionFind struct {
 	parent map[int64]int64
+}
+
+type yannakakisCountSummary struct {
+	plan     base.LogicalPlan
+	countCol *expression.Column
 }
 
 // Name implements base.LogicalOptRule.
@@ -95,6 +107,13 @@ func (s *YannakakisPlusSolver) rewriteRecursive(p base.LogicalPlan) (base.Logica
 		return p, changed, nil
 	}
 	rewritten, rewrittenChanged, err := s.tryRewriteDistinctAgg(agg)
+	if err != nil {
+		return nil, false, err
+	}
+	if rewrittenChanged {
+		return rewritten, true, nil
+	}
+	rewritten, rewrittenChanged, err = s.tryRewriteCountAgg(agg)
 	if err != nil {
 		return nil, false, err
 	}
@@ -147,6 +166,64 @@ func (s *YannakakisPlusSolver) tryRewriteDistinctAgg(agg *logicalop.LogicalAggre
 	return agg, true, nil
 }
 
+func (s *YannakakisPlusSolver) tryRewriteCountAgg(agg *logicalop.LogicalAggregation) (base.LogicalPlan, bool, error) {
+	info, ok := extractCountLikeAggInfo(agg)
+	if !ok || len(agg.Children()) != 1 {
+		return agg, false, nil
+	}
+
+	joinRoot := agg.Children()[0]
+	graph, edges, ok := buildYannakakisGraph(joinRoot)
+	if !ok || len(graph.relations) < 2 {
+		return agg, false, nil
+	}
+
+	outputAttrs, ok := extractCountOutputAttrs(info, graph)
+	if !ok {
+		return agg, false, nil
+	}
+	rootRelID, ok := findDominatingRelationByAttrs(graph.relations, outputAttrs)
+	if !ok {
+		return agg, false, nil
+	}
+	remappedGroupBy, remappedOutputCols, ok := remapCountAggToRelation(agg, info, graph, graph.relations[rootRelID])
+	if !ok {
+		return agg, false, nil
+	}
+
+	tree, ok := deriveAcyclicRelationTree(graph.relations, rootRelID)
+	if !ok {
+		return agg, false, nil
+	}
+	rootPlan, childCountCols, err := s.assembleCountSubtree(agg, graph, edges, tree, rootRelID, -1)
+	if err != nil || len(childCountCols) == 0 {
+		return agg, false, nil
+	}
+
+	for idx, col := range remappedGroupBy {
+		agg.GroupByItems[idx] = col
+	}
+	for idx, aggIdx := range info.outputAggIndices {
+		agg.AggFuncs[aggIdx].Args[0] = remappedOutputCols[idx]
+	}
+
+	multiplicityExpr := buildMultiplicityExpr(agg.SCtx(), childCountCols)
+	sumDesc, err := aggregation.NewAggFuncDesc(agg.SCtx().GetExprCtx(), ast.AggFuncSum, []expression.Expression{multiplicityExpr}, false)
+	if err != nil {
+		return agg, false, nil
+	}
+	sumDesc.TypeInfer4FinalCount(info.countFunc.RetTp)
+	agg.AggFuncs[info.countIndex] = sumDesc
+	if agg.Schema() != nil && info.countIndex < agg.Schema().Len() {
+		agg.Schema().Columns[info.countIndex].RetType = sumDesc.RetTp
+	}
+	agg.SetChildren(rootPlan)
+	if len(agg.GroupByItems) > 0 {
+		return agg, true, nil
+	}
+	return wrapScalarCountWithIfNull(agg, info.countIndex), true, nil
+}
+
 func (s *YannakakisPlusSolver) reduceDistinctSubtree(
 	agg *logicalop.LogicalAggregation,
 	graph *yannakakisGraph,
@@ -181,6 +258,146 @@ func (s *YannakakisPlusSolver) reduceDistinctSubtree(
 		return nil, errors.New("empty projection interface in Yannakakis+ rewrite")
 	}
 	return buildDistinctOnCols(agg, current, interfaceCols)
+}
+
+func (s *YannakakisPlusSolver) assembleCountSubtree(
+	agg *logicalop.LogicalAggregation,
+	graph *yannakakisGraph,
+	edges map[yannakakisEdgeKey][]int,
+	tree map[int][]int,
+	nodeID int,
+	parentID int,
+) (base.LogicalPlan, []*expression.Column, error) {
+	current := graph.relations[nodeID].plan
+	childCountCols := make([]*expression.Column, 0, len(tree[nodeID]))
+	for _, childID := range tree[nodeID] {
+		if childID == parentID {
+			continue
+		}
+		childSummary, err := s.summarizeCountSubtree(agg, graph, edges, tree, childID, nodeID)
+		if err != nil {
+			return nil, nil, err
+		}
+		eqConds, err := synthesizeJoinConds(agg.SCtx(), graph, current, childSummary.plan, edges[newYannakakisEdgeKey(nodeID, childID)])
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(eqConds) == 0 {
+			return nil, nil, errors.New("empty join interface in Yannakakis+ count rewrite")
+		}
+		current = buildInnerJoin(agg.SCtx(), current, childSummary.plan, eqConds)
+		childCountCols = append(childCountCols, childSummary.countCol)
+	}
+	return current, childCountCols, nil
+}
+
+func (s *YannakakisPlusSolver) summarizeCountSubtree(
+	agg *logicalop.LogicalAggregation,
+	graph *yannakakisGraph,
+	edges map[yannakakisEdgeKey][]int,
+	tree map[int][]int,
+	nodeID int,
+	parentID int,
+) (*yannakakisCountSummary, error) {
+	current, childCountCols, err := s.assembleCountSubtree(agg, graph, edges, tree, nodeID, parentID)
+	if err != nil {
+		return nil, err
+	}
+	interfaceCols := columnsForAttrsInSchema(current.Schema(), edges[newYannakakisEdgeKey(nodeID, parentID)], graph)
+	if len(interfaceCols) == 0 {
+		return nil, errors.New("empty projection interface in Yannakakis+ count rewrite")
+	}
+	return buildCountSummaryOnCols(agg, current, interfaceCols, buildMultiplicityExpr(agg.SCtx(), childCountCols), len(childCountCols) == 0)
+}
+
+func buildMultiplicityExpr(ctx base.PlanContext, countCols []*expression.Column) expression.Expression {
+	if len(countCols) == 0 {
+		return expression.NewOne()
+	}
+	expr := expression.Expression(countCols[0])
+	unspecified := types.NewFieldType(mysql.TypeUnspecified)
+	for _, col := range countCols[1:] {
+		expr = expression.NewFunctionInternal(ctx.GetExprCtx(), ast.Mul, unspecified, expr, col)
+	}
+	return expr
+}
+
+func buildCountSummaryOnCols(
+	agg *logicalop.LogicalAggregation,
+	child base.LogicalPlan,
+	interfaceCols []*expression.Column,
+	multiplicity expression.Expression,
+	useCount bool,
+) (*yannakakisCountSummary, error) {
+	indices := child.Schema().ColumnsIndices(interfaceCols)
+	if indices == nil {
+		return nil, errors.New("failed to locate count summary interface columns")
+	}
+	summary := logicalop.LogicalAggregation{
+		AggFuncs:     make([]*aggregation.AggFuncDesc, 0, len(interfaceCols)+1),
+		GroupByItems: expression.Column2Exprs(interfaceCols),
+	}.Init(agg.SCtx(), child.QueryBlockOffset())
+	var (
+		countDesc *aggregation.AggFuncDesc
+		err       error
+	)
+	if useCount {
+		countDesc, err = aggregation.NewAggFuncDesc(agg.SCtx().GetExprCtx(), ast.AggFuncCount, []expression.Expression{expression.NewOne()}, false)
+	} else {
+		countDesc, err = aggregation.NewAggFuncDesc(agg.SCtx().GetExprCtx(), ast.AggFuncSum, []expression.Expression{multiplicity}, false)
+	}
+	if err != nil {
+		return nil, err
+	}
+	summary.AggFuncs = append(summary.AggFuncs, countDesc)
+	for _, col := range interfaceCols {
+		desc, err := aggregation.NewAggFuncDesc(agg.SCtx().GetExprCtx(), ast.AggFuncFirstRow, []expression.Expression{col}, false)
+		if err != nil {
+			return nil, err
+		}
+		summary.AggFuncs = append(summary.AggFuncs, desc)
+	}
+	summary.SetChildren(child)
+	countCol := &expression.Column{
+		UniqueID: agg.SCtx().GetSessionVars().AllocPlanColumnID(),
+		RetType:  countDesc.RetTp,
+	}
+	schemaCols := make([]*expression.Column, 0, len(interfaceCols)+1)
+	schemaCols = append(schemaCols, countCol)
+	outputNames := make(types.NameSlice, 0, len(interfaceCols)+1)
+	outputNames = append(outputNames, types.EmptyName)
+	for idx, col := range interfaceCols {
+		cloned := col.Clone().(*expression.Column)
+		cloned.RetType = summary.AggFuncs[idx+1].RetTp
+		schemaCols = append(schemaCols, cloned)
+		outputNames = append(outputNames, child.OutputNames()[indices[idx]])
+	}
+	summary.SetSchema(expression.NewSchema(schemaCols...))
+	summary.SetOutputNames(outputNames)
+	return &yannakakisCountSummary{plan: summary, countCol: countCol}, nil
+}
+
+func wrapScalarCountWithIfNull(agg *logicalop.LogicalAggregation, countIndex int) base.LogicalPlan {
+	exprs := make([]expression.Expression, 0, agg.Schema().Len())
+	for idx, col := range agg.Schema().Columns {
+		if idx != countIndex {
+			exprs = append(exprs, col)
+			continue
+		}
+		targetTp := col.RetType.Clone()
+		exprs = append(exprs, expression.NewFunctionInternal(
+			agg.SCtx().GetExprCtx(),
+			ast.Ifnull,
+			targetTp,
+			col,
+			&expression.Constant{Value: types.NewIntDatum(0), RetType: targetTp},
+		))
+	}
+	proj := logicalop.LogicalProjection{Exprs: exprs}.Init(agg.SCtx(), agg.QueryBlockOffset())
+	proj.SetChildren(agg)
+	proj.SetSchema(agg.Schema().Clone())
+	proj.SetOutputNames(agg.OutputNames())
+	return proj
 }
 
 func isDistinctLikeAgg(agg *logicalop.LogicalAggregation) bool {
@@ -285,6 +502,102 @@ func remapDistinctColumnToRelation(
 		return nil, false
 	}
 	return rootCol, true
+}
+
+func extractCountLikeAggInfo(agg *logicalop.LogicalAggregation) (*yannakakisCountLikeAggInfo, bool) {
+	groupByCounts := make(map[int64]int, len(agg.GroupByItems))
+	for _, gby := range agg.GroupByItems {
+		col, ok := gby.(*expression.Column)
+		if !ok {
+			return nil, false
+		}
+		groupByCounts[col.UniqueID]++
+	}
+
+	info := &yannakakisCountLikeAggInfo{
+		countIndex:       -1,
+		outputAggIndices: make([]int, 0, len(agg.AggFuncs)),
+		outputCols:       make([]*expression.Column, 0, len(agg.AggFuncs)),
+	}
+	for idx, aggFunc := range agg.AggFuncs {
+		switch aggFunc.Name {
+		case ast.AggFuncCount:
+			if info.countIndex != -1 || aggFunc.HasDistinct || len(aggFunc.OrderByItems) > 0 || len(aggFunc.Args) != 1 {
+				return nil, false
+			}
+			if !isNonNullCountArg(aggFunc.Args[0]) {
+				return nil, false
+			}
+			info.countIndex = idx
+			info.countFunc = aggFunc
+		case ast.AggFuncFirstRow:
+			if aggFunc.HasDistinct || len(aggFunc.OrderByItems) > 0 || len(aggFunc.Args) != 1 {
+				return nil, false
+			}
+			col, ok := aggFunc.Args[0].(*expression.Column)
+			if !ok {
+				return nil, false
+			}
+			groupByCounts[col.UniqueID]--
+			if groupByCounts[col.UniqueID] < 0 {
+				return nil, false
+			}
+			info.outputAggIndices = append(info.outputAggIndices, idx)
+			info.outputCols = append(info.outputCols, col)
+		default:
+			return nil, false
+		}
+	}
+	if info.countIndex == -1 {
+		return nil, false
+	}
+	for _, count := range groupByCounts {
+		if count != 0 {
+			return nil, false
+		}
+	}
+	return info, true
+}
+
+func isNonNullCountArg(arg expression.Expression) bool {
+	con, ok := arg.(*expression.Constant)
+	return ok && !con.Value.IsNull()
+}
+
+func extractCountOutputAttrs(info *yannakakisCountLikeAggInfo, graph *yannakakisGraph) ([]int, bool) {
+	attrIDs := make([]int, 0, len(info.outputCols))
+	for _, col := range info.outputCols {
+		if _, ok := graph.relationByCol[col.UniqueID]; !ok {
+			return nil, false
+		}
+		attrIDs = append(attrIDs, graph.attrID(col.UniqueID))
+	}
+	return attrIDs, true
+}
+
+func remapCountAggToRelation(
+	agg *logicalop.LogicalAggregation,
+	info *yannakakisCountLikeAggInfo,
+	graph *yannakakisGraph,
+	rootRel *yannakakisRelation,
+) ([]*expression.Column, []*expression.Column, bool) {
+	groupByCols := make([]*expression.Column, 0, len(agg.GroupByItems))
+	for _, item := range agg.GroupByItems {
+		col, ok := remapDistinctColumnToRelation(item.(*expression.Column), graph, rootRel)
+		if !ok {
+			return nil, nil, false
+		}
+		groupByCols = append(groupByCols, col)
+	}
+	outputCols := make([]*expression.Column, 0, len(info.outputCols))
+	for _, col := range info.outputCols {
+		remapped, ok := remapDistinctColumnToRelation(col, graph, rootRel)
+		if !ok {
+			return nil, nil, false
+		}
+		outputCols = append(outputCols, remapped)
+	}
+	return groupByCols, outputCols, true
 }
 
 func buildYannakakisGraph(p base.LogicalPlan) (*yannakakisGraph, map[yannakakisEdgeKey][]int, bool) {
@@ -573,6 +886,18 @@ func firstColumnByAttr(schema *expression.Schema, attrID int, graph *yannakakisG
 		}
 	}
 	return nil
+}
+
+func columnsForAttrsInSchema(schema *expression.Schema, attrIDs []int, graph *yannakakisGraph) []*expression.Column {
+	cols := make([]*expression.Column, 0, len(attrIDs))
+	for _, attrID := range attrIDs {
+		col := firstColumnByAttr(schema, attrID, graph)
+		if col == nil {
+			return nil
+		}
+		cols = append(cols, col)
+	}
+	return cols
 }
 
 func columnsForAttrs(rel *yannakakisRelation, attrIDs []int) []*expression.Column {
