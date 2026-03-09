@@ -27,6 +27,7 @@ import (
 	"github.com/pingcap/tidb/pkg/planner/core/operator/logicalop"
 	ruleutil "github.com/pingcap/tidb/pkg/planner/core/rule/util"
 	"github.com/pingcap/tidb/pkg/types"
+	utilhint "github.com/pingcap/tidb/pkg/util/hint"
 )
 
 // YannakakisPlusSolver applies a safe MVP rewrite inspired by Yannakakis+.
@@ -969,7 +970,11 @@ func buildYannakakisGraph(p base.LogicalPlan) (*yannakakisGraph, map[yannakakisE
 func collectInnerJoinGraph(p base.LogicalPlan, relations *[]base.LogicalPlan, eqConds *[]*expression.ScalarFunction) bool {
 	if join, ok := p.(*logicalop.LogicalJoin); ok {
 		if join.JoinType != base.InnerJoin || len(join.EqualConditions) == 0 ||
-			len(join.LeftConditions) > 0 || len(join.RightConditions) > 0 || len(join.OtherConditions) > 0 {
+			len(join.LeftConditions) > 0 || len(join.RightConditions) > 0 || len(join.OtherConditions) > 0 ||
+			join.StraightJoin || join.PreferJoinOrder ||
+			hasYannakakisBlockingJoinHint(join.PreferJoinType) ||
+			hasYannakakisBlockingJoinHint(join.LeftPreferJoinType) ||
+			hasYannakakisBlockingJoinHint(join.RightPreferJoinType) {
 			return false
 		}
 		if !collectInnerJoinGraph(join.Children()[0], relations, eqConds) {
@@ -986,6 +991,35 @@ func collectInnerJoinGraph(p base.LogicalPlan, relations *[]base.LogicalPlan, eq
 	}
 	*relations = append(*relations, p)
 	return true
+}
+
+const yannakakisBlockingJoinHintMask = utilhint.PreferINLJ |
+	utilhint.PreferINLHJ |
+	utilhint.PreferINLMJ |
+	utilhint.PreferHJBuild |
+	utilhint.PreferHJProbe |
+	utilhint.PreferHashJoin |
+	utilhint.PreferNoHashJoin |
+	utilhint.PreferMergeJoin |
+	utilhint.PreferNoMergeJoin |
+	utilhint.PreferNoIndexJoin |
+	utilhint.PreferNoIndexHashJoin |
+	utilhint.PreferNoIndexMergeJoin |
+	utilhint.PreferBCJoin |
+	utilhint.PreferShuffleJoin |
+	utilhint.PreferLeftAsINLJInner |
+	utilhint.PreferRightAsINLJInner |
+	utilhint.PreferLeftAsINLHJInner |
+	utilhint.PreferRightAsINLHJInner |
+	utilhint.PreferLeftAsINLMJInner |
+	utilhint.PreferRightAsINLMJInner |
+	utilhint.PreferLeftAsHJBuild |
+	utilhint.PreferRightAsHJBuild |
+	utilhint.PreferLeftAsHJProbe |
+	utilhint.PreferRightAsHJProbe
+
+func hasYannakakisBlockingJoinHint(preferJoinType uint) bool {
+	return preferJoinType&yannakakisBlockingJoinHintMask != 0
 }
 
 func deriveAcyclicRelationTree(relations []*yannakakisRelation, rootID int) (map[int][]int, bool) {
