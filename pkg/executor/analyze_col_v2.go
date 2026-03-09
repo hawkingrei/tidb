@@ -935,6 +935,7 @@ workLoop:
 		case <-exitCh:
 			return
 		case <-ctx.Done():
+			resultCh <- normalizeCtxErrWithCause(ctx, ctx.Err())
 			return
 		}
 	}
@@ -1005,8 +1006,14 @@ func readDataAndSendTask(ctx context.Context, sctx sessionctx.Context, handler *
 			break
 		}
 
-		memTracker.Consume(int64(cap(data)))
-		mergeTaskCh <- data
+		dataSize := int64(cap(data))
+		memTracker.Consume(dataSize)
+		select {
+		case mergeTaskCh <- data:
+		case <-ctx.Done():
+			memTracker.Release(dataSize)
+			return errors.Trace(normalizeCtxErrWithCause(ctx, ctx.Err()))
+		}
 	}
 
 	return nil
