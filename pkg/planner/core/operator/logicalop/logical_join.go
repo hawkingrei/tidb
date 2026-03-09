@@ -865,6 +865,13 @@ func (p *LogicalJoin) RegisterRedundantColumnMapping(redundantCol, visibleCol *e
 	p.RedundantColsToOutputIdx[redundantCol.UniqueID] = visibleIdx
 }
 
+func redundantColumnRemapTypesMatch(redundantCol, visibleCol *expression.Column) bool {
+	if redundantCol == nil || visibleCol == nil || redundantCol.RetType == nil || visibleCol.RetType == nil {
+		return false
+	}
+	return redundantCol.RetType.Equal(visibleCol.RetType)
+}
+
 // ResolveRedundantColumn maps a redundant USING/NATURAL JOIN column to the canonical visible output.
 func (p *LogicalJoin) ResolveRedundantColumn(col *expression.Column) (*expression.Column, *types.FieldName) {
 	if p == nil || col == nil || len(p.RedundantColsToOutputIdx) == 0 || p.Schema() == nil {
@@ -882,7 +889,11 @@ func (p *LogicalJoin) ResolveRedundantColumn(col *expression.Column) (*expressio
 	if visibleIdx < 0 || visibleIdx >= p.Schema().Len() || visibleIdx >= len(p.OutputNames()) {
 		return nil, nil
 	}
-	return p.Schema().Columns[visibleIdx], p.OutputNames()[visibleIdx]
+	visibleCol := p.Schema().Columns[visibleIdx]
+	if !redundantColumnRemapTypesMatch(col, visibleCol) {
+		return nil, nil
+	}
+	return visibleCol, p.OutputNames()[visibleIdx]
 }
 
 // ExtractFDForSemiJoin extracts FD for semi join.

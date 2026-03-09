@@ -75,6 +75,28 @@ func TestSchemaCannotFindColumnRegression(t *testing.T) {
 		tk.MustQuery("SELECT /* issue:66272-all */ id AS t0_id FROM t1 JOIN t3 USING(id) WHERE (((t3.right_v = 749) AND (t3.id = 10)) AND (t1.left_v = 93)) AND (t3.right_v = ALL (SELECT t3.right_v FROM t3 WHERE t3.right_v = 749))").Check(testkit.Rows(
 			"10",
 		))
+		stmtID, _, fields, err := tk.Session().PrepareStmt("SELECT /* issue:66272-metadata */ t3.id FROM t1 JOIN t3 USING(id)")
+		tk.RequireNoError(err)
+		defer func() {
+			tk.RequireNoError(tk.Session().DropPreparedStmt(stmtID))
+		}()
+		tk.RequireEqual(1, len(fields))
+		tk.RequireEqual("t3", fields[0].Table.Name.O)
+		tk.RequireEqual("t3", fields[0].TableAsName.O)
+		tk.RequireEqual("id", fields[0].Column.Name.O)
+		tk.RequireEqual("id", fields[0].ColumnAsName.O)
+		tk.MustQuery("SELECT /* issue:66272-metadata */ t3.id FROM t1 JOIN t3 USING(id)").Check(testkit.Rows(
+			"10",
+		))
+
+		tk.MustExec("drop table if exists t_mixed_l, t_mixed_r")
+		tk.MustExec("create table t_mixed_l (id varchar(10) primary key, left_v int not null)")
+		tk.MustExec("create table t_mixed_r (id int primary key, right_v int not null)")
+		tk.MustExec("insert into t_mixed_l values ('01', 10), ('02', 20)")
+		tk.MustExec("insert into t_mixed_r values (1, 100), (2, 200)")
+		tk.MustQuery("SELECT /* issue:66272-type-safe */ t_mixed_r.id FROM t_mixed_l JOIN t_mixed_r USING(id) WHERE t_mixed_r.id = '01a'").Check(testkit.Rows(
+			"1",
+		))
 
 		tk.MustExec("drop table if exists t_up_l, t_up_r")
 		tk.MustExec("create table t_up_l (id int primary key, a int not null)")

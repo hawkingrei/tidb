@@ -1230,9 +1230,6 @@ func findColFromNaturalUsingJoin(p base.LogicalPlan, col *expression.Column) (na
 	case *logicalop.LogicalLimit, *logicalop.LogicalSelection, *logicalop.LogicalTopN, *logicalop.LogicalSort, *logicalop.LogicalMaxOneRow:
 		return findColFromNaturalUsingJoin(p.Children()[0], col)
 	case *logicalop.LogicalJoin:
-		if _, mappedName := x.ResolveRedundantColumn(col); mappedName != nil {
-			return mappedName
-		}
 		if x.FullSchema != nil {
 			idx := x.FullSchema.ColumnIndex(col)
 			if idx >= 0 && idx < len(x.FullNames) {
