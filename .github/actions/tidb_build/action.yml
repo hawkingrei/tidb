@@ -7,10 +7,10 @@ inputs:
     default: "1.25"
   bazelrc:
     description: Bazelrc content from secrets
-    required: false
+    required: true
   gcp_sa_key:
     description: GCP service account key JSON content
-    required: false
+    required: true
 runs:
   using: composite
   steps:
