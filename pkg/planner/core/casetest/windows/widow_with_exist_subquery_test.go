@@ -80,6 +80,7 @@ func TestWindowSubqueryOuterRef(tt *testing.T) {
 	testkit.RunTestUnderCascades(tt, func(t *testing.T, tk *testkit.TestKit, cascades, caller string) {
 		tk.MustExec("use test")
 		tk.MustExec("drop table if exists t1, t2, t3")
+		defer tk.MustExec("drop table if exists t1, t2, t3")
 		tk.MustExec("create table t1 (c1 int primary key)")
 		tk.MustExec("create table t2 (c1 int, c2 text)")
 		tk.MustExec("create table t3 (c1 int, c3 int)")
@@ -104,5 +105,20 @@ func TestWindowSubqueryOuterRef(tt *testing.T) {
 			tk.MustQuery("EXPLAIN FORMAT='plan_tree' " + sql).Check(testkit.Rows(output[i].Plan...))
 			tk.MustQuery(sql).Check(testkit.Rows(output[i].Result...))
 		}
+	})
+}
+
+func TestWindowNonScalarSubqueryInWindowExpr(t *testing.T) {
+	testkit.RunTestUnderCascades(t, func(t *testing.T, tk *testkit.TestKit, cascades, caller string) {
+		tk.MustExec("use test")
+		tk.MustExec("drop table if exists t1, t2")
+		defer tk.MustExec("drop table if exists t1, t2")
+		tk.MustExec("create table t1 (c1 int)")
+		tk.MustExec("create table t2 (c1 int)")
+		tk.MustExec("insert into t1 values (1), (2)")
+		tk.MustExec("insert into t2 values (1), (1), (2)")
+
+		tk.MustQuery("select count(1 in (select t2.c1 from t2)) over () from t1").Check(testkit.Rows("2", "2"))
+		tk.MustQuery("select count(1 = any (select t2.c1 from t2)) over () from t1").Check(testkit.Rows("2", "2"))
 	})
 }

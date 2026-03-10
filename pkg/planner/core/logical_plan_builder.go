@@ -2526,17 +2526,26 @@ func (b *PlanBuilder) resolveHavingAndOrderBy(ctx context.Context, sel *ast.Sele
 }
 
 type subqueryExprExtractor struct {
-	subqueries []ast.ExprNode
+	exprs []ast.ExprNode
 }
 
 // Enter implements Visitor interface.
 func (e *subqueryExprExtractor) Enter(n ast.Node) (ast.Node, bool) {
 	switch subq := n.(type) {
 	case *ast.SubqueryExpr:
-		e.subqueries = append(e.subqueries, subq)
+		e.exprs = append(e.exprs, subq)
 		return n, true
 	case *ast.ExistsSubqueryExpr:
-		e.subqueries = append(e.subqueries, subq)
+		e.exprs = append(e.exprs, subq)
+		return n, true
+	case *ast.CompareSubqueryExpr:
+		e.exprs = append(e.exprs, subq)
+		return n, true
+	case *ast.PatternInExpr:
+		if subq.Sel == nil {
+			return n, false
+		}
+		e.exprs = append(e.exprs, subq)
 		return n, true
 	}
 	return n, false
@@ -2583,10 +2592,10 @@ func (b *PlanBuilder) appendAuxiliaryFieldsForSubqueries(ctx context.Context, p 
 		}
 		extractor := &subqueryExprExtractor{}
 		node.Accept(extractor)
-		for _, subq := range extractor.subqueries {
+		for _, expr := range extractor.exprs {
 			// Correlated aggregates are handled separately; here we only need the outer columns
 			// so subqueries inside deferred window expressions can still resolve against this query block.
-			_, np, err := b.rewrite(ctx, subq, p, nil, true)
+			_, np, err := b.rewrite(ctx, expr, p, nil, true)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
