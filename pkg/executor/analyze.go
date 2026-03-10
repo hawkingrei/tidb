@@ -177,7 +177,9 @@ TASKLOOP:
 	}()
 
 	err = e.waitFinish(ctx, g, resultsCh)
-	if err == nil && ctx.Err() != nil && (sentTasks < len(tasks) || len(taskCh) > 0) {
+	if err == nil && ctx.Err() != nil {
+		// Preserve the original cancellation cause before follow-up work (for example stats cache update)
+		// can degrade it into a plain context error.
 		err = normalizeCtxErrWithCause(ctx, ctx.Err())
 	}
 	if err != nil {
