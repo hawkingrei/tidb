@@ -2600,6 +2600,8 @@ func (b *PlanBuilder) appendAuxiliaryFieldsForSubqueries(ctx context.Context, p 
 		for _, expr := range extractor.exprs {
 			// Correlated aggregates are handled separately; here we only need the outer columns
 			// so subqueries inside deferred window expressions can still resolve against this query block.
+			// TODO: Reuse the rewritten expression/plan from the pre-build phase instead of rebuilding it
+			// only for correlated outer-column discovery.
 			_, np, err := b.rewrite(ctx, expr, p, nil, true)
 			if err != nil {
 				return nil, errors.Trace(err)
