@@ -292,7 +292,6 @@ func (e *AnalyzeColumnsExecV2) buildSamplingStats(
 	})
 	err = taskEg.Wait()
 	if err != nil {
-		err = normalizeCtxErrWithCause(taskCtx, err)
 		if intest.InTest {
 			cause := context.Cause(taskCtx)
 			ctxErr := taskCtx.Err()
@@ -307,7 +306,6 @@ func (e *AnalyzeColumnsExecV2) buildSamplingStats(
 			)
 		}
 		if err1 := mergeEg.Wait(); err1 != nil {
-			err1 = normalizeCtxErrWithCause(taskCtx, err1)
 			if !stderrors.Is(err1, err) && err1.Error() != err.Error() {
 				err = stderrors.Join(err, err1)
 			}
@@ -315,9 +313,6 @@ func (e *AnalyzeColumnsExecV2) buildSamplingStats(
 		return 0, nil, nil, nil, getAnalyzePanicErr(err)
 	}
 	err = mergeEg.Wait()
-	if err != nil {
-		err = normalizeCtxErrWithCause(taskCtx, err)
-	}
 	defer e.memTracker.Release(rootRowCollector.Base().MemSize)
 	if err != nil {
 		taskCancel(err)
