@@ -29,13 +29,13 @@ Regression coverage:
   - correlated scalar subqueries inside window expressions,
   - `EXISTS` subqueries,
   - redundant `USING` / `NATURAL JOIN` outer-column lookup through `FullSchema`.
-- `TestWindowNonScalarSubqueryInWindowExpr` adds direct coverage for valid multi-row non-scalar subqueries inside window expressions:
+- `TestWindowSubqueryRewrite` adds direct coverage for valid multi-row non-scalar subqueries inside window expressions:
   - `count(1 in (select t2.c1 from t2)) over ()`
   - `count(1 = any (select t2.c1 from t2)) over ()`
 
 Validation commands:
 - `make failpoint-enable`
-- `go test -run 'TestWindowWithCorrelatedSubQuery|TestWindowSubqueryOuterRef|TestWindowNonScalarSubqueryInWindowExpr' -tags=intest,deadlock ./pkg/planner/core/casetest/windows`
+- `go test -run 'TestWindowSubqueryRewrite|TestWindowSubqueryOuterRef' -tags=intest,deadlock ./pkg/planner/core/casetest/windows`
 - `make failpoint-disable`
 - `make lint`
 
