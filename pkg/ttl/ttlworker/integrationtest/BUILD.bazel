@@ -5,13 +5,15 @@ go_test(
     timeout = "moderate",
     srcs = [
         "helpers_test.go",
+        "manager_job_adapter_test.go",
         "timer_sync_test.go",
     ],
     flaky = True,
     race = "on",
-    shard_count = 2,
+    shard_count = 6,
     deps = [
         "//pkg/domain",
+        "//pkg/kv",
         "//pkg/meta/metadef",
         "//pkg/metrics",
         "//pkg/parser/ast",
