@@ -558,6 +558,25 @@
           "2",
           "1"
         ]
+      },
+      {
+        "SQL": "select case when (exists(select /* issue:57594 */ 1 where ref_0.c2)) then count(*) over (partition by 1) else 1 end from t2 as ref_0 order by ref_0.c1, ref_0.c2",
+        "Plan": [
+          "Projection root  Column",
+          "└─Sort root  test.t2.c1, test.t2.c2",
+          "  └─Projection root  case(Column, Column, 1)->Column, test.t2.c2, test.t2.c1",
+          "    └─HashJoin root  CARTESIAN left outer semi join, left side:Window, left cond:[test.t2.c2]",
+          "      ├─TableDual(Build) root  rows:1",
+          "      └─Window(Probe) root  count(1)->Column#8 over(partition by Column)",
+          "        └─Projection root  0->Column, test.t2.c2, test.t2.c1",
+          "          └─TableReader root  data:TableFullScan",
+          "            └─TableFullScan cop[tikv] table:ref_0 keep order:false, stats:pseudo"
+        ],
+        "Result": [
+          "1",
+          "1",
+          "1"
+        ]
       }
     ]
   }
