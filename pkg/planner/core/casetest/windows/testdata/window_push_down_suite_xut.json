@@ -560,6 +560,43 @@
         ]
       },
       {
+        "SQL": "select case when (exists(select /* issue:57594 */ 1)) then count(*) over (partition by 1) else 1 end from t2 as ref_0 order by ref_0.c1, ref_0.c2",
+        "Plan": [
+          "Projection root  Column",
+          "└─Sort root  test.t2.c1, test.t2.c2",
+          "  └─Window root  count(1)->Column#7 over(partition by Column)",
+          "    └─Projection root  0->Column, test.t2.c1, test.t2.c2",
+          "      └─TableReader root  data:TableFullScan",
+          "        └─TableFullScan cop[tikv] table:ref_0 keep order:false, stats:pseudo",
+          "ScalarSubQuery root  Output: ",
+          "└─TableDual root  rows:1",
+          "ScalarSubQuery root  Output: ",
+          "└─TableDual root  rows:1"
+        ],
+        "Result": [
+          "3",
+          "3",
+          "3"
+        ]
+      },
+      {
+        "SQL": "select case when (exists(select /* issue:57594 */ 1 where ref_0.c2)) then 1 else 1 end from t2 as ref_0 order by ref_0.c1, ref_0.c2",
+        "Plan": [
+          "Projection root  Column",
+          "└─Sort root  test.t2.c1, test.t2.c2",
+          "  └─Projection root  case(Column, 1, 1)->Column, test.t2.c1, test.t2.c2",
+          "    └─HashJoin root  CARTESIAN left outer semi join, left side:TableReader, left cond:[test.t2.c2]",
+          "      ├─TableDual(Build) root  rows:1",
+          "      └─TableReader(Probe) root  data:TableFullScan",
+          "        └─TableFullScan cop[tikv] table:ref_0 keep order:false, stats:pseudo"
+        ],
+        "Result": [
+          "1",
+          "1",
+          "1"
+        ]
+      },
+      {
         "SQL": "select case when (exists(select /* issue:57594 */ 1 where ref_0.c2)) then count(*) over (partition by 1) else 1 end from t2 as ref_0 order by ref_0.c1, ref_0.c2",
         "Plan": [
           "Projection root  Column",
