@@ -608,6 +608,7 @@ func (e *AnalyzeExec) sendAnalyzeResult(ctx context.Context, statsHandle *handle
 		err = exeerrors.ErrQueryInterrupted
 	}
 	finishJobWithLog(statsHandle, result.Job, err)
+	result.DestroyAndPutToPool()
 }
 
 // ctx must be from AnalyzeExec.buildAnalyzeKillCtx
