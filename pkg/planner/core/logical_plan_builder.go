@@ -2582,6 +2582,11 @@ func findColumnNameByUniqueID(p base.LogicalPlan, uniqueID int64) *ast.ColumnNam
 			}
 		}
 	}
+	// Selection/Projection/Window and similar unary wrappers can sit above the join that keeps
+	// redundant USING/NATURAL JOIN columns only in FullSchema/FullNames.
+	if len(p.Children()) == 1 {
+		return findColumnNameByUniqueID(p.Children()[0], uniqueID)
+	}
 	return nil
 }
 
