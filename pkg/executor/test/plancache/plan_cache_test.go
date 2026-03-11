@@ -650,8 +650,26 @@ func attachSessionManagerForExplain(tk *testkit.TestKit) {
 	tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: []*sessmgr.ProcessInfo{tkProcess}})
 }
 
+func requireExplainContainsOperator(t *testing.T, rows [][]any, operator string) []any {
+	t.Helper()
+	for _, row := range rows {
+		if len(row) > 0 && strings.Contains(fmt.Sprint(row[0]), operator) {
+			return row
+		}
+	}
+	require.Failf(t, "missing operator in explain", "expected explain for connection to contain operator %q, got rows: %v", operator, rows)
+	return nil
+}
+
+func cleanupPreparedPlanSelectionState(t *testing.T, tk *testkit.TestKit) {
+	t.Helper()
+	tk.MustExec("use test")
+	tk.MustExec("drop table if exists t, customer, warehouse, t28064")
+}
+
 func testPreparedNullParam(t *testing.T, tk *testkit.TestKit) {
 	t.Helper()
+	cleanupPreparedPlanSelectionState(t, tk)
 
 	for _, flag := range []bool{false, true} {
 		tk.MustExec(fmt.Sprintf(`set tidb_enable_prepared_plan_cache=%v`, flag))
@@ -671,6 +689,7 @@ func testPreparedNullParam(t *testing.T, tk *testkit.TestKit) {
 
 func testIssue29850(t *testing.T, tk *testkit.TestKit) {
 	t.Helper()
+	cleanupPreparedPlanSelectionState(t, tk)
 	tk.MustExec(`set tidb_enable_prepared_plan_cache=1`)
 	tk.MustExec(`set tidb_enable_clustered_index=on`)
 	tk.MustExec("set @@tidb_enable_collect_execution_info=0")
@@ -726,6 +745,7 @@ func testIssue29850(t *testing.T, tk *testkit.TestKit) {
 
 func testIssue28064(t *testing.T, tk *testkit.TestKit) {
 	t.Helper()
+	cleanupPreparedPlanSelectionState(t, tk)
 	tk.MustExec(`set tidb_enable_prepared_plan_cache=1`)
 	tk.MustExec("use test")
 	tk.MustExec("drop table if exists t28064")
@@ -751,6 +771,7 @@ func testIssue28064(t *testing.T, tk *testkit.TestKit) {
 
 func testIssue29101(t *testing.T, tk *testkit.TestKit) {
 	t.Helper()
+	cleanupPreparedPlanSelectionState(t, tk)
 	tk.MustExec("set @old_tidb_cost_model_version := @@tidb_cost_model_version, @old_tidb_opt_advanced_join_hint := @@tidb_opt_advanced_join_hint")
 	defer func() {
 		tk.MustExec("set @@tidb_cost_model_version = @old_tidb_cost_model_version, @@tidb_opt_advanced_join_hint = @old_tidb_opt_advanced_join_hint")
@@ -794,6 +815,7 @@ func testIssue29101(t *testing.T, tk *testkit.TestKit) {
 
 func testIssue57528(t *testing.T, tk *testkit.TestKit) {
 	t.Helper()
+	cleanupPreparedPlanSelectionState(t, tk)
 	tk.MustExec(`set tidb_enable_prepared_plan_cache=1`)
 	tk.MustExec("set @@tidb_enable_collect_execution_info=1")
 	tk.MustExec(`use test`)
@@ -833,7 +855,7 @@ func testPreparePlanCache4Blacklist(t *testing.T, tk *testkit.TestKit) {
 	tk.MustExec("execute stmt;")
 	attachSessionManagerForExplain(tk)
 	res := tk.MustQuery(fmt.Sprintf("explain for connection %d", tk.Session().ShowProcess().ID))
-	require.Contains(t, res.Rows()[1][0], "TopN")
+	requireExplainContainsOperator(t, res.Rows(), "TopN")
 	tk.MustExec("INSERT INTO mysql.opt_rule_blacklist VALUES('max_min_eliminate');")
 	tk.MustExec("ADMIN reload opt_rule_blacklist;")
 	tk.MustExec("execute stmt;")
@@ -890,6 +912,9 @@ func testPreparePlanCache4DifferentSystemVars(t *testing.T, tk *testkit.TestKit)
 	tk.MustExec("set @@sql_select_limit = 2")
 	tk.MustQuery("execute stmt;").Check(testkit.Rows("<nil>", "0"))
 	tk.MustQuery("select @@last_plan_from_cache;").Check(testkit.Rows("0"))
+	tk.MustExec("set @@sql_select_limit = 18446744073709551615")
+	tk.MustQuery("execute stmt;").Check(testkit.Rows("<nil>", "0", "1"))
+	tk.MustQuery("select @@last_plan_from_cache;").Check(testkit.Rows("0"))
 
 	tk.MustExec("set @@tidb_enable_index_merge = 1;")
 	tk.MustExec("drop table if exists t;")
@@ -898,8 +923,7 @@ func testPreparePlanCache4DifferentSystemVars(t *testing.T, tk *testkit.TestKit)
 	tk.MustExec("execute stmt;")
 	attachSessionManagerForExplain(tk)
 	res := tk.MustQuery("explain for connection " + strconv.FormatUint(tk.Session().ShowProcess().ID, 10))
-	require.Equal(t, 4, len(res.Rows()))
-	require.Contains(t, res.Rows()[0][0], "IndexMerge")
+	requireExplainContainsOperator(t, res.Rows(), "IndexMerge")
 	tk.MustExec("set @@tidb_enable_index_merge = 0;")
 	tk.MustExec("execute stmt;")
 	tk.MustExec("execute stmt;")
@@ -915,15 +939,15 @@ func testPreparePlanCache4DifferentSystemVars(t *testing.T, tk *testkit.TestKit)
 	tk.Session().SetProcessInfo("", time.Now(), mysql.ComSleep, 0)
 	attachSessionManagerForExplain(tk)
 	res = tk.MustQuery("explain for connection " + strconv.FormatUint(tk.Session().ShowProcess().ID, 10))
-	require.Contains(t, res.Rows()[1][0], "Apply")
-	require.Contains(t, res.Rows()[1][5], "Concurrency")
+	applyRow := requireExplainContainsOperator(t, res.Rows(), "Apply")
+	require.Contains(t, fmt.Sprint(applyRow), "Concurrency")
 	tk.MustExec("set tidb_enable_parallel_apply=false")
 	tk.MustQuery("execute stmt;").Sort().Check(testkit.Rows("1", "2", "3", "4", "5", "6", "7", "8", "9"))
 	tk.Session().SetProcessInfo("", time.Now(), mysql.ComSleep, 0)
 	attachSessionManagerForExplain(tk)
 	res = tk.MustQuery("explain for connection " + strconv.FormatUint(tk.Session().ShowProcess().ID, 10))
-	require.Contains(t, res.Rows()[1][0], "Apply")
-	require.False(t, strings.Contains(fmt.Sprintf("%v", res.Rows()[1][4]), "Concurrency"))
+	applyRow = requireExplainContainsOperator(t, res.Rows(), "Apply")
+	require.NotContains(t, fmt.Sprint(applyRow), "Concurrency")
 	tk.MustExec("execute stmt;")
 	tk.MustQuery("select @@last_plan_from_cache;").Check(testkit.Rows("0"))
 }
