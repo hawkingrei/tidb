@@ -626,7 +626,7 @@ func generateMVIndexMergePartialPaths4And(ds *logicalop.DataSource, normalPathCn
 		idxCols, ok := PrepareIdxColsAndUnwrapArrayType(
 			ds.Table.Meta(),
 			possibleMVIndexPaths[idx].Index,
-			ds.TblCols,
+			ds.TblColsByID,
 			true,
 		)
 		if !ok {
@@ -1051,7 +1051,7 @@ func generateIndexMerge4MVIndex(ds *logicalop.DataSource, normalPathCnt int, fil
 		idxCols, ok := PrepareIdxColsAndUnwrapArrayType(
 			ds.Table.Meta(),
 			ds.PossibleAccessPaths[idx].Index,
-			ds.TblCols,
+			ds.TblColsByID,
 			true,
 		)
 		if !ok {
@@ -1288,7 +1288,7 @@ func buildPartialPath4MVIndex(
 func PrepareIdxColsAndUnwrapArrayType(
 	tableInfo *model.TableInfo,
 	idxInfo *model.IndexInfo,
-	tblCols []*expression.Column,
+	tblColsByID map[int64]*expression.Column,
 	checkOnly1ArrayTypeCol bool,
 ) (idxCols []*expression.Column, ok bool) {
 	colInfos := tableInfo.Cols()
@@ -1296,14 +1296,8 @@ func PrepareIdxColsAndUnwrapArrayType(
 	for i := range idxInfo.Columns {
 		colOffset := idxInfo.Columns[i].Offset
 		colMeta := colInfos[colOffset]
-		var col *expression.Column
-		for _, c := range tblCols {
-			if c.ID == colMeta.ID {
-				col = c
-				break
-			}
-		}
-		if col == nil { // unexpected, no vir-col on this MVIndex
+		col, found := tblColsByID[colMeta.ID]
+		if !found { // unexpected, no vir-col on this MVIndex
 			return nil, false
 		}
 		if col.GetStaticType().IsArray() {
