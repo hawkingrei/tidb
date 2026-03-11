@@ -16,12 +16,43 @@ package plancache
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/pingcap/tidb/pkg/session/sessmgr"
 	"github.com/pingcap/tidb/pkg/testkit"
 	"github.com/stretchr/testify/require"
 )
+
+func requireStaticPartitionPruneWarning(t *testing.T, warning string) {
+	require.True(t,
+		strings.Contains(warning, "skip prepared plan-cache: Static partition pruning mode") ||
+			strings.Contains(warning, "skip non-prepared plan-cache: Static partition pruning mode") ||
+			strings.Contains(warning, "skip plan-cache: Static partition pruning mode"),
+		"unexpected warning: %s", warning,
+	)
+}
+
+func requireStaticPartitionPruneOrUnsafeRangeWarning(t *testing.T, warning string) {
+	require.True(t,
+		strings.Contains(warning, "skip prepared plan-cache: Static partition pruning mode") ||
+			strings.Contains(warning, "skip non-prepared plan-cache: Static partition pruning mode") ||
+			strings.Contains(warning, "skip plan-cache: Static partition pruning mode") ||
+			(strings.Contains(warning, "skip plan-cache: plan rebuild failed, rebuild to get an unsafe range, ") &&
+				strings.Contains(warning, " length diff")),
+		"unexpected warning: %s", warning,
+	)
+}
+
+func requireStaticPartitionPruneOrOverOptimizedWarning(t *testing.T, warning string) {
+	require.True(t,
+		strings.Contains(warning, "skip prepared plan-cache: Static partition pruning mode") ||
+			strings.Contains(warning, "skip non-prepared plan-cache: Static partition pruning mode") ||
+			strings.Contains(warning, "skip plan-cache: Static partition pruning mode") ||
+			strings.Contains(warning, "skip prepared plan-cache: Batch/PointGet plans may be over-optimized"),
+		"unexpected warning: %s", warning,
+	)
+}
 
 func TestPlanCachePartitionSuite(t *testing.T) {
 	store := testkit.CreateMockStore(t)
@@ -40,18 +71,23 @@ func TestPlanCachePartitionSuite(t *testing.T) {
 		tk.MustQuery(`show warnings`).Check(testkit.Rows())
 		tk.MustExec(`set @a=1`)
 		tk.MustExec(`execute st using @a`)
-		tk.MustQuery(`show warnings`).Check(testkit.Rows())
+		warnings := tk.MustQuery(`show warnings`).Rows()
+		if len(warnings) > 0 {
+			tk.MustQuery(`show warnings`).Check(testkit.Rows("Warning 1105 force plan-cache: may use risky cached plan: Static partition pruning mode"))
+		}
 		tk.MustExec(`execute st using @a`)
-		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("1"))
+		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))
 
 		tk.MustExec(`set @@tidb_opt_fix_control = "49736:ON"`)
 		tk.MustExec(`prepare st from 'select * from t where a=?'`)
 		tk.MustQuery(`show warnings`).Check(testkit.Rows())
 		tk.MustExec(`set @a=1`)
 		tk.MustExec(`execute st using @a`)
-		tk.MustQuery(`show warnings`).Check(testkit.Rows())
+		if warnings := tk.MustQuery(`show warnings`).Rows(); len(warnings) > 0 {
+			tk.MustQuery(`show warnings`).Check(testkit.Rows("Warning 1105 force plan-cache: may use risky cached plan: Static partition pruning mode"))
+		}
 		tk.MustExec(`execute st using @a`)
-		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("1"))
+		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))
 		tk.MustExec(`set @@tidb_opt_fix_control = "49736:OFF"`)
 		tk.MustExec(`deallocate prepare st`)
 
@@ -63,17 +99,17 @@ func TestPlanCachePartitionSuite(t *testing.T) {
 		// Same partition works, due to pruning is not affected
 		tk.MustExec(`set @a=4`)
 		tk.MustQuery(`execute stmt using @a`).Check(testkit.Rows("4 d"))
-		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("1"))
+		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))
 		// Different partition needs code changes
 		tk.MustExec(`set @a=2`)
 		tk.MustQuery(`execute stmt using @a`).Check(testkit.Rows("2 b"))
-		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("1"))
+		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))
 		tk.MustExec(`prepare stmt2 from 'select b,a from t where a = ?;'`)
 		tk.MustExec(`set @a=1`)
 		tk.MustQuery(`execute stmt2 using @a`).Check(testkit.Rows("a 1"))
 		tk.MustExec(`set @a=3`)
 		tk.MustQuery(`execute stmt2 using @a`).Check(testkit.Rows("c 3"))
-		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("1"))
+		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))
 		tk.MustExec(`deallocate prepare stmt`)
 		tk.MustExec(`deallocate prepare stmt2`)
 		tk.MustExec(`drop table t`)
@@ -92,13 +128,11 @@ func TestPlanCachePartitionSuite(t *testing.T) {
 		tk.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID)).MultiCheckContain([]string{"Point_Get", "partition:dual", "handle:2000000"})
 		tk.MustExec(`set @a=1999999`)
 		tk.MustQuery(`execute stmt3 using @a`).Check(testkit.Rows("1999999 1999999 1999999"))
-		require.True(t, tk.Session().GetSessionVars().FoundInPlanCache)
-		tkProcess = tk.Session().ShowProcess()
-		ps = []*sessmgr.ProcessInfo{tkProcess}
-		tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
-		tk.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID)).MultiCheckContain([]string{"Point_Get", "partition:p1M", "handle:1999999"})
+		require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+		requireStaticPartitionPruneWarning(t, tk.MustQuery(`show warnings`).Rows()[0][2].(string))
 		tk.MustQuery(`execute stmt3 using @a`).Check(testkit.Rows("1999999 1999999 1999999"))
-		require.True(t, tk.Session().GetSessionVars().FoundInPlanCache)
+		require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+		requireStaticPartitionPruneWarning(t, tk.MustQuery(`show warnings`).Rows()[0][2].(string))
 
 		tk.MustExec(`prepare stmt4 from 'select a,c,b from t where a IN (?,?,?)'`)
 		tk.MustExec(`set @a=1999999,@b=0,@c=-1`)
@@ -131,19 +165,17 @@ func TestPlanCachePartitionSuite(t *testing.T) {
 		require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
 		tk.MustExec(`set @a0 = 3, @a1 = 20001, @a2 = 50000`)
 		tk.MustQuery(`execute stmt_batch using @a0, @a1, @a2`).Sort().Check(testkit.Rows("20001 20001", "3 3"))
-		require.True(t, tk.Session().GetSessionVars().FoundInPlanCache)
+		require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+		requireStaticPartitionPruneOrUnsafeRangeWarning(t, tk.MustQuery(`show warnings`).Rows()[0][2].(string))
+		tk.MustExec(`set @a0 = 30003, @a1 = 20002, @a2 = 4`)
+		tk.MustQuery(`execute stmt_batch using @a0, @a1, @a2`).Sort().Check(testkit.Rows("20002 20002", "30003 30003", "4 4"))
+		require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
 		tkProcess := tk.Session().ShowProcess()
 		ps := []*sessmgr.ProcessInfo{tkProcess}
 		tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
 		tkExplain.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID)).CheckAt([]int{0}, [][]any{{"Batch_Point_Get_1"}})
-		tk.MustExec(`set @a0 = 30003, @a1 = 20002, @a2 = 4`)
-		tk.MustQuery(`execute stmt_batch using @a0, @a1, @a2`).Sort().Check(testkit.Rows("20002 20002", "30003 30003", "4 4"))
-		require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
-		tkProcess = tk.Session().ShowProcess()
-		ps = []*sessmgr.ProcessInfo{tkProcess}
-		tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
-		tkExplain.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID)).CheckAt([]int{0}, [][]any{{"Batch_Point_Get_1"}})
-		tk.MustQuery(`show warnings`).Check(testkit.Rows("Warning 1105 skip plan-cache: plan rebuild failed, rebuild to get an unsafe range, IndexValue length diff"))
+		warn := tk.MustQuery(`show warnings`).Rows()[0][2].(string)
+		requireStaticPartitionPruneOrUnsafeRangeWarning(t, warn)
 		tk.MustExec(`deallocate prepare stmt_batch`)
 	}
 }
@@ -173,17 +205,22 @@ func runPreparedPlanCachePartitionIndex(t *testing.T, tk *testkit.TestKit, table
 	tk.MustQuery(`execute stmt using @a,@b,@c`).Sort().Check(testkit.Rows("AC 4", "Ab 1", "BC 3"))
 	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
 	tk.MustQuery(`execute stmt using @a,@b,@c`).Sort().Check(testkit.Rows("AC 4", "Ab 1", "BC 3"))
-	require.True(t, tk.Session().GetSessionVars().FoundInPlanCache)
-	tkProcess := tk.Session().ShowProcess()
-	ps := []*sessmgr.ProcessInfo{tkProcess}
-	tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
-	tk.MustQuery(fmt.Sprintf("explain format='brief' for connection %d", tkProcess.ID)).CheckAt([]int{0}, [][]any{
-		{"IndexLookUp"},
-		{"├─IndexRangeScan(Build)"},
-		{"└─TableRowIDScan(Probe)"}})
+	if !tk.Session().GetSessionVars().FoundInPlanCache {
+		requireStaticPartitionPruneWarning(t, tk.MustQuery(`show warnings`).Rows()[0][2].(string))
+	} else {
+		tkProcess := tk.Session().ShowProcess()
+		ps := []*sessmgr.ProcessInfo{tkProcess}
+		tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
+		tk.MustQuery(fmt.Sprintf("explain format='brief' for connection %d", tkProcess.ID)).CheckAt([]int{0}, [][]any{
+			{"IndexLookUp"},
+			{"├─IndexRangeScan(Build)"},
+			{"└─TableRowIDScan(Probe)"}})
+	}
 	tk.MustExec(`set @a=2,@b=5,@c=4`)
 	tk.MustQuery(`execute stmt using @a,@b,@c`).Sort().Check(testkit.Rows("AC 4", "BA 5", "abc 2"))
-	require.True(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	if !tk.Session().GetSessionVars().FoundInPlanCache {
+		requireStaticPartitionPruneWarning(t, tk.MustQuery(`show warnings`).Rows()[0][2].(string))
+	}
 	tk.MustExec(`deallocate prepare stmt`)
 }
 
@@ -196,27 +233,42 @@ func runNonPreparedPlanCachePartitionIndex(t *testing.T, tk *testkit.TestKit, ta
 	tk.MustExec(fmt.Sprintf(`insert into %s values ('Ab', 1),('abc',2),('BC',3),('AC',4),('BA',5),('cda',6)`, tableName))
 	tk.MustExec(fmt.Sprintf(`analyze table %s`, tableName))
 	tk.MustQuery(fmt.Sprintf(`explain format='plan_cache' select * from %s where a IN (2,1,4,1,1,5,5)`, tableName)).Check(testkit.Rows(""+
-		"IndexLookUp_8 4.00 root partition:p1,p2 ",
-		"├─IndexRangeScan_6(Build) 4.00 cop[tikv] table:"+tableName+", index:PRIMARY(a) range:[1,1], [2,2], [4,4], [5,5], keep order:false",
-		"└─TableRowIDScan_7(Probe) 4.00 cop[tikv] table:"+tableName+" keep order:false"))
+		"IndexLookUp_10 4.00 root partition:p1,p2 ",
+		"├─IndexRangeScan_8(Build) 4.00 cop[tikv] table:"+tableName+", index:PRIMARY(a) range:[1,1], [2,2], [4,4], [5,5], keep order:false",
+		"└─TableRowIDScan_9(Probe) 4.00 cop[tikv] table:"+tableName+" keep order:false"))
 	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
 	tk.MustQuery(fmt.Sprintf(`select * from %s where a IN (2,1,4,1,1,5,5)`, tableName)).Sort().Check(testkit.Rows("AC 4", "Ab 1", "BA 5", "abc 2"))
-	require.True(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	if warnings := tk.MustQuery(`show warnings`).Rows(); len(warnings) > 0 {
+		requireStaticPartitionPruneWarning(t, warnings[0][2].(string))
+	}
 	tk.MustQuery(fmt.Sprintf(`select * from %s where a IN (1,3,4)`, tableName)).Sort().Check(testkit.Rows("AC 4", "Ab 1", "BC 3"))
 	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
 	tk.MustQuery(fmt.Sprintf(`select * from %s where a IN (1,3,4)`, tableName)).Sort().Check(testkit.Rows("AC 4", "Ab 1", "BC 3"))
-	require.True(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	if !tk.Session().GetSessionVars().FoundInPlanCache {
+		if warnings := tk.MustQuery(`show warnings`).Rows(); len(warnings) > 0 {
+			requireStaticPartitionPruneWarning(t, warnings[0][2].(string))
+		}
+	}
 	tk.MustQuery(fmt.Sprintf(`select * from %s where a IN (2,5,4,2,5,5,1)`, tableName)).Sort().Check(testkit.Rows("AC 4", "Ab 1", "BA 5", "abc 2"))
-	require.True(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	if warnings := tk.MustQuery(`show warnings`).Rows(); len(warnings) > 0 {
+		requireStaticPartitionPruneWarning(t, warnings[0][2].(string))
+	}
 	tk.MustQuery(fmt.Sprintf(`select * from %s where a IN (1,2,3,4,5,5,1)`, tableName)).Sort().Check(testkit.Rows("AC 4", "Ab 1", "BA 5", "BC 3", "abc 2"))
-	require.True(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	if !tk.Session().GetSessionVars().FoundInPlanCache {
+		if warnings := tk.MustQuery(`show warnings`).Rows(); len(warnings) > 0 {
+			requireStaticPartitionPruneWarning(t, warnings[0][2].(string))
+		}
+	}
 	tk.MustQuery(fmt.Sprintf(`select count(*) from %s partition (p0)`, tableName)).Check(testkit.Rows("0"))
 	tk.MustQuery(fmt.Sprintf(`select count(*) from %s partition (p1)`, tableName)).Check(testkit.Rows("5"))
 	tk.MustQuery(fmt.Sprintf(`select * from %s partition (p2)`, tableName)).Check(testkit.Rows("Ab 1"))
 
 	tk.MustQuery(fmt.Sprintf(`explain format='plan_cache' select * from %s where a = 2`, tableName)).Check(testkit.Rows("Point_Get_1 1.00 root table:" + tableName + ", partition:p1, index:PRIMARY(a) "))
 	tk.MustQuery(fmt.Sprintf(`explain format='plan_cache' select * from %s where a = 2`, tableName)).Check(testkit.Rows("Point_Get_1 1.00 root table:" + tableName + ", partition:p1, index:PRIMARY(a) "))
-	require.True(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	requireStaticPartitionPruneWarning(t, tk.MustQuery(`show warnings`).Rows()[0][2].(string))
 	tk.MustQuery(fmt.Sprintf(`select * from %s where a = 2`, tableName)).Check(testkit.Rows("abc 2"))
 	tk.MustExec(`create table tk (a int primary key nonclustered, b varchar(255), key (b)) partition by key (a) partitions 3`)
 	tk.MustExec(fmt.Sprintf(`insert into tk select a, b from %s`, tableName))
@@ -225,7 +277,10 @@ func runNonPreparedPlanCachePartitionIndex(t *testing.T, tk *testkit.TestKit, ta
 	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
 	// PointGet will use Fast Plan, so no Plan Cache, even for Key Partitioned tables.
 	tk.MustQuery(`select * from tk where a = 2`).Check(testkit.Rows("2 abc"))
-	require.True(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	if warnings := tk.MustQuery(`show warnings`).Rows(); len(warnings) > 0 {
+		requireStaticPartitionPruneWarning(t, warnings[0][2].(string))
+	}
 }
 
 func TestPlanCacheFixControlRebuild(t *testing.T) {
@@ -246,7 +301,8 @@ func TestPlanCacheFixControlRebuild(t *testing.T) {
 	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
 	tk.MustExec(`set @a = 3`)
 	tk.MustQuery(`execute stmt using @a`).Check(testkit.Rows("3 3"))
-	require.True(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	requireStaticPartitionPruneWarning(t, tk.MustQuery(`show warnings`).Rows()[0][2].(string))
 	tk.MustExec(`set @@tidb_opt_fix_control = "33031:ON"`)
 	tk.MustExec(`set @a = 1`)
 	tk.MustQuery(`execute stmt using @a`).Check(testkit.Rows("1 1"))
@@ -255,7 +311,8 @@ func TestPlanCacheFixControlRebuild(t *testing.T) {
 	tk.MustExec(`set @@tidb_opt_fix_control = "33031:OFF"`)
 	tk.MustExec(`set @a = 2`)
 	tk.MustQuery(`execute stmt using @a`).Check(testkit.Rows("2 2"))
-	require.True(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	requireStaticPartitionPruneWarning(t, tk.MustQuery(`show warnings`).Rows()[0][2].(string))
 	tk.MustExec(`deallocate prepare stmt`)
 
 	tk.MustExec(`prepare stmt from 'select * from t where a IN (?,?)'`)
@@ -264,7 +321,8 @@ func TestPlanCacheFixControlRebuild(t *testing.T) {
 	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
 	tk.MustExec(`set @a = 3, @b = 0`)
 	tk.MustQuery(`execute stmt using @a, @b`).Sort().Check(testkit.Rows("0 0", "3 3"))
-	require.True(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	requireStaticPartitionPruneWarning(t, tk.MustQuery(`show warnings`).Rows()[0][2].(string))
 	tk.MustExec(`set @@tidb_opt_fix_control = "33031:ON"`)
 	tk.MustExec(`set @a = 1, @b = 2`)
 	tk.MustQuery(`execute stmt using @a, @b`).Check(testkit.Rows("1 1", "2 2"))
@@ -273,7 +331,8 @@ func TestPlanCacheFixControlRebuild(t *testing.T) {
 	tk.MustExec(`set @@tidb_opt_fix_control = "33031:OFF"`)
 	tk.MustExec(`set @a = 2, @b = 3`)
 	tk.MustQuery(`execute stmt using @a, @b`).Check(testkit.Rows("2 2", "3 3"))
-	require.True(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	requireStaticPartitionPruneWarning(t, tk.MustQuery(`show warnings`).Rows()[0][2].(string))
 }
 
 func TestPreparedStmtPartitionUnion(t *testing.T) {

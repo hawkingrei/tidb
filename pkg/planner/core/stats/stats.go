@@ -57,7 +57,7 @@ func GetTblInfoForUsedStatsByPhysicalID(sctx base.PlanContext, id int64) (
 // 2. table row count from statistics is zero.
 // 3. statistics is outdated.
 // Note: please also update getLatestVersionFromStatsTable() when logic in this function changes.
-func GetStatsTable(ctx base.PlanContext, tblInfo *model.TableInfo, pid int64) *statistics.Table {
+func GetStatsTable(ctx base.PlanContext, tblInfo *model.TableInfo, pid int64, partitionIDs []int64) *statistics.Table {
 	var statsHandle *handle.Handle
 	dom := domain.GetDomain(ctx)
 	if dom != nil {
@@ -70,7 +70,31 @@ func GetStatsTable(ctx base.PlanContext, tblInfo *model.TableInfo, pid int64) *s
 		return statistics.PseudoTable(tblInfo, false, true)
 	}
 
-	if pid == tblInfo.ID || ctx.GetSessionVars().StmtCtx.UseDynamicPartitionPrune() {
+	if len(partitionIDs) > 0 {
+		uniquePartitionStats := make([]*statistics.Table, 0, len(partitionIDs))
+		seen := make(map[int64]struct{}, len(partitionIDs))
+		for _, partitionID := range partitionIDs {
+			if _, ok := seen[partitionID]; ok {
+				continue
+			}
+			seen[partitionID] = struct{}{}
+			uniquePartitionStats = append(uniquePartitionStats, statsHandle.GetPhysicalTableStats(partitionID, tblInfo))
+		}
+		if len(uniquePartitionStats) == 1 {
+			statsTbl = uniquePartitionStats[0]
+		} else {
+			var ok bool
+			statsTbl, ok = statistics.MergePartitionStatsForRuntime(
+				ctx.GetSessionVars().StmtCtx,
+				tblInfo,
+				uniquePartitionStats,
+				ctx.GetSessionVars().AnalyzeVersion,
+			)
+			if !ok {
+				statsTbl = statistics.PseudoTable(tblInfo, false, true)
+			}
+		}
+	} else if pid == tblInfo.ID || ctx.GetSessionVars().StmtCtx.UseDynamicPartitionPrune() {
 		statsTbl = statsHandle.GetPhysicalTableStats(tblInfo.ID, tblInfo)
 	} else {
 		statsTbl = statsHandle.GetPhysicalTableStats(pid, tblInfo)
@@ -132,7 +156,7 @@ func LoadTableStats(ctx sessionctx.Context, tblInfo *model.TableInfo, pid int64)
 	}
 
 	pctx := ctx.GetPlanCtx()
-	tableStats := GetStatsTable(pctx, tblInfo, pid)
+	tableStats := GetStatsTable(pctx, tblInfo, pid, nil)
 
 	name := tblInfo.Name.O
 	partInfo := tblInfo.GetPartitionInfo()

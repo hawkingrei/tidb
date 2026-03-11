@@ -877,6 +877,10 @@ func (s *PartitionProcessor) prune(ds *logicalop.DataSource) (base.LogicalPlan, 
 	if pi == nil {
 		return ds, nil
 	}
+	ds.StaticPrunedPartitionIDs = nil
+	if ds.SCtx().GetSessionVars().StmtCtx.InPreparedPlanBuild {
+		return ds, nil
+	}
 	// PushDownNot here can convert condition 'not (a != 1)' to 'a = 1'. When we build range from ds.AllConds, the condition
 	// like 'not (a != 1)' would not be handled so we need to convert it to 'a = 1', which can be handled when building range.
 	// Now, PushDownNot have be done in the ApplyPredicateSimplification
@@ -904,6 +908,11 @@ func (s *PartitionProcessor) prune(ds *logicalop.DataSource) (base.LogicalPlan, 
 	}
 
 	return s.makeUnionAllChildren(ds, pi, GetFullRange(len(pi.Definitions)))
+}
+
+func setStaticPartitionPruneInfo(ds *logicalop.DataSource) {
+	ds.SCtx().GetSessionVars().StmtCtx.StaticPartitionPrune = true
+	ds.SCtx().GetSessionVars().StmtCtx.SetSkipPlanCache("Static partition pruning mode")
 }
 
 // FindByName checks whether object name exists in list.
@@ -1928,12 +1937,26 @@ func (s *PartitionProcessor) makeUnionAllChildren(ds *logicalop.DataSource, pi *
 	}
 	s.checkHintsApplicable(ds, partitionNameSet)
 
-	ds.SCtx().GetSessionVars().StmtCtx.SetSkipPlanCache("Static partition pruning mode")
+	prunedPartitionIDs := make([]int64, 0, len(usedDefinition))
+	for partitionID := range usedDefinition {
+		prunedPartitionIDs = append(prunedPartitionIDs, partitionID)
+	}
+	slices.Sort(prunedPartitionIDs)
+	staticPruned := len(prunedPartitionIDs) < len(pi.Definitions)
+	if staticPruned {
+		setStaticPartitionPruneInfo(ds)
+	}
 	if len(children) == 0 {
 		// No result after table pruning.
 		tableDual := logicalop.LogicalTableDual{RowCount: 0}.Init(ds.SCtx(), ds.QueryBlockOffset())
 		tableDual.SetSchema(ds.Schema())
 		return tableDual, nil
+	}
+	if ds.SCtx().GetSessionVars().StmtCtx.UseDynamicPartitionPrune() {
+		if staticPruned && len(prunedPartitionIDs) > 0 {
+			ds.StaticPrunedPartitionIDs = prunedPartitionIDs
+		}
+		return ds, nil
 	}
 	if len(children) == 1 {
 		// No need for the union all.

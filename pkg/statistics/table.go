@@ -25,6 +25,7 @@ import (
 	"github.com/pingcap/tidb/pkg/meta/model"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/planner/planctx"
+	"github.com/pingcap/tidb/pkg/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/ranger"
@@ -718,6 +719,258 @@ func (t *Table) GetStatsInfo(id int64, isIndex bool, needCopy bool) (*Histogram,
 	}
 	// newly added column which is not analyzed yet
 	return nil, nil, nil, nil, false
+}
+
+// MergePartitionStatsForRuntime merges selected partition stats into a runtime-only table stats object.
+// It only uses the selected partition stats and never falls back to the partition table global stats.
+func MergePartitionStatsForRuntime(
+	sc *stmtctx.StatementContext,
+	tblInfo *model.TableInfo,
+	partitionStats []*Table,
+	analyzeVersion int,
+) (*Table, bool) {
+	if len(partitionStats) == 0 {
+		return nil, false
+	}
+
+	var (
+		realtimeCount   int64
+		modifyCount     int64
+		version         uint64
+		lastAnalyze     uint64
+		lastStatsHist   uint64
+		tblInfoUpdateTS uint64
+		statsVersion    int
+		isPkIsHandle    bool
+	)
+	for _, partStats := range partitionStats {
+		if partStats == nil {
+			return nil, false
+		}
+		realtimeCount += partStats.RealtimeCount
+		modifyCount += partStats.ModifyCount
+		version = max(version, partStats.Version)
+		lastAnalyze = max(lastAnalyze, partStats.LastAnalyzeVersion)
+		lastStatsHist = max(lastStatsHist, partStats.LastStatsHistVersion)
+		tblInfoUpdateTS = max(tblInfoUpdateTS, partStats.TblInfoUpdateTS)
+		statsVersion = max(statsVersion, partStats.StatsVer)
+		isPkIsHandle = isPkIsHandle || partStats.IsPkIsHandle
+	}
+
+	histColl := NewHistColl(tblInfo.ID, realtimeCount, modifyCount, len(tblInfo.Columns), len(tblInfo.Indices))
+	histColl.StatsVer = statsVersion
+	merged := &Table{
+		ColAndIdxExistenceMap: NewColAndIndexExistenceMap(len(tblInfo.Columns), len(tblInfo.Indices)),
+		HistColl:              *histColl,
+		Version:               version,
+		LastAnalyzeVersion:    lastAnalyze,
+		LastStatsHistVersion:  lastStatsHist,
+		TblInfoUpdateTS:       tblInfoUpdateTS,
+		IsPkIsHandle:          isPkIsHandle,
+	}
+
+	for _, colInfo := range tblInfo.Columns {
+		if colInfo.State != model.StatePublic {
+			continue
+		}
+		colStats, ok := mergePartitionColumnStatsForRuntime(sc, tblInfo.ID, colInfo, partitionStats, realtimeCount, analyzeVersion)
+		if !ok {
+			continue
+		}
+		merged.SetCol(colInfo.ID, colStats)
+		merged.ColAndIdxExistenceMap.InsertCol(colInfo.ID, true)
+	}
+	for _, idxInfo := range tblInfo.Indices {
+		if idxInfo.State != model.StatePublic {
+			continue
+		}
+		idxStats, ok := mergePartitionIndexStatsForRuntime(sc, tblInfo.ID, idxInfo, partitionStats, realtimeCount, analyzeVersion)
+		if !ok {
+			continue
+		}
+		merged.SetIdx(idxInfo.ID, idxStats)
+		merged.ColAndIdxExistenceMap.InsertIndex(idxInfo.ID, true)
+	}
+	return merged, true
+}
+
+func mergePartitionColumnStatsForRuntime(
+	sc *stmtctx.StatementContext,
+	tblID int64,
+	colInfo *model.ColumnInfo,
+	partitionStats []*Table,
+	realtimeCount int64,
+	analyzeVersion int,
+) (*Column, bool) {
+	hists := make([]*Histogram, 0, len(partitionStats))
+	cmSketches := make([]*CMSketch, 0, len(partitionStats))
+	topNs := make([]*TopN, 0, len(partitionStats))
+	fmSketches := make([]*FMSketch, 0, len(partitionStats))
+	maxBuckets := 0
+	maxTopN := 0
+	var (
+		statsVer int64
+		isHandle bool
+	)
+	for _, partStats := range partitionStats {
+		colStats := partStats.GetCol(colInfo.ID)
+		if colStats == nil || !colStats.IsFullLoad() {
+			return nil, false
+		}
+		hists = append(hists, colStats.Histogram.Copy())
+		if colStats.CMSketch != nil {
+			cmSketches = append(cmSketches, colStats.CMSketch.Copy())
+		} else {
+			cmSketches = append(cmSketches, nil)
+		}
+		if colStats.TopN != nil {
+			topNs = append(topNs, colStats.TopN.Copy())
+			maxTopN = max(maxTopN, len(colStats.TopN.TopN))
+		} else {
+			topNs = append(topNs, nil)
+		}
+		if colStats.FMSketch != nil {
+			fmSketches = append(fmSketches, colStats.FMSketch.Copy())
+		} else {
+			fmSketches = append(fmSketches, nil)
+		}
+		maxBuckets = max(maxBuckets, len(colStats.Buckets))
+		statsVer = max(statsVer, colStats.StatsVer)
+		isHandle = isHandle || colStats.IsHandle
+	}
+
+	hist, cms, topN, fm, ok := mergePartitionStatsComponentsForRuntime(sc, hists, cmSketches, topNs, fmSketches, maxBuckets, maxTopN, false, analyzeVersion, realtimeCount)
+	if !ok {
+		return nil, false
+	}
+	return &Column{
+		CMSketch:          cms,
+		TopN:              topN,
+		FMSketch:          fm,
+		Info:              colInfo.Clone(),
+		Histogram:         *hist,
+		StatsLoadedStatus: NewStatsFullLoadStatus(),
+		PhysicalID:        tblID,
+		StatsVer:          statsVer,
+		IsHandle:          isHandle,
+	}, true
+}
+
+func mergePartitionIndexStatsForRuntime(
+	sc *stmtctx.StatementContext,
+	tblID int64,
+	idxInfo *model.IndexInfo,
+	partitionStats []*Table,
+	realtimeCount int64,
+	analyzeVersion int,
+) (*Index, bool) {
+	hists := make([]*Histogram, 0, len(partitionStats))
+	cmSketches := make([]*CMSketch, 0, len(partitionStats))
+	topNs := make([]*TopN, 0, len(partitionStats))
+	fmSketches := make([]*FMSketch, 0, len(partitionStats))
+	maxBuckets := 0
+	maxTopN := 0
+	var statsVer int64
+	for _, partStats := range partitionStats {
+		idxStats := partStats.GetIdx(idxInfo.ID)
+		if idxStats == nil || !idxStats.IsFullLoad() {
+			return nil, false
+		}
+		hists = append(hists, idxStats.Histogram.Copy())
+		if idxStats.CMSketch != nil {
+			cmSketches = append(cmSketches, idxStats.CMSketch.Copy())
+		} else {
+			cmSketches = append(cmSketches, nil)
+		}
+		if idxStats.TopN != nil {
+			topNs = append(topNs, idxStats.TopN.Copy())
+			maxTopN = max(maxTopN, len(idxStats.TopN.TopN))
+		} else {
+			topNs = append(topNs, nil)
+		}
+		if idxStats.FMSketch != nil {
+			fmSketches = append(fmSketches, idxStats.FMSketch.Copy())
+		} else {
+			fmSketches = append(fmSketches, nil)
+		}
+		maxBuckets = max(maxBuckets, len(idxStats.Buckets))
+		statsVer = max(statsVer, idxStats.StatsVer)
+	}
+
+	hist, cms, topN, fm, ok := mergePartitionStatsComponentsForRuntime(sc, hists, cmSketches, topNs, fmSketches, maxBuckets, maxTopN, true, analyzeVersion, realtimeCount)
+	if !ok {
+		return nil, false
+	}
+	return &Index{
+		CMSketch:          cms,
+		TopN:              topN,
+		FMSketch:          fm,
+		Info:              idxInfo.Clone(),
+		Histogram:         *hist,
+		StatsLoadedStatus: NewStatsFullLoadStatus(),
+		StatsVer:          statsVer,
+		PhysicalID:        tblID,
+	}, true
+}
+
+func mergePartitionStatsComponentsForRuntime(
+	sc *stmtctx.StatementContext,
+	hists []*Histogram,
+	cmSketches []*CMSketch,
+	topNs []*TopN,
+	fmSketches []*FMSketch,
+	maxBuckets int,
+	maxTopN int,
+	isIndex bool,
+	analyzeVersion int,
+	realtimeCount int64,
+) (*Histogram, *CMSketch, *TopN, *FMSketch, bool) {
+	if len(hists) == 0 || maxBuckets == 0 {
+		return nil, nil, nil, nil, false
+	}
+
+	var mergedFMSketch *FMSketch
+	for _, fm := range fmSketches {
+		if fm == nil {
+			mergedFMSketch = nil
+			break
+		}
+		if mergedFMSketch == nil {
+			mergedFMSketch = fm
+			continue
+		}
+		mergedFMSketch.MergeFMSketch(fm)
+	}
+
+	var mergedCMSketch *CMSketch
+	for _, cms := range cmSketches {
+		if cms == nil {
+			mergedCMSketch = nil
+			break
+		}
+		if mergedCMSketch == nil {
+			mergedCMSketch = cms
+			continue
+		}
+		if err := mergedCMSketch.MergeCMSketch(cms); err != nil {
+			mergedCMSketch = nil
+			break
+		}
+	}
+
+	mergedTopN, poppedTopN := MergeTopN(topNs, uint32(maxTopN))
+	mergedHist, err := MergePartitionHist2GlobalHist(sc, hists, poppedTopN, int64(maxBuckets), isIndex, analyzeVersion)
+	if err != nil || mergedHist == nil {
+		return nil, nil, nil, nil, false
+	}
+
+	if mergedFMSketch != nil {
+		for i := range mergedHist.Buckets {
+			mergedHist.Buckets[i].NDV = 0
+		}
+		mergedHist.NDV = min(mergedFMSketch.NDV(), realtimeCount)
+	}
+	return mergedHist, mergedCMSketch, mergedTopN, mergedFMSketch, true
 }
 
 // IsAnalyzed checks whether the table is analyzed or not by checking its last analyze's timestamp value.

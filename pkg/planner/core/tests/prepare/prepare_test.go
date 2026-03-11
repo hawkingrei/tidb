@@ -1594,18 +1594,18 @@ func TestPrepareCacheForDynamicPartitionPruning(t *testing.T) {
 		ps := []*sessmgr.ProcessInfo{tkProcess}
 		tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
 		explain := tkExplain.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID))
-		if pruneMode == string(variable.Dynamic) {
-			require.Equal(t, "Selection_7", explain.Rows()[0][0])
-		} else {
-			require.Equal(t, "TableDual_8", explain.Rows()[0][0])
-		}
+		require.Equal(t, "TableDual_8", explain.Rows()[0][0])
 		tk.MustExec(`set @a=-5, @b=112`)
 		tk.MustQuery(`execute stmt using @a,@b`).Check(testkit.Rows("-5 7"))
 
 		explain = tkExplain.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID))
 		if pruneMode == string(variable.Dynamic) {
-			require.Equal(t, "Selection_7", explain.Rows()[0][0])
-			require.True(t, tk.Session().GetSessionVars().FoundInPlanCache)
+			explain.CheckAt([]int{0},
+				[][]any{
+					{"Selection_9"},
+					{"└─Point_Get_8"},
+				})
+			require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
 			tk.MustQuery(`show warnings`).Check(testkit.Rows())
 		} else {
 			explain.CheckAt([]int{0},
@@ -1620,7 +1620,7 @@ func TestPrepareCacheForDynamicPartitionPruning(t *testing.T) {
 		// Test TableDual
 		tk.MustExec(`set @b=5, @a=113`)
 		tk.MustQuery(`execute stmt using @a,@b`).Check(testkit.Rows())
-		require.Equal(t, pruneMode == string(variable.Dynamic), tk.Session().GetSessionVars().FoundInPlanCache)
+		require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
 	}
 }
 
