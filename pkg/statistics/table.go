@@ -744,7 +744,7 @@ func MergePartitionStatsForRuntime(
 		isPkIsHandle    bool
 	)
 	for _, partStats := range partitionStats {
-		if partStats == nil {
+		if partStats == nil || partStats.Pseudo {
 			return nil, false
 		}
 		realtimeCount += partStats.RealtimeCount
@@ -773,23 +773,47 @@ func MergePartitionStatsForRuntime(
 		if colInfo.State != model.StatePublic {
 			continue
 		}
+		hasStats := true
+		hasAnalyzed := true
+		for _, partStats := range partitionStats {
+			if partStats.ColAndIdxExistenceMap == nil || !partStats.ColAndIdxExistenceMap.Has(colInfo.ID, false) {
+				hasStats = false
+				hasAnalyzed = false
+				break
+			}
+			hasAnalyzed = hasAnalyzed && partStats.ColAndIdxExistenceMap.HasAnalyzed(colInfo.ID, false)
+		}
+		if hasStats {
+			merged.ColAndIdxExistenceMap.InsertCol(colInfo.ID, hasAnalyzed)
+		}
 		colStats, ok := mergePartitionColumnStatsForRuntime(sc, tblInfo.ID, colInfo, partitionStats, realtimeCount, analyzeVersion)
 		if !ok {
 			continue
 		}
 		merged.SetCol(colInfo.ID, colStats)
-		merged.ColAndIdxExistenceMap.InsertCol(colInfo.ID, true)
 	}
 	for _, idxInfo := range tblInfo.Indices {
 		if idxInfo.State != model.StatePublic {
 			continue
+		}
+		hasStats := true
+		hasAnalyzed := true
+		for _, partStats := range partitionStats {
+			if partStats.ColAndIdxExistenceMap == nil || !partStats.ColAndIdxExistenceMap.Has(idxInfo.ID, true) {
+				hasStats = false
+				hasAnalyzed = false
+				break
+			}
+			hasAnalyzed = hasAnalyzed && partStats.ColAndIdxExistenceMap.HasAnalyzed(idxInfo.ID, true)
+		}
+		if hasStats {
+			merged.ColAndIdxExistenceMap.InsertIndex(idxInfo.ID, hasAnalyzed)
 		}
 		idxStats, ok := mergePartitionIndexStatsForRuntime(sc, tblInfo.ID, idxInfo, partitionStats, realtimeCount, analyzeVersion)
 		if !ok {
 			continue
 		}
 		merged.SetIdx(idxInfo.ID, idxStats)
-		merged.ColAndIdxExistenceMap.InsertIndex(idxInfo.ID, true)
 	}
 	return merged, true
 }

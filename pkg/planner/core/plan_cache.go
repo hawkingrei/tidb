@@ -334,11 +334,22 @@ func shouldSkipCachedPlanForStaticPartitionPruning(sctx sessionctx.Context, plan
 	if !sctx.GetSessionVars().StmtCtx.UseDynamicPartitionPrune() {
 		return false, nil
 	}
-	physicalPlan, ok := plan.(base.PhysicalPlan)
-	if !ok {
+	switch p := plan.(type) {
+	case *physicalop.Update:
+		if p.SelectPlan == nil {
+			return false, nil
+		}
+		return cachedPlanUsesStaticPartitionPruning(sctx, p.SelectPlan)
+	case *physicalop.Delete:
+		if p.SelectPlan == nil {
+			return false, nil
+		}
+		return cachedPlanUsesStaticPartitionPruning(sctx, p.SelectPlan)
+	case base.PhysicalPlan:
+		return cachedPlanUsesStaticPartitionPruning(sctx, p)
+	default:
 		return false, nil
 	}
-	return cachedPlanUsesStaticPartitionPruning(sctx, physicalPlan)
 }
 
 func cachedPlanUsesStaticPartitionPruning(sctx sessionctx.Context, plan base.PhysicalPlan) (bool, error) {

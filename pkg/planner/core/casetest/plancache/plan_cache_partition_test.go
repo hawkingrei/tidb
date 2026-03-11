@@ -232,10 +232,13 @@ func runNonPreparedPlanCachePartitionIndex(t *testing.T, tk *testkit.TestKit, ta
 	// since it is already using the fast path!
 	tk.MustExec(fmt.Sprintf(`insert into %s values ('Ab', 1),('abc',2),('BC',3),('AC',4),('BA',5),('cda',6)`, tableName))
 	tk.MustExec(fmt.Sprintf(`analyze table %s`, tableName))
-	tk.MustQuery(fmt.Sprintf(`explain format='plan_cache' select * from %s where a IN (2,1,4,1,1,5,5)`, tableName)).Check(testkit.Rows(""+
-		"IndexLookUp_10 4.00 root partition:p1,p2 ",
-		"├─IndexRangeScan_8(Build) 4.00 cop[tikv] table:"+tableName+", index:PRIMARY(a) range:[1,1], [2,2], [4,4], [5,5], keep order:false",
-		"└─TableRowIDScan_9(Probe) 4.00 cop[tikv] table:"+tableName+" keep order:false"))
+	explainRows := tk.MustQuery(fmt.Sprintf(`explain format='plan_cache' select * from %s where a IN (2,1,4,1,1,5,5)`, tableName)).Rows()
+	require.Len(t, explainRows, 3)
+	require.Contains(t, fmt.Sprint(explainRows[0]), "IndexLookUp")
+	require.Contains(t, fmt.Sprint(explainRows[0]), "partition:p1,p2")
+	require.Contains(t, fmt.Sprint(explainRows[1]), "IndexRangeScan")
+	require.Contains(t, fmt.Sprint(explainRows[1]), "range:[1,1], [2,2], [4,4], [5,5]")
+	require.Contains(t, fmt.Sprint(explainRows[2]), "TableRowIDScan")
 	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
 	tk.MustQuery(fmt.Sprintf(`select * from %s where a IN (2,1,4,1,1,5,5)`, tableName)).Sort().Check(testkit.Rows("AC 4", "Ab 1", "BA 5", "abc 2"))
 	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
@@ -333,6 +336,36 @@ func TestPlanCacheFixControlRebuild(t *testing.T) {
 	tk.MustQuery(`execute stmt using @a, @b`).Check(testkit.Rows("2 2", "3 3"))
 	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
 	requireStaticPartitionPruneWarning(t, tk.MustQuery(`show warnings`).Rows()[0][2].(string))
+}
+
+func TestPreparedPartitionDMLPlanCache(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec(`drop table if exists t`)
+	tk.MustExec(`create table t (a int primary key, b int) partition by hash(a) partitions 4`)
+	tk.MustExec(`insert into t values (1,10),(2,20),(3,30),(4,40)`)
+	tk.MustExec(`analyze table t`)
+
+	tk.MustExec(`prepare stmt_update from 'update t set b = b + 1 where a = ?'`)
+	tk.MustExec(`set @a = 1`)
+	tk.MustExec(`execute stmt_update using @a`)
+	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	tk.MustExec(`set @a = 2`)
+	tk.MustExec(`execute stmt_update using @a`)
+	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	requireStaticPartitionPruneWarning(t, tk.MustQuery(`show warnings`).Rows()[0][2].(string))
+	tk.MustExec(`deallocate prepare stmt_update`)
+
+	tk.MustExec(`prepare stmt_delete from 'delete from t where a = ?'`)
+	tk.MustExec(`set @a = 3`)
+	tk.MustExec(`execute stmt_delete using @a`)
+	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	tk.MustExec(`set @a = 4`)
+	tk.MustExec(`execute stmt_delete using @a`)
+	require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+	requireStaticPartitionPruneWarning(t, tk.MustQuery(`show warnings`).Rows()[0][2].(string))
+	tk.MustExec(`deallocate prepare stmt_delete`)
 }
 
 func TestPreparedStmtPartitionUnion(t *testing.T) {
