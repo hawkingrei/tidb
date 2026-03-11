@@ -368,14 +368,13 @@ func (e *AnalyzeColumnsExecV2) buildSamplingStats(
 		samplingStatsConcurrency = totalLen
 	}
 	e.samplingBuilderWg = newNotifyErrorWaitGroupWrapper(gp, buildResultChan)
-	sampleCollectors := make([]*statistics.SampleCollector, len(e.colsInfo))
 	exitCh := make(chan struct{})
 	e.samplingBuilderWg.Add(samplingStatsConcurrency)
 
 	// Start workers to build stats.
 	for range samplingStatsConcurrency {
 		e.samplingBuilderWg.Run(func() {
-			e.subBuildWorker(ctx, buildResultChan, buildTaskChan, hists, topns, sampleCollectors, exitCh)
+			e.subBuildWorker(ctx, buildResultChan, buildTaskChan, hists, topns, exitCh)
 		})
 	}
 	// Generate tasks for building stats.
@@ -750,7 +749,7 @@ func (e *AnalyzeColumnsExecV2) logAnalyzeCanceledInTest(ctx context.Context, err
 	)
 }
 
-func (e *AnalyzeColumnsExecV2) subBuildWorker(ctx context.Context, resultCh chan error, taskCh chan *samplingBuildTask, hists []*statistics.Histogram, topns []*statistics.TopN, collectors []*statistics.SampleCollector, exitCh chan struct{}) {
+func (e *AnalyzeColumnsExecV2) subBuildWorker(ctx context.Context, resultCh chan error, taskCh chan *samplingBuildTask, hists []*statistics.Histogram, topns []*statistics.TopN, exitCh chan struct{}) {
 	defer func() {
 		if r := recover(); r != nil {
 			logutil.BgLogger().Warn("analyze subBuildWorker panicked", zap.Any("recover", r), zap.Stack("stack"))
