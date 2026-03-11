@@ -695,6 +695,7 @@ func TestAnalyzeSamplingWorkPanic(t *testing.T) {
 	tk := testkit.NewTestKit(t, store)
 	tk.MustExec("use test")
 	tk.MustExec("set @@session.tidb_analyze_version = 2")
+	tk.MustExec("set @@tidb_build_stats_concurrency = 4")
 	tk.MustExec("create table t(a int, index idx(a))")
 	tk.MustExec("insert into t values(1), (2), (3), (4), (5), (6), (7), (8), (9), (10), (11), (12)")
 	tk.MustExec("split table t between (-9223372036854775808) and (9223372036854775807) regions 12")

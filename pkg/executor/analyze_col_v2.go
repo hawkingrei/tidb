@@ -255,7 +255,7 @@ func (e *AnalyzeColumnsExecV2) buildSamplingStats(
 	for i := range samplingStatsConcurrency {
 		id := i
 		gp.Go(func() {
-			e.subMergeWorker(mergeCtx, taskCtx, mergeResultCh, mergeTaskCh, l, id)
+			e.subMergeWorker(mergeCtx, taskCtx, taskCancel, mergeResultCh, mergeTaskCh, l, id)
 		})
 	}
 	// Merge the result from collectors.
@@ -310,9 +310,11 @@ func (e *AnalyzeColumnsExecV2) buildSamplingStats(
 				err = stderrors.Join(err, err1)
 			}
 		}
+		drainPendingSamplingMergeTasks(mergeTaskCh, e.memTracker)
 		return 0, nil, nil, nil, getAnalyzePanicErr(err)
 	}
 	err = mergeEg.Wait()
+	drainPendingSamplingMergeTasks(mergeTaskCh, e.memTracker)
 	defer e.memTracker.Release(rootRowCollector.Base().MemSize)
 	if err != nil {
 		taskCancel(err)
@@ -619,22 +621,35 @@ func (e *AnalyzeColumnsExecV2) buildSubIndexJobForSpecialIndex(indexInfos []*mod
 	return tasks
 }
 
-func (e *AnalyzeColumnsExecV2) subMergeWorker(ctx context.Context, parentCtx context.Context, resultCh chan<- *samplingMergeResult, taskCh <-chan []byte, l int, index int) {
+func (e *AnalyzeColumnsExecV2) subMergeWorker(
+	ctx context.Context,
+	parentCtx context.Context,
+	cancel context.CancelCauseFunc,
+	resultCh chan<- *samplingMergeResult,
+	taskCh <-chan []byte,
+	l int,
+	index int,
+) {
 	// Only close the resultCh in the first worker.
 	closeTheResultCh := index == 0
+	var inflightDataSize int64
+	var inflightRespSize int64
 	defer func() {
 		if r := recover(); r != nil {
+			panicErr := getAnalyzePanicErr(r)
 			logutil.BgLogger().Warn("analyze worker panicked", zap.Any("recover", r), zap.Stack("stack"))
 			metrics.PanicCounter.WithLabelValues(metrics.LabelAnalyze).Inc()
-			resultCh <- &samplingMergeResult{err: getAnalyzePanicErr(r)}
+			cancel(panicErr)
+			resultCh <- &samplingMergeResult{err: panicErr}
 		}
-		// Consume the remaining things.
-		for {
-			data, ok := <-taskCh
-			if !ok {
-				break
-			}
-			e.memTracker.Release(int64(cap(data)))
+		// Release only the bytes already owned by this worker. Remaining queued raw
+		// responses are drained once by buildSamplingStats after the sender stops, so
+		// we do not race other workers and over-release the shared tracker.
+		if inflightRespSize > 0 {
+			e.memTracker.Release(inflightRespSize)
+		}
+		if inflightDataSize > 0 {
+			e.memTracker.Release(inflightDataSize)
 		}
 		e.samplingMergeWg.Done()
 		if closeTheResultCh {
@@ -669,18 +684,19 @@ func (e *AnalyzeColumnsExecV2) subMergeWorker(ctx context.Context, parentCtx con
 				return
 			}
 			// Unmarshal the data.
-			dataSize := int64(cap(data))
+			inflightDataSize = int64(cap(data))
 			colResp := &tipb.AnalyzeColumnsResp{}
 			err := colResp.Unmarshal(data)
 			if err != nil {
-				e.memTracker.Release(dataSize)
+				e.memTracker.Release(inflightDataSize)
+				inflightDataSize = 0
 				cleanupCollector()
 				resultCh <- &samplingMergeResult{err: err}
 				return
 			}
 			// Consume the memory of the data.
-			colRespSize := int64(colResp.Size())
-			e.memTracker.Consume(colRespSize)
+			inflightRespSize = int64(colResp.Size())
+			e.memTracker.Consume(inflightRespSize)
 
 			// Update processed rows.
 			subCollector := statistics.NewRowSampleCollector(int(e.analyzePB.ColReq.SampleSize), e.analyzePB.ColReq.GetSampleRate(), l)
@@ -700,7 +716,9 @@ func (e *AnalyzeColumnsExecV2) subMergeWorker(ctx context.Context, parentCtx con
 			newRetCollectorSize := retCollector.Base().MemSize
 			subCollectorSize := subCollector.Base().MemSize
 			e.memTracker.Consume(newRetCollectorSize - oldRetCollectorSize - subCollectorSize)
-			e.memTracker.Release(dataSize + colRespSize)
+			e.memTracker.Release(inflightDataSize + inflightRespSize)
+			inflightDataSize = 0
+			inflightRespSize = 0
 			subCollector.DestroyAndPutToPool()
 		case <-ctx.Done():
 			err := context.Cause(ctx)
@@ -730,6 +748,12 @@ func (e *AnalyzeColumnsExecV2) subMergeWorker(ctx context.Context, parentCtx con
 			resultCh <- &samplingMergeResult{err: errors.New("context canceled without error")}
 			return
 		}
+	}
+}
+
+func drainPendingSamplingMergeTasks(taskCh <-chan []byte, memTracker *memory.Tracker) {
+	for data := range taskCh {
+		memTracker.Release(int64(cap(data)))
 	}
 }
 
