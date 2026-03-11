@@ -368,10 +368,10 @@ func normalizeConstantAccessConds(
 	sctx *rangerctx.RangerContext,
 	accessConds, newConditions []expression.Expression,
 ) (
-	[]expression.Expression,
-	[]expression.Expression,
-	bool,
-	error,
+	normalizedAccessConds []expression.Expression,
+	normalizedNewConditions []expression.Expression,
+	emptyRange bool,
+	err error,
 ) {
 	for i, cond := range accessConds {
 		con, ok := cond.(*expression.Constant)
