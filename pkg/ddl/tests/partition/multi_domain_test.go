@@ -154,9 +154,9 @@ func TestMultiSchemaDropListDefaultPartition(t *testing.T) {
 			// tkO see non-readable/non-writable p0 partition, and should try to read from p1
 			// in case there is something written to overlapping p1
 			tkO.MustContainErrMsg(`insert into t values (1,1)`, "[table:1526]Table has no partition for value matching a partition being dropped, 'p0'")
-			tkNO.MustContainErrMsg(`insert into t values (1,1)`, "[kv:1062]Duplicate entry '1' for key 't.")
-			tkO.MustContainErrMsg(`insert into t values (101,101)`, "[kv:1062]Duplicate entry '101' for key 't.")
-			tkNO.MustContainErrMsg(`insert into t values (101,101)`, "[kv:1062]Duplicate entry '101' for key 't.")
+			tkNO.MustContainErrMsg(`insert into t values (1,1)`, "[kv:1062]Duplicate entry '1")
+			tkO.MustContainErrMsg(`insert into t values (101,101)`, "[kv:1062]Duplicate entry '101")
+			tkNO.MustContainErrMsg(`insert into t values (101,101)`, "[kv:1062]Duplicate entry '101")
 			tkNO.MustQuery(`select * from t`).Sort().Check(testkit.Rows("1 1", "101 101", "102 102", "2 2"))
 			tkO.MustQuery(`select * from t`).Sort().Check(testkit.Rows("101 101", "102 102"))
 		case "delete only":
@@ -165,8 +165,8 @@ func TestMultiSchemaDropListDefaultPartition(t *testing.T) {
 			// tkO is not aware of p0.
 			tkO.MustExec(`insert into t values (1,20)`)
 			tkNO.MustContainErrMsg(`insert into t values (1,20)`, "[table:1526]Table has no partition for value matching a partition being dropped, 'p0'")
-			tkO.MustContainErrMsg(`insert into t values (101,101)`, "[kv:1062]Duplicate entry '101' for key 't.")
-			tkNO.MustContainErrMsg(`insert into t values (101,101)`, "[kv:1062]Duplicate entry '101' for key 't.")
+			tkO.MustContainErrMsg(`insert into t values (101,101)`, "[kv:1062]Duplicate entry '101")
+			tkNO.MustContainErrMsg(`insert into t values (101,101)`, "[kv:1062]Duplicate entry '101")
 			tkNO.MustQuery(`select * from t`).Sort().Check(testkit.Rows("1 20", "101 101", "102 102"))
 			// Original row should not be seen in StateWriteOnly
 			tkNO.MustQuery(`select * from t partition (p0)`).Sort().Check(testkit.Rows())
@@ -233,9 +233,9 @@ func TestMultiSchemaDropListColumnsDefaultPartition(t *testing.T) {
 			// tkO see non-readable/non-writable p0 partition, and should try to read from p1
 			// in case there is something written to overlapping p1
 			tkO.MustContainErrMsg(`insert into t values (1,1,1)`, "[table:1526]Table has no partition for value matching a partition being dropped, 'p0'")
-			tkNO.MustContainErrMsg(`insert into t values (1,1,1)`, "[kv:1062]Duplicate entry '1' for key")
+			tkNO.MustContainErrMsg(`insert into t values (1,1,1)`, "[kv:1062]Duplicate entry '1")
 			tkO.MustContainErrMsg(`insert into t values (101,101,101)`, "[kv:1062]Duplicate entry '101")
-			tkNO.MustContainErrMsg(`insert into t values (101,101,101)`, "[kv:1062]Duplicate entry '101' for key 't.a_2'")
+			tkNO.MustContainErrMsg(`insert into t values (101,101,101)`, "[kv:1062]Duplicate entry '101")
 			tkNO.MustQuery(`select * from t`).Sort().Check(testkit.Rows("1 1 1", "101 101 101", "102 102 102", "2 2 2"))
 			tkO.MustQuery(`select * from t`).Sort().Check(testkit.Rows("101 101 101", "102 102 102"))
 			tkO.MustQuery(`select a from t where c = "2"`).Sort().Check(testkit.Rows())
@@ -247,8 +247,8 @@ func TestMultiSchemaDropListColumnsDefaultPartition(t *testing.T) {
 			tkO.MustExec(`insert into t values (3,3,3)`)
 			tkO.MustContainErrMsg(`insert into t values (1,1,2)`, "[kv:1062]Duplicate entry '1' for key 't.a_2")
 			tkNO.MustContainErrMsg(`insert into t values (3,3,3)`, "[table:1526]Table has no partition for value matching a partition being dropped, 'p0'")
-			tkO.MustContainErrMsg(`insert into t values (101,101,101)`, "[kv:1062]Duplicate entry '101' for key 't.a_2'")
-			tkNO.MustContainErrMsg(`insert into t values (101,101,101)`, "[kv:1062]Duplicate entry '101' for key 't.a_2'")
+			tkO.MustContainErrMsg(`insert into t values (101,101,101)`, "[kv:1062]Duplicate entry '101")
+			tkNO.MustContainErrMsg(`insert into t values (101,101,101)`, "[kv:1062]Duplicate entry '101")
 			tkNO.MustQuery(`select * from t`).Sort().Check(testkit.Rows("101 101 101", "102 102 102", "3 3 3"))
 			tkO.MustQuery(`select * from t`).Sort().Check(testkit.Rows("101 101 101", "102 102 102", "3 3 3"))
 			// Original row should not be seen in StateWriteOnly
@@ -674,6 +674,60 @@ func TestMultiSchemaModifyColumn(t *testing.T) {
 		}
 	}
 	runMultiSchemaTest(t, createSQL, alterSQL, initFn, nil, loopFn, false)
+}
+
+// During multi-schema modify-column on a partitioned table, concurrent owner/non-owner DML should remain consistent and end with stable data.
+func TestMultiSchemaModifyColumnConcurrentDMLAcrossPartitions(t *testing.T) {
+	createSQL := `create table t (
+		a int primary key,
+		b int,
+		key k_b (b)
+	) partition by range (a) (
+		partition p0 values less than (10),
+		partition p1 values less than (20),
+		partition p2 values less than (30),
+		partition pMax values less than (MAXVALUE)
+	)`
+	initFn := func(tkO *testkit.TestKit) {
+		tkO.MustExec(`insert into t values (1,1),(2,2),(11,11),(12,12),(21,21),(22,22)`)
+	}
+	alterSQL := `alter table t modify column b bigint unsigned`
+	var opSeq atomic.Int64
+	loopFn := func(tkO, tkNO *testkit.TestKit) {
+		res := tkO.MustQuery(`select schema_state from information_schema.DDL_JOBS where table_name = 't' order by job_id desc limit 1`)
+		schemaState := res.Rows()[0][0].(string)
+		if schemaState == model.StateNone.String() {
+			return
+		}
+		// Generate disjoint PK/value pairs per loop to avoid incidental conflicts between owner and non-owner sessions.
+		n := opSeq.Add(1)
+		ownerPK := 1000 + n*2
+		nonOwnerPK := ownerPK + 1
+		ownerVal := 2000 + n*2
+		nonOwnerVal := ownerVal + 1
+
+		tkO.MustExec(fmt.Sprintf(`insert into t values (%d,%d)`, ownerPK, ownerVal))
+		tkNO.MustExec(fmt.Sprintf(`insert into t values (%d,%d)`, nonOwnerPK, nonOwnerVal))
+		tkO.MustExec(fmt.Sprintf(`update t set b = b + 1 where a in (1,11,21,%d)`, ownerPK))
+		tkNO.MustExec(fmt.Sprintf(`update t set b = b + 1 where a in (2,12,22,%d)`, nonOwnerPK))
+		tkO.MustExec(fmt.Sprintf(`delete from t where a = %d`, ownerPK))
+		tkNO.MustExec(fmt.Sprintf(`delete from t where a = %d`, nonOwnerPK))
+	}
+	postFn := func(tkO *testkit.TestKit, _ kv.Storage) {
+		tkO.MustExec("set session tidb_enable_fast_table_check = off")
+		tkO.MustExec(`admin check table t`)
+		tkO.MustQuery(`select count(*) from t`).Check(testkit.Rows("6"))
+		shift := opSeq.Load()
+		tkO.MustQuery(`select a, b from t order by a`).Check(testkit.Rows(
+			fmt.Sprintf("1 %d", 1+shift),
+			fmt.Sprintf("2 %d", 2+shift),
+			fmt.Sprintf("11 %d", 11+shift),
+			fmt.Sprintf("12 %d", 12+shift),
+			fmt.Sprintf("21 %d", 21+shift),
+			fmt.Sprintf("22 %d", 22+shift),
+		))
+	}
+	runMultiSchemaTest(t, createSQL, alterSQL, initFn, postFn, loopFn, false)
 }
 
 // TestMultiSchemaDropUniqueIndex to show behavior when

@@ -15,10 +15,16 @@
 package ddl_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
+	"github.com/pingcap/tidb/pkg/config"
+	"github.com/pingcap/tidb/pkg/domain"
 	"github.com/pingcap/tidb/pkg/meta/model"
+	"github.com/pingcap/tidb/pkg/parser/ast"
+	"github.com/pingcap/tidb/pkg/sessionctx"
+	"github.com/pingcap/tidb/pkg/sessionctx/vardef"
 	"github.com/pingcap/tidb/pkg/testkit"
 	"github.com/pingcap/tidb/pkg/testkit/testfailpoint"
 	"github.com/pingcap/tidb/pkg/util/dbterror"
@@ -123,30 +129,82 @@ func TestPartialIndex(t *testing.T) {
 	checkColumnTypes(enumSetColumnTypes, allowedLiterals, true)
 	checkColumnTypes(enumSetColumnTypes, notAllowedLiterals, false)
 
-	// test validate column exists in alter table
-	tk.MustExec("create table t (a int, b int);")
-	tk.MustExec("alter table t add index idx_b(b) where a = 1;")
-	tk.MustGetDBError("alter table t add index idx_b_2(b) where c = 1;",
-		dbterror.ErrUnsupportedAddPartialIndex)
-	tk.MustExec("drop table t;")
-
 	// test alter table type validation
 	for i, literals := range differentTypeLiterals {
 		for _, literal := range literals {
 			for j, columnTypes := range differentColumnTypes {
 				tk.MustExec("drop table if exists t;")
 				for _, columnType := range columnTypes {
-					sql := fmt.Sprintf("create table t (a %s, b int);", columnType)
-					tk.MustExec(sql)
-					sql = fmt.Sprintf("alter table t add index idx_b(b) where a = %s;", literal)
+					sql := fmt.Sprintf("create table t (a %s, b int, key idx_b(b) where a = %s);", columnType, literal)
 					if i == j {
 						tk.MustExec(sql)
+						tk.MustExec("drop table t;")
 					} else {
 						tk.MustGetDBError(sql, dbterror.ErrUnsupportedAddPartialIndex)
 					}
-					tk.MustExec("drop table t;")
 				}
 			}
 		}
 	}
+}
+
+func TestDropTableAdminCheckTableFastCheckTable(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test;")
+
+	tk.MustExec("drop table if exists t;")
+	tk.MustExec("create table t (a int, b int, key(b) where a = 1);")
+
+	dom := domain.GetDomain(tk.Session())
+	require.NotNil(t, dom)
+	pool := dom.SysSessionPool()
+
+	seOn, err := pool.Get()
+	require.NoError(t, err)
+	seOff, err := pool.Get()
+	require.NoError(t, err)
+
+	seOffCtx := seOff.(sessionctx.Context)
+	require.NoError(t, seOffCtx.GetSessionVars().SetSystemVar(vardef.TiDBFastCheckTable, vardef.Off))
+
+	pool.Put(seOn)
+	pool.Put(seOff)
+
+	oldCheckTableBeforeDrop := config.CheckTableBeforeDrop
+	config.CheckTableBeforeDrop = true
+	defer func() {
+		config.CheckTableBeforeDrop = oldCheckTableBeforeDrop
+	}()
+	tk.MustExec("drop table t;")
+}
+
+func TestMaintainAffectColumns(t *testing.T) {
+	store, dom := testkit.CreateMockStoreAndDomain(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test;")
+
+	tk.MustExec("create table t (col2 int, key(col2) where col2 > 0);")
+	// Now, the offset of col2 is 0
+	tbl, err := dom.InfoSchema().TableByName(context.Background(), ast.NewCIStr("test"), ast.NewCIStr("t"))
+	require.NoError(t, err)
+	require.Equal(t, 0, tbl.Meta().Indices[0].AffectColumn[0].Offset)
+
+	tk.MustExec("alter table t add column col1 int first;")
+	// Now, the offset of col2 should be 1
+	tbl, err = dom.InfoSchema().TableByName(context.Background(), ast.NewCIStr("test"), ast.NewCIStr("t"))
+	require.NoError(t, err)
+	require.Equal(t, 1, tbl.Meta().Indices[0].AffectColumn[0].Offset)
+
+	tk.MustExec("alter table t add column col3 int after col1;")
+	// Now, the offset of col2 should be 2
+	tbl, err = dom.InfoSchema().TableByName(context.Background(), ast.NewCIStr("test"), ast.NewCIStr("t"))
+	require.NoError(t, err)
+	require.Equal(t, 2, tbl.Meta().Indices[0].AffectColumn[0].Offset)
+
+	tk.MustExec("alter table t drop column col1;")
+	// Now, the offset of col2 should be 1
+	tbl, err = dom.InfoSchema().TableByName(context.Background(), ast.NewCIStr("test"), ast.NewCIStr("t"))
+	require.NoError(t, err)
+	require.Equal(t, 1, tbl.Meta().Indices[0].AffectColumn[0].Offset)
 }

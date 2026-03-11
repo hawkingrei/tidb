@@ -90,6 +90,10 @@ type LogicalJoin struct {
 	// (*PlanBuilder).unfoldWildStar() handles the schema for such case.
 	FullSchema *expression.Schema
 	FullNames  types.NameSlice
+	// RedundantColsToOutputIdx maps a redundant column unique-id introduced by USING/NATURAL JOIN
+	// to the canonical visible output column index in Join.Schema()/OutputNames().
+	// It is built once during join construction and then treated as immutable.
+	RedundantColsToOutputIdx map[int64]int
 
 	// EqualCondOutCnt indicates the estimated count of joined rows after evaluating `EqualConditions`.
 	EqualCondOutCnt float64
@@ -152,6 +156,26 @@ func (p *LogicalJoin) ReplaceExprColumns(replace map[string]*expression.Column) 
 
 // PredicatePushDown implements the base.LogicalPlan.<1st> interface.
 func (p *LogicalJoin) PredicatePushDown(predicates []expression.Expression) (ret []expression.Expression, retPlan base.LogicalPlan, err error) {
+	switch p.JoinType {
+	case base.AntiLeftOuterSemiJoin, base.LeftOuterSemiJoin, base.AntiSemiJoin:
+		// For LeftOuterSemiJoin and AntiLeftOuterSemiJoin, we can actually generate
+		// `col is not null` according to expressions in `OtherConditions` now, but we
+		// are putting column equal condition converted from `in (subq)` into
+		// `OtherConditions`(@sa https://github.com/pingcap/tidb/pull/9051), then it would
+		// cause wrong results, so we disable this optimization for outer semi joins now.
+	case base.SemiJoin, base.InnerJoin:
+		// It will be better to simplify OtherConditions through predicate pushdown for SemiJoin and InnerJoin,
+	default:
+		// Join ON conditions are not simplified through predicate pushdown.
+		// However, we still need to eliminate obvious logical constants in OtherConditions
+		// (e.g. "a = b OR 0") to avoid losing join keys.
+		p.OtherConditions = ruleutil.ApplyPredicateSimplification(
+			p.SCtx(),
+			p.OtherConditions,
+			false,
+			nil,
+		)
+	}
 	simplifyOuterJoin(p, predicates)
 	var equalCond []*expression.ScalarFunction
 	var leftPushCond, rightPushCond, otherCond, leftCond, rightCond []expression.Expression
@@ -414,8 +438,9 @@ func (p *LogicalJoin) BuildKeyInfo(selfSchema *expression.Schema, childSchema []
 		leftCols := make([]*expression.Column, 0, len(p.EqualConditions))
 		rightCols := make([]*expression.Column, 0, len(p.EqualConditions))
 		for _, expr := range p.EqualConditions {
-			leftCols = append(leftCols, expr.GetArgs()[0].(*expression.Column))
-			rightCols = append(rightCols, expr.GetArgs()[1].(*expression.Column))
+			l, r := expression.ExtractColumnsFromColOpCol(expr)
+			leftCols = append(leftCols, l)
+			rightCols = append(rightCols, r)
 		}
 		checkColumnsMatchPKOrUK := func(cols []*expression.Column, pkOrUK []expression.KeyInfo) bool {
 			if len(pkOrUK) == 0 {
@@ -824,6 +849,53 @@ func (p *LogicalJoin) Shallow() *LogicalJoin {
 	return join.Init(p.SCtx(), p.QueryBlockOffset())
 }
 
+// RegisterRedundantColumnMapping records a canonical mapping from a redundant USING/NATURAL JOIN
+// column to the visible output column.
+func (p *LogicalJoin) RegisterRedundantColumnMapping(redundantCol, visibleCol *expression.Column) {
+	if p == nil || redundantCol == nil || visibleCol == nil || p.Schema() == nil {
+		return
+	}
+	visibleIdx := p.Schema().ColumnIndex(visibleCol)
+	if visibleIdx < 0 {
+		return
+	}
+	if p.RedundantColsToOutputIdx == nil {
+		p.RedundantColsToOutputIdx = make(map[int64]int)
+	}
+	p.RedundantColsToOutputIdx[redundantCol.UniqueID] = visibleIdx
+}
+
+func redundantColumnRemapTypesMatch(redundantCol, visibleCol *expression.Column) bool {
+	if redundantCol == nil || visibleCol == nil || redundantCol.RetType == nil || visibleCol.RetType == nil {
+		return false
+	}
+	return redundantCol.RetType.Equal(visibleCol.RetType)
+}
+
+// ResolveRedundantColumn maps a redundant USING/NATURAL JOIN column to the canonical visible output.
+func (p *LogicalJoin) ResolveRedundantColumn(col *expression.Column) (*expression.Column, *types.FieldName) {
+	if p == nil || col == nil || len(p.RedundantColsToOutputIdx) == 0 || p.Schema() == nil {
+		return nil, nil
+	}
+	// Remapping redundant USING/NATURAL columns is only valid for inner join.
+	// For outer joins, preserving original side semantics is required.
+	if p.JoinType != base.InnerJoin {
+		return nil, nil
+	}
+	visibleIdx, ok := p.RedundantColsToOutputIdx[col.UniqueID]
+	if !ok {
+		return nil, nil
+	}
+	if visibleIdx < 0 || visibleIdx >= p.Schema().Len() || visibleIdx >= len(p.OutputNames()) {
+		return nil, nil
+	}
+	visibleCol := p.Schema().Columns[visibleIdx]
+	if !redundantColumnRemapTypesMatch(col, visibleCol) {
+		return nil, nil
+	}
+	return visibleCol, p.OutputNames()[visibleIdx]
+}
+
 // ExtractFDForSemiJoin extracts FD for semi join.
 func (p *LogicalJoin) ExtractFDForSemiJoin(equivFromApply [][]intset.FastIntSet) *funcdep.FDSet {
 	// 1: since semi join will keep the part or all rows of the outer table, it's outer FD can be saved.
@@ -996,8 +1068,9 @@ func (p *LogicalJoin) ExtractFDForOuterJoin(equivFromApply [][]intset.FastIntSet
 // means whether there is a `NullEQ` of a join key.
 func (p *LogicalJoin) GetJoinKeys() (leftKeys, rightKeys []*expression.Column, isNullEQ []bool, hasNullEQ bool) {
 	for _, expr := range p.EqualConditions {
-		leftKeys = append(leftKeys, expr.GetArgs()[0].(*expression.Column))
-		rightKeys = append(rightKeys, expr.GetArgs()[1].(*expression.Column))
+		l, r := expression.ExtractColumnsFromColOpCol(expr)
+		leftKeys = append(leftKeys, l)
+		rightKeys = append(rightKeys, r)
 		isNullEQ = append(isNullEQ, expr.FuncName.L == ast.NullEQ)
 		hasNullEQ = hasNullEQ || expr.FuncName.L == ast.NullEQ
 	}
@@ -1007,8 +1080,9 @@ func (p *LogicalJoin) GetJoinKeys() (leftKeys, rightKeys []*expression.Column, i
 // GetNAJoinKeys extracts join keys(columns) from NAEqualCondition.
 func (p *LogicalJoin) GetNAJoinKeys() (leftKeys, rightKeys []*expression.Column) {
 	for _, expr := range p.NAEQConditions {
-		leftKeys = append(leftKeys, expr.GetArgs()[0].(*expression.Column))
-		rightKeys = append(rightKeys, expr.GetArgs()[1].(*expression.Column))
+		l, r := expression.ExtractColumnsFromColOpCol(expr)
+		leftKeys = append(leftKeys, l)
+		rightKeys = append(rightKeys, r)
 	}
 	return
 }
@@ -1019,8 +1093,9 @@ func (p *LogicalJoin) GetPotentialPartitionKeys() (leftKeys, rightKeys []*proper
 	for _, expr := range p.EqualConditions {
 		_, coll := expr.CharsetAndCollation()
 		collateID := property.GetCollateIDByNameForPartition(coll)
-		leftKeys = append(leftKeys, &property.MPPPartitionColumn{Col: expr.GetArgs()[0].(*expression.Column), CollateID: collateID})
-		rightKeys = append(rightKeys, &property.MPPPartitionColumn{Col: expr.GetArgs()[1].(*expression.Column), CollateID: collateID})
+		l, r := expression.ExtractColumnsFromColOpCol(expr)
+		leftKeys = append(leftKeys, &property.MPPPartitionColumn{Col: l, CollateID: collateID})
+		rightKeys = append(rightKeys, &property.MPPPartitionColumn{Col: r, CollateID: collateID})
 	}
 	return
 }
@@ -1106,13 +1181,10 @@ func (p *LogicalJoin) ColumnSubstituteAll(schema *expression.Schema, exprs []exp
 			p.EqualConditions = slices.Delete(p.EqualConditions, i, i+1)
 			continue
 		}
-
-		_, lhsIsCol := newCond.GetArgs()[0].(*expression.Column)
-		_, rhsIsCol := newCond.GetArgs()[1].(*expression.Column)
-
+		_, _, ok := expression.IsColOpCol(newCond)
 		// If the columns used in the new filter are not all expression.Column,
 		// we can not use it as join's equal condition.
-		if !(lhsIsCol && rhsIsCol) {
+		if !ok {
 			p.OtherConditions = append(p.OtherConditions, newCond)
 			p.EqualConditions = slices.Delete(p.EqualConditions, i, i+1)
 			continue
@@ -1441,9 +1513,8 @@ func (p *LogicalJoin) ExtractOnCondition(
 		}
 		binop, ok := expr.(*expression.ScalarFunction)
 		if ok && len(binop.GetArgs()) == 2 {
-			arg0, lOK := binop.GetArgs()[0].(*expression.Column)
-			arg1, rOK := binop.GetArgs()[1].(*expression.Column)
-			if lOK && rOK {
+			arg0, arg1, ok := expression.IsColOpCol(binop)
+			if ok {
 				leftCol := leftSchema.RetrieveColumn(arg0)
 				rightCol := rightSchema.RetrieveColumn(arg1)
 				if leftCol == nil || rightCol == nil {
@@ -1477,6 +1548,15 @@ func (p *LogicalJoin) ExtractOnCondition(
 		// `columns` may be empty, if the condition is like `correlated_column op constant`, or `constant`,
 		// push this kind of constant condition down according to join type.
 		if len(columns) == 0 {
+			// The IsMutableEffectsExpr check is primarily designed to prevent mutable expressions
+			// like rand() > 0.5 from being pushed down; instead, such expressions should remain
+			// in other conditions.
+			// Checking len(columns) == 0 first is to let filter like rand() > tbl.col
+			// to be able pushdown as left or right condition
+			if expression.IsMutableEffectsExpr(expr) {
+				otherCond = append(otherCond, expr)
+				continue
+			}
 			leftCond, rightCond = p.pushDownConstExpr(expr, leftCond, rightCond, deriveLeft || deriveRight)
 			continue
 		}
@@ -2108,9 +2188,8 @@ func deriveNotNullExpr(ctx base.PlanContext, expr expression.Expression, schema 
 	if !ok || len(binop.GetArgs()) != 2 {
 		return nil
 	}
-	arg0, lOK := binop.GetArgs()[0].(*expression.Column)
-	arg1, rOK := binop.GetArgs()[1].(*expression.Column)
-	if !lOK || !rOK {
+	arg0, arg1, ok := expression.IsColOpCol(binop)
+	if !ok {
 		return nil
 	}
 	childCol := schema.RetrieveColumn(arg0)
