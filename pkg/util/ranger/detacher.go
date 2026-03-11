@@ -367,6 +367,45 @@ func unionColumnValues(lhs, rhs []*valueInfo) []*valueInfo {
 	return lhs
 }
 
+// normalizeConstantAccessConds keeps accessConds compatible with the prefix-range contract.
+// Once an access condition is folded into a constant:
+//   - false / null means the whole CNF item is unsatisfiable;
+//   - true means this index column no longer constrains the range, so suffix access conds
+//     cannot stay in the prefix chain and must fall back to newConditions.
+func normalizeConstantAccessConds(
+	sctx *rangerctx.RangerContext,
+	accessConds, newConditions []expression.Expression,
+) (
+	[]expression.Expression,
+	[]expression.Expression,
+	bool,
+	error,
+) {
+	for i, cond := range accessConds {
+		con, ok := cond.(*expression.Constant)
+		if !ok {
+			continue
+		}
+		value, err := con.Eval(sctx.ExprCtx.GetEvalCtx(), chunk.Row{})
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if value.IsNull() {
+			return nil, nil, true, nil
+		}
+		isTrue, err := value.ToBool(sctx.TypeCtx)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if isTrue == 0 {
+			return nil, nil, true, nil
+		}
+		newConditions = append(newConditions, accessConds[i+1:]...)
+		return accessConds[:i], newConditions, false, nil
+	}
+	return accessConds, newConditions, false, nil
+}
+
 // Check which detach result is more selective. This function is called to choose between point ranges and the best CNF ranges.
 // This is needed because sometimes the best CNF has full intersection and is more selective,
 // and other times it is not when the intersection is not applied.
@@ -406,28 +445,21 @@ func (d *rangeDetacher) detachCNFCondAndBuildRangeForIndex(conditions []expressi
 	if emptyRange {
 		return res, nil
 	}
-	if len(accessConds) == 1 {
-		// `t1.c1 <=> ? and t1.c1 <=> ?`cannot be simplified by predicate simplifier,
-		// ExtractEqAndInCondition can fold them into one constant value, but we cannot use it to build range.
-		// So we check whether the only access condition is a constant here.
-		if value, ok := accessConds[0].(*expression.Constant); ok {
-			if value.Value.IsNull() {
-				return res, nil
-			}
-			isTrue, err := value.Value.ToBool(d.sctx.TypeCtx)
-			if err != nil {
-				return nil, err
-			}
-			if isTrue == 1 {
-				res.Ranges = FullRange()
-			}
-			return res, nil
-		}
-	}
-	var remainedConds []expression.Expression
-	ranges, accessConds, remainedConds, err = d.buildRangeOnColsByCNFCond(newTpSlice, len(accessConds), accessConds)
+	accessConds, newConditions, emptyRange, err = normalizeConstantAccessConds(d.sctx, accessConds, newConditions)
 	if err != nil {
 		return nil, err
+	}
+	if emptyRange {
+		return res, nil
+	}
+	var remainedConds []expression.Expression
+	if len(accessConds) == 0 {
+		ranges = FullRange()
+	} else {
+		ranges, accessConds, remainedConds, err = d.buildRangeOnColsByCNFCond(newTpSlice, len(accessConds), accessConds)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if len(remainedConds) > 0 {
 		filterConds = removeConditions(d.sctx.ExprCtx.GetEvalCtx(), filterConds, remainedConds)

@@ -1020,6 +1020,17 @@ func TestPreparePlanCache4Function(t *testing.T) {
 		`│ └─IndexRangeScan_27 3323.33 cop[tikv] table:t1, index:i0(c0) range:[-inf,1], keep order:false, stats:pseudo`,
 		`└─TableReader_30(Probe) 10000.00 root  data:TableFullScan_29`,
 		`  └─TableFullScan_29 10000.00 cop[tikv] table:t0 keep order:false, stats:pseudo`))
+
+	tk.MustExec(`CREATE TABLE t2(a int NOT NULL, b int NOT NULL, KEY i0(a, b));`)
+	tk.MustExec(`PREPARE prepare_query FROM 'SELECT /* issue:63914 */ * FROM t2 WHERE a = ? AND (? <=> b) AND (? <=> b)';`)
+	tk.MustExec(`SET @a = 1`)
+	tk.MustExec(`SET @b = NULL;`)
+	tk.MustExec(`SET @c = NULL;`)
+	tk.MustQuery(`EXECUTE prepare_query USING @a,@b,@c;`).Check(testkit.Rows())
+	tk.MustQuery(`select @@last_plan_from_cache;`).Check(testkit.Rows("0"))
+	tk.MustQuery(`EXECUTE prepare_query USING @a,@b,@c;`).Check(testkit.Rows())
+	tk.MustQuery(`select @@last_plan_from_cache;`).Check(testkit.Rows("0"))
+	tk.MustQuery(`SELECT 1;`).Check(testkit.Rows("1"))
 }
 
 func TestPreparePlanCache4DifferentSystemVars(t *testing.T) {
