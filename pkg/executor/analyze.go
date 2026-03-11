@@ -599,7 +599,9 @@ func (e *AnalyzeExec) sendAnalyzeResult(ctx context.Context, statsHandle *handle
 	case <-ctx.Done():
 	case <-e.errExitCh:
 	}
-	err := result.Err
+	// Keep the cancel cause consistent with the other analyze paths when a dropped
+	// result only carries a generic context error from lower layers.
+	err := normalizeCtxErrWithCause(ctx, result.Err)
 	if err == nil {
 		err = context.Cause(ctx)
 	}
