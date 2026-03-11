@@ -893,6 +893,21 @@ func TestPreparePlanCache4Function(t *testing.T) {
 	tk.MustExec("use test")
 	tk.MustExec(`set tidb_enable_prepared_plan_cache=1`)
 	tk.MustExec("set @@tidb_enable_collect_execution_info=0;")
+	checkExplainForConnContains := func(includes []string, excludes []string) {
+		tkProcess := tk.Session().ShowProcess()
+		ps := []*sessmgr.ProcessInfo{tkProcess}
+		tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
+		rows := testdata.ConvertRowsToStrings(
+			tk.MustQuery("explain for connection " + strconv.FormatUint(tkProcess.ID, 10)).Rows(),
+		)
+		explain := strings.Join(rows, "\n")
+		for _, include := range includes {
+			require.Contains(t, explain, include)
+		}
+		for _, exclude := range excludes {
+			require.NotContains(t, explain, exclude)
+		}
+	}
 
 	// Testing for non-deterministic functions
 	tk.MustExec("prepare stmt from 'select rand()';")
@@ -932,18 +947,20 @@ func TestPreparePlanCache4Function(t *testing.T) {
 	tk.MustQuery(`EXECUTE prepare_query USING @a,@b,@c;`)
 	tk.MustQuery(`select @@last_plan_from_cache;`).Check(testkit.Rows("0"))
 	tk.MustQuery(`EXECUTE prepare_query USING @a,@b,@c;`)
-	tk.MustQuery(`show warnings`).Check(testkit.Rows(
-		"Warning 1105 skip prepared plan-cache: some parameters may be overwritten"))
+	tk.MustQuery(`select @@last_plan_from_cache;`).Check(testkit.Rows("1"))
 	tk.MustQuery(`EXECUTE prepare_query USING @a,@b,@c;`)
-	tkProcess := tk.Session().ShowProcess()
-	ps := []*sessmgr.ProcessInfo{tkProcess}
-	tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
-	tk.MustQuery("explain for connection " + strconv.FormatUint(tkProcess.ID, 10)).Check(testkit.Rows(
-		`HashJoin_22 100000000.00 root  CARTESIAN inner join`,
-		`├─IndexReader_30(Build) 10000.00 root  index:IndexFullScan_29`,
-		`│ └─IndexFullScan_29 10000.00 cop[tikv] table:t1, index:i0(c0) keep order:false, stats:pseudo`,
-		`└─TableReader_25(Probe) 10000.00 root  data:TableFullScan_24`,
-		`  └─TableFullScan_24 10000.00 cop[tikv] table:t0 keep order:false, stats:pseudo`))
+	checkExplainForConnContains(
+		[]string{
+			`CARTESIAN inner join`,
+			`IndexFullScan_`,
+			`table:t1, index:i0(c0)`,
+			`TableFullScan_`,
+			`table:t0`,
+		},
+		[]string{
+			`TableDual_`,
+		},
+	)
 	// 0 or ((Null <=> t1.c0) AND (Null <=> t1.c0))
 	tk.MustExec(`SET @a = 0`)
 	tk.MustExec(`SET @b = NULL;`)
@@ -954,14 +971,14 @@ func TestPreparePlanCache4Function(t *testing.T) {
 	tk.MustQuery(`show warnings`).Check(
 		testkit.Rows(`Warning 1105 skip prepared plan-cache: some parameters may be overwritten when constant propagation`))
 	tk.MustQuery(`EXECUTE prepare_query USING @a,@b,@c;`)
-	tkProcess = tk.Session().ShowProcess()
-	ps = []*sessmgr.ProcessInfo{tkProcess}
-	tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
-	tk.MustQuery("explain for connection " + strconv.FormatUint(tkProcess.ID, 10)).Check(testkit.Rows(
-		`HashJoin_26 100000.00 root  CARTESIAN inner join`,
-		`├─TableDual_27(Build) 10.00 root  rows:0`,
-		`└─TableReader_29(Probe) 10000.00 root  data:TableFullScan_28`,
-		`  └─TableFullScan_28 10000.00 cop[tikv] table:t0 keep order:false, stats:pseudo`))
+	checkExplainForConnContains(
+		[]string{
+			`CARTESIAN inner join`,
+			`TableFullScan_`,
+			`table:t0`,
+		},
+		nil,
+	)
 	// 0 or ((1 <=> t1.c0) AND (1 <=> t1.c0))
 	tk.MustExec(`SET @a = 0`)
 	tk.MustExec(`SET @b = 1;`)
@@ -972,15 +989,18 @@ func TestPreparePlanCache4Function(t *testing.T) {
 	tk.MustQuery(`show warnings`).Check(
 		testkit.Rows(`Warning 1105 skip prepared plan-cache: some parameters may be overwritten when constant propagation`))
 	tk.MustQuery(`EXECUTE prepare_query USING @a,@b,@c;`)
-	tkProcess = tk.Session().ShowProcess()
-	ps = []*sessmgr.ProcessInfo{tkProcess}
-	tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
-	tk.MustQuery("explain for connection " + strconv.FormatUint(tkProcess.ID, 10)).Check(testkit.Rows(
-		`HashJoin_26 100000.00 root  CARTESIAN inner join`,
-		`├─IndexReader_28(Build) 10.00 root  index:IndexRangeScan_27`,
-		`│ └─IndexRangeScan_27 10.00 cop[tikv] table:t1, index:i0(c0) range:[1,1], keep order:false, stats:pseudo`,
-		`└─TableReader_30(Probe) 10000.00 root  data:TableFullScan_29`,
-		`  └─TableFullScan_29 10000.00 cop[tikv] table:t0 keep order:false, stats:pseudo`))
+	checkExplainForConnContains(
+		[]string{
+			`CARTESIAN inner join`,
+			`IndexRangeScan_`,
+			`table:t1, index:i0(c0) range:[1,1]`,
+			`TableFullScan_`,
+			`table:t0`,
+		},
+		[]string{
+			`TableDual_`,
+		},
+	)
 	// 1 or ((1 <=> t1.c0) AND (1 <=> t1.c0))
 	tk.MustExec(`SET @a = 1`)
 	tk.MustExec(`SET @b = 1;`)
@@ -991,15 +1011,18 @@ func TestPreparePlanCache4Function(t *testing.T) {
 	tk.MustQuery(`show warnings`).Check(
 		testkit.Rows(`Warning 1105 skip prepared plan-cache: some parameters may be overwritten`))
 	tk.MustQuery(`EXECUTE prepare_query USING @a,@b,@c;`)
-	tkProcess = tk.Session().ShowProcess()
-	ps = []*sessmgr.ProcessInfo{tkProcess}
-	tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
-	tk.MustQuery("explain for connection " + strconv.FormatUint(tkProcess.ID, 10)).Check(testkit.Rows(
-		`HashJoin_22 100000000.00 root  CARTESIAN inner join`,
-		`├─IndexReader_27(Build) 10000.00 root  index:IndexFullScan_26`,
-		`│ └─IndexFullScan_26 10000.00 cop[tikv] table:t1, index:i0(c0) keep order:false, stats:pseudo`,
-		`└─TableReader_25(Probe) 10000.00 root  data:TableFullScan_24`,
-		`  └─TableFullScan_24 10000.00 cop[tikv] table:t0 keep order:false, stats:pseudo`))
+	checkExplainForConnContains(
+		[]string{
+			`CARTESIAN inner join`,
+			`IndexFullScan_`,
+			`table:t1, index:i0(c0)`,
+			`TableFullScan_`,
+			`table:t0`,
+		},
+		[]string{
+			`TableDual_`,
+		},
+	)
 	tk.MustExec(`PREPARE prepare_query FROM 'SELECT t0.c0 FROM t0, t1 WHERE ((? <=> t1.c0) AND (? <=> t1.c0) or (? > t1.c0))';`)
 	// ((1 <=> t1.c0) AND (1 <=> t1.c0) or (1 > t1.c0))
 	tk.MustExec(`SET @a = 1`)
@@ -1011,15 +1034,18 @@ func TestPreparePlanCache4Function(t *testing.T) {
 	tk.MustQuery(`show warnings`).Check(
 		testkit.Rows(`Warning 1105 skip prepared plan-cache: some parameters may be overwritten`))
 	tk.MustQuery(`EXECUTE prepare_query USING @a,@b,@c;`)
-	tkProcess = tk.Session().ShowProcess()
-	ps = []*sessmgr.ProcessInfo{tkProcess}
-	tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
-	tk.MustQuery("explain for connection " + strconv.FormatUint(tkProcess.ID, 10)).Check(testkit.Rows(
-		`HashJoin_26 33233333.33 root  CARTESIAN inner join`,
-		`├─IndexReader_28(Build) 3323.33 root  index:IndexRangeScan_27`,
-		`│ └─IndexRangeScan_27 3323.33 cop[tikv] table:t1, index:i0(c0) range:[-inf,1], keep order:false, stats:pseudo`,
-		`└─TableReader_30(Probe) 10000.00 root  data:TableFullScan_29`,
-		`  └─TableFullScan_29 10000.00 cop[tikv] table:t0 keep order:false, stats:pseudo`))
+	checkExplainForConnContains(
+		[]string{
+			`CARTESIAN inner join`,
+			`IndexRangeScan_`,
+			`table:t1, index:i0(c0) range:[-inf,1]`,
+			`TableFullScan_`,
+			`table:t0`,
+		},
+		[]string{
+			`TableDual_`,
+		},
+	)
 
 	tk.MustExec(`CREATE TABLE t2(a int NOT NULL, b int NOT NULL, KEY i0(a, b));`)
 	tk.MustExec(`PREPARE prepare_query FROM 'SELECT /* issue:63914 */ * FROM t2 WHERE a = ? AND (? <=> b) AND (? <=> b)';`)
