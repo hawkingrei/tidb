@@ -42,9 +42,6 @@ This file provides guidance to agents working in this repository.
 - `.github/skills` is kept only as a migration note path and should not be used as the primary location for new skill updates.
 - Policy belongs in `AGENTS.md`; detailed command playbooks SHOULD live in `docs/agents/*`, and skills SHOULD provide entrypoint workflows that reference those playbooks.
 - Operational testing/build skills are indexed in `.agents/skills/README.md` to avoid duplicated lists drifting in multiple docs.
-- GitHub metadata workflows are indexed in `.agents/skills/README.md`.
-  - Use `tidb-issue-metadata-guard` for issue creation and issue metadata updates.
-  - Use `tidb-pr-metadata-guard` for PR creation, PR body updates, and PR-linked issue references.
 
 ## Pre-flight Checklist
 
