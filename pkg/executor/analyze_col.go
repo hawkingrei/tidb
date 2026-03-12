@@ -16,7 +16,6 @@ package executor
 
 import (
 	"context"
-	stderrors "errors"
 	"fmt"
 	"math"
 	"strings"
@@ -33,17 +32,14 @@ import (
 	"github.com/pingcap/tidb/pkg/planner/core"
 	plannerutil "github.com/pingcap/tidb/pkg/planner/util"
 	"github.com/pingcap/tidb/pkg/statistics"
-	statslogutil "github.com/pingcap/tidb/pkg/statistics/handle/logutil"
 	handleutil "github.com/pingcap/tidb/pkg/statistics/handle/util"
 	"github.com/pingcap/tidb/pkg/tablecodec"
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util"
-	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/memory"
 	"github.com/pingcap/tidb/pkg/util/ranger"
 	"github.com/pingcap/tipb/go-tipb"
 	"github.com/tiancaiamao/gp"
-	"go.uber.org/zap"
 )
 
 // AnalyzeColumnsExec represents Analyze columns push down executor.
@@ -93,29 +89,9 @@ func isSingleColNonPrefixUniqueIndex(idx *model.IndexInfo) bool {
 
 func analyzeColumnsPushDownEntry(ctx context.Context, gp *gp.Pool, e *AnalyzeColumnsExec) *statistics.AnalyzeResults {
 	if e.AnalyzeInfo.StatsVersion >= statistics.Version2 {
-		res := e.toV2().analyzeColumnsPushDownV2(ctx, gp)
-		e.logAnalyzeCanceledInTest(ctx, res.Err, "analyze columns canceled")
-		return res
+		return e.toV2().analyzeColumnsPushDownV2(ctx, gp)
 	}
-	res := e.toV1().analyzeColumnsPushDownV1(ctx)
-	e.logAnalyzeCanceledInTest(ctx, res.Err, "analyze columns canceled")
-	return res
-}
-
-func (e *AnalyzeColumnsExec) logAnalyzeCanceledInTest(ctx context.Context, err error, msg string) {
-	if !intest.InTest || err == nil || !stderrors.Is(err, context.Canceled) {
-		return
-	}
-	cause := context.Cause(ctx)
-	ctxErr := ctx.Err()
-	statslogutil.StatsLogger().Info(msg,
-		zap.Uint32("killSignal", e.ctx.GetSessionVars().SQLKiller.GetKillSignal()),
-		zap.Uint64("connID", e.ctx.GetSessionVars().ConnectionID),
-		zap.Error(err),
-		zap.Error(cause),
-		zap.Error(ctxErr),
-		zap.Stack("stack"),
-	)
+	return e.toV1().analyzeColumnsPushDownV1()
 }
 
 func (e *AnalyzeColumnsExec) toV1() *AnalyzeColumnsExecV1 {
@@ -179,14 +155,13 @@ func (e *AnalyzeColumnsExec) buildResp(ctx context.Context, ranges []*ranger.Ran
 	}
 	result, err := distsql.Analyze(ctx, e.ctx.GetClient(), kvReq, e.ctx.GetSessionVars().KVVars, e.ctx.GetSessionVars().InRestrictedSQL, e.ctx.GetDistSQLCtx())
 	if err != nil {
-		e.logAnalyzeCanceledInTest(ctx, err, "analyze columns distsql canceled")
 		return nil, err
 	}
 	return result, nil
 }
 
-func (e *AnalyzeColumnsExec) buildStats(ctx context.Context, ranges []*ranger.Range) (hists []*statistics.Histogram, cms []*statistics.CMSketch, topNs []*statistics.TopN, fms []*statistics.FMSketch, err error) {
-	if err = e.open(ctx, ranges); err != nil {
+func (e *AnalyzeColumnsExec) buildStats(ranges []*ranger.Range) (hists []*statistics.Histogram, cms []*statistics.CMSketch, topNs []*statistics.TopN, fms []*statistics.FMSketch, err error) {
+	if err = e.open(context.TODO(), ranges); err != nil {
 		return nil, nil, nil, nil, err
 	}
 	defer func() {
@@ -232,19 +207,11 @@ func (e *AnalyzeColumnsExec) buildStats(ctx context.Context, ranges []*ranger.Ra
 			return nil, nil, nil, nil, err
 		}
 		failpoint.Inject("mockSlowAnalyzeV1", func() {
-			select {
-			case <-ctx.Done():
-				err := context.Cause(ctx)
-				if err == nil {
-					err = ctx.Err()
-				}
-				failpoint.Return(nil, nil, nil, nil, err)
-			case <-time.After(1000 * time.Second):
-			}
+			time.Sleep(1000 * time.Second)
 		})
-		data, err1 := e.resultHandler.nextRaw(ctx)
+		data, err1 := e.resultHandler.nextRaw(context.TODO())
 		if err1 != nil {
-			return nil, nil, nil, nil, normalizeCtxErrWithCause(ctx, err1)
+			return nil, nil, nil, nil, err1
 		}
 		if data == nil {
 			break
@@ -364,7 +331,7 @@ type AnalyzeColumnsExecV1 struct {
 	*AnalyzeColumnsExec
 }
 
-func (e *AnalyzeColumnsExecV1) analyzeColumnsPushDownV1(ctx context.Context) *statistics.AnalyzeResults {
+func (e *AnalyzeColumnsExecV1) analyzeColumnsPushDownV1() *statistics.AnalyzeResults {
 	var ranges []*ranger.Range
 	if hc := e.handleCols; hc != nil {
 		if hc.IsInt() {
@@ -375,7 +342,7 @@ func (e *AnalyzeColumnsExecV1) analyzeColumnsPushDownV1(ctx context.Context) *st
 	} else {
 		ranges = ranger.FullIntRange(false)
 	}
-	hists, cms, topNs, fms, err := e.buildStats(ctx, ranges)
+	hists, cms, topNs, fms, err := e.buildStats(ranges)
 	if err != nil {
 		return &statistics.AnalyzeResults{Err: err, Job: e.job}
 	}
