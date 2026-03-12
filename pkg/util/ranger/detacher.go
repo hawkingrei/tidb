@@ -381,17 +381,14 @@ func normalizeConstantAccessConds(
 ) {
 	brokenPrefix := -1
 	mutableConstantAccess := false
-	markSkipPlanCache := func() {
-		if mutableConstantAccess {
-			sctx.SetSkipPlanCache("some parameters may be overwritten")
-		}
-	}
 	for i, cond := range accessConds {
 		con, ok := cond.(*expression.Constant)
 		if !ok {
 			if brokenPrefix != -1 {
 				newConditions = append(newConditions, accessConds[i:]...)
-				markSkipPlanCache()
+				if mutableConstantAccess {
+					sctx.SetSkipPlanCache("some parameters may be overwritten")
+				}
 				return accessConds[:brokenPrefix], newConditions, false, nil
 			}
 			continue
@@ -402,7 +399,9 @@ func normalizeConstantAccessConds(
 			return nil, nil, false, err
 		}
 		if value.IsNull() {
-			markSkipPlanCache()
+			if mutableConstantAccess {
+				sctx.SetSkipPlanCache("some parameters may be overwritten")
+			}
 			return nil, nil, true, nil
 		}
 		isTrue, err := value.ToBool(sctx.TypeCtx)
@@ -410,7 +409,9 @@ func normalizeConstantAccessConds(
 			return nil, nil, false, err
 		}
 		if isTrue == 0 {
-			markSkipPlanCache()
+			if mutableConstantAccess {
+				sctx.SetSkipPlanCache("some parameters may be overwritten")
+			}
 			return nil, nil, true, nil
 		}
 		if brokenPrefix == -1 {
@@ -418,7 +419,9 @@ func normalizeConstantAccessConds(
 		}
 	}
 	if brokenPrefix != -1 {
-		markSkipPlanCache()
+		if mutableConstantAccess {
+			sctx.SetSkipPlanCache("some parameters may be overwritten")
+		}
 		return accessConds[:brokenPrefix], newConditions, false, nil
 	}
 	return accessConds, newConditions, false, nil
