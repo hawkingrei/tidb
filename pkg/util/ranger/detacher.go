@@ -364,6 +364,12 @@ func unionColumnValues(lhs, rhs []*valueInfo) []*valueInfo {
 //   - false / null means the whole CNF item is unsatisfiable;
 //   - true means this index column no longer constrains the range, so suffix access conds
 //     cannot stay in the prefix chain and must fall back to newConditions.
+//
+// Examples:
+//   - accessConds = [a = 1, false, b = 2] => emptyRange = true.
+//   - accessConds = [a = 1, null, b = 2] => emptyRange = true.
+//   - accessConds = [a = 1, true, b = 2], newConditions = [c > 3]
+//     => normalizedAccessConds = [a = 1], normalizedNewConditions = [c > 3, b = 2].
 func normalizeConstantAccessConds(
 	sctx *rangerctx.RangerContext,
 	accessConds, newConditions []expression.Expression,
