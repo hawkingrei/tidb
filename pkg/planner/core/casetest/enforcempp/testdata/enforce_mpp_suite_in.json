@@ -226,8 +226,8 @@
   {
     "name": "TestEnforceMPPNewest",
     "cases": [
-      "explain format='plan_tree' select /*+ set_var(tidb_enforce_mpp=on) */ * from t1 join t2 on t1.a=t2.b where t1.a in (1,2);",
-      "explain format='plan_tree' select * from t1 join t2 on t1.a=t2.b where t1.a in (1,2);"
+      "explain format='brief' select /*+ set_var(tidb_enforce_mpp=on) */ * from t1 join t2 on t1.a=t2.b where t1.a in (1,2);",
+      "explain format='brief' select * from t1 join t2 on t1.a=t2.b where t1.a in (1,2);"
     ]
   }
 ]
