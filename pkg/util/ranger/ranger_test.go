@@ -2141,6 +2141,36 @@ func TestRangeFallbackForDetachCondAndBuildRangeForIndex(t *testing.T) {
 	checkRangeFallbackAndReset(t, sctx, true)
 }
 
+func TestDetachCondAndBuildRangeForIndexWithFoldedFalseAccessCond(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec("drop table if exists t")
+	tk.MustExec("create table t(a int not null, b int not null, key idx_ab(a, b))")
+
+	sctx := tk.Session()
+	selection := getSelectionFromQuery(t, sctx, "select * from t where a = 1 and b = 1")
+	tbl := selection.Children()[0].(*logicalop.DataSource).TableInfo
+	cols, lengths := plannerutil.IndexInfo2PrefixCols(tbl.Columns, selection.Schema().Columns, tbl.Indices[0])
+	require.NotNil(t, cols)
+
+	condA, err := expression.NewFunctionBase(sctx.GetExprCtx(), ast.EQ, types.NewFieldType(mysql.TypeTiny), cols[0], expression.NewInt64Const(1))
+	require.NoError(t, err)
+	condB1, err := expression.NewFunctionBase(sctx.GetExprCtx(), ast.IsNull, types.NewFieldType(mysql.TypeTiny), cols[1])
+	require.NoError(t, err)
+	condB2, err := expression.NewFunctionBase(sctx.GetExprCtx(), ast.IsNull, types.NewFieldType(mysql.TypeTiny), cols[1])
+	require.NoError(t, err)
+	conditions := []expression.Expression{condA, condB1, condB2}
+
+	accessConds, _, _, _, emptyRange := ranger.ExtractEqAndInCondition(sctx.GetRangerCtx(), conditions, cols, lengths)
+	require.False(t, emptyRange)
+	require.Equal(t, "[eq(test.t.a, 1) 0]", expression.StringifyExpressionsWithCtx(sctx.GetExprCtx().GetEvalCtx(), accessConds))
+
+	res, err := ranger.DetachCondAndBuildRangeForIndex(sctx.GetRangerCtx(), conditions, cols, lengths, 0)
+	require.NoError(t, err)
+	checkDetachRangeResult(t, res, "[]", "[]", "[]")
+}
+
 func TestRangeFallbackForBuildTableRange(t *testing.T) {
 	store, dom := testkit.CreateMockStoreAndDomain(t)
 	tk := testkit.NewTestKit(t, store)

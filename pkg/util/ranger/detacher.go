@@ -367,7 +367,6 @@ func unionColumnValues(lhs, rhs []*valueInfo) []*valueInfo {
 //
 // Examples:
 //   - accessConds = [a = 1, false, b = 2] => emptyRange = true.
-//   - accessConds = [a = 1, null, b = 2] => emptyRange = true.
 //   - accessConds = [a = 1, true, b = 2], newConditions = [c > 3]
 //     => normalizedAccessConds = [a = 1], normalizedNewConditions = [c > 3, b = 2].
 func normalizeConstantAccessConds(
