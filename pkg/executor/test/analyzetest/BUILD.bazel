@@ -23,7 +23,6 @@ go_test(
         "//pkg/parser/auth",
         "//pkg/parser/mysql",
         "//pkg/parser/terror",
-        "//pkg/planner/core",
         "//pkg/session",
         "//pkg/session/sessionapi",
         "//pkg/sessionctx",
