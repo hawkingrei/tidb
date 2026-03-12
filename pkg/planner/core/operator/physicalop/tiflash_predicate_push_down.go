@@ -45,7 +45,18 @@ const (
 type expressionGroup struct {
 	exprs       []expression.Expression
 	selectivity float64
-	code        string
+}
+
+func compareExpressionGroups(x, y expressionGroup) int {
+	if diff := cmp.Compare(len(x.exprs), len(y.exprs)); diff != 0 {
+		return diff
+	}
+	for i := range x.exprs {
+		if diff := slices.Compare(y.exprs[i].HashCode(), x.exprs[i].HashCode()); diff != 0 {
+			return diff
+		}
+	}
+	return 0
 }
 
 // transformColumnsToCode is used to transform the columns to a string of "0" and "1".
@@ -105,14 +116,14 @@ func groupByColumnsSortBySelectivity(sctx base.PlanContext, conds []expression.E
 
 	// Estimate the selectivity of each group and check if it is larger than the selectivityThreshold
 	var exprGroups []expressionGroup
-	for code, group := range groupMap {
+	for _, group := range groupMap {
 		selectivity, err := cardinality.Selectivity(sctx, ts.TblColHists, group, nil)
 		if err != nil {
 			logutil.BgLogger().Warn("calculate selectivity failed, do not push down the conditions group", zap.Error(err))
 			continue
 		}
 		if selectivity <= selectivityThreshold {
-			exprGroups = append(exprGroups, expressionGroup{exprs: group, selectivity: selectivity, code: code})
+			exprGroups = append(exprGroups, expressionGroup{exprs: group, selectivity: selectivity})
 		}
 	}
 
@@ -121,10 +132,7 @@ func groupByColumnsSortBySelectivity(sctx base.PlanContext, conds []expression.E
 		if diff := cmp.Compare(x.selectivity, y.selectivity); diff != 0 {
 			return diff
 		}
-		if diff := cmp.Compare(len(x.exprs), len(y.exprs)); diff != 0 {
-			return diff
-		}
-		return cmp.Compare(x.code, y.code)
+		return compareExpressionGroups(x, y)
 	})
 
 	return exprGroups
