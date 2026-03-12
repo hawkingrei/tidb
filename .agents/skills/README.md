@@ -13,6 +13,7 @@ Current operational workflow skills:
 - `tidb-failpoint-test-runner`: decide failpoint enable/disable and run unit tests safely.
 - `tidb-integrationtest-recorder`: run and review `tests/integrationtest` recording flow.
 - `tidb-realtikv-runner`: run RealTiKV tests with startup/cleanup discipline.
+- `tidb-pr-metadata-guard`: create or update TiDB PR descriptions without breaking template-required HTML comments or bot-parsed checklist sections.
 
 Suggested invocation order for test/build work:
 
