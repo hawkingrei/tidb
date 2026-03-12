@@ -364,7 +364,7 @@ func (e *AnalyzeColumnsExecV2) buildSamplingStats(
 	hists = make([]*statistics.Histogram, totalLen)
 	topns = make([]*statistics.TopN, totalLen)
 	fmSketches = make([]*statistics.FMSketch, 0, totalLen)
-	buildResultChan := make(chan error, totalLen)
+	buildResultChan := make(chan error, totalLen+samplingStatsConcurrency)
 	buildTaskChan := make(chan *samplingBuildTask, totalLen)
 	if totalLen < samplingStatsConcurrency {
 		samplingStatsConcurrency = totalLen
@@ -673,6 +673,7 @@ func (e *AnalyzeColumnsExecV2) subMergeWorker(
 	}
 	cleanupCollector := func() {
 		// Ensure collector resources are released on early exit paths.
+		e.memTracker.Release(retCollector.Base().MemSize)
 		retCollector.DestroyAndPutToPool()
 	}
 	statsHandle := domain.GetDomain(e.ctx).StatsHandle()
@@ -721,20 +722,15 @@ func (e *AnalyzeColumnsExecV2) subMergeWorker(
 			inflightRespSize = 0
 			subCollector.DestroyAndPutToPool()
 		case <-ctx.Done():
-			err := context.Cause(ctx)
+			err := normalizeCtxErrWithCause(ctx, ctx.Err())
+			// mergeCtx may only carry a generic cancellation when errgroup stops the merge stage.
+			// Fall back to taskCtx to preserve the original kill/analyze failure reason.
 			if (err == nil || stderrors.Is(err, context.Canceled)) && parentCtx != nil {
-				parentErr := context.Cause(parentCtx)
+				parentErr := normalizeCtxErrWithCause(parentCtx, parentCtx.Err())
 				if parentErr != nil {
 					err = parentErr
 				}
 			}
-			if err != nil {
-				e.logAnalyzeCanceledInTest(ctx, err, "analyze columns subMergeWorker canceled")
-				cleanupCollector()
-				resultCh <- &samplingMergeResult{err: err}
-				return
-			}
-			err = ctx.Err()
 			if err != nil {
 				e.logAnalyzeCanceledInTest(ctx, err, "analyze columns subMergeWorker canceled")
 				cleanupCollector()

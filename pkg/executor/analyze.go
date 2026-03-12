@@ -576,15 +576,12 @@ func (e *AnalyzeExec) buildAnalyzeKillCtx(parent context.Context) (context.Conte
 }
 
 func analyzeWorkerExitErr(ctx context.Context, errExitCh <-chan struct{}) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return normalizeCtxErrWithCause(ctx, ctxErr)
+	}
 	select {
 	case <-ctx.Done():
-		if err := context.Cause(ctx); err != nil {
-			return err
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		return exeerrors.ErrQueryInterrupted
+		return normalizeCtxErrWithCause(ctx, ctx.Err())
 	case <-errExitCh:
 		return exeerrors.ErrQueryInterrupted
 	default:
@@ -603,10 +600,7 @@ func (e *AnalyzeExec) sendAnalyzeResult(ctx context.Context, statsHandle *handle
 	// result only carries a generic context error from lower layers.
 	err := normalizeCtxErrWithCause(ctx, result.Err)
 	if err == nil {
-		err = context.Cause(ctx)
-	}
-	if err == nil {
-		err = ctx.Err()
+		err = normalizeCtxErrWithCause(ctx, ctx.Err())
 	}
 	if err == nil {
 		err = exeerrors.ErrQueryInterrupted
