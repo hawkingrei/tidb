@@ -50,6 +50,8 @@ type AnalyzeIndexExec struct {
 	countNullRes   distsql.SelectResult
 }
 
+// ctx should come from AnalyzeExec.buildAnalyzeKillCtx so all index analyze
+// requests observe the same statement-level kill and cancel cause.
 func analyzeIndexPushdown(ctx context.Context, idxExec *AnalyzeIndexExec) *statistics.AnalyzeResults {
 	ranges := ranger.FullRange()
 	// For single-column index, we do not load null rows from TiKV, so the built histogram would not include
@@ -261,19 +263,21 @@ func (e *AnalyzeIndexExec) buildStatsFromResult(killerCtx context.Context, resul
 }
 
 func (e *AnalyzeIndexExec) logAnalyzeCanceledInTest(ctx context.Context, err error, msg string) {
-	if !intest.InTest || err == nil || !stderrors.Is(err, context.Canceled) {
+	if err == nil || !stderrors.Is(err, context.Canceled) {
 		return
 	}
-	cause := context.Cause(ctx)
-	ctxErr := ctx.Err()
-	statslogutil.StatsLogger().Info(msg,
-		zap.Uint32("killSignal", e.ctx.GetSessionVars().SQLKiller.GetKillSignal()),
-		zap.Uint64("connID", e.ctx.GetSessionVars().ConnectionID),
-		zap.Error(err),
-		zap.Error(cause),
-		zap.Error(ctxErr),
-		zap.Stack("stack"),
-	)
+	if intest.InTest {
+		cause := context.Cause(ctx)
+		ctxErr := ctx.Err()
+		statslogutil.StatsLogger().Info(msg,
+			zap.Uint32("killSignal", e.ctx.GetSessionVars().SQLKiller.GetKillSignal()),
+			zap.Uint64("connID", e.ctx.GetSessionVars().ConnectionID),
+			zap.Error(err),
+			zap.Error(cause),
+			zap.Error(ctxErr),
+			zap.Stack("stack"),
+		)
+	}
 }
 
 func (e *AnalyzeIndexExec) buildSimpleStats(killerCtx context.Context, ranges []*ranger.Range, considerNull bool) (fms *statistics.FMSketch, nullHist *statistics.Histogram, err error) {
@@ -299,6 +303,8 @@ func (e *AnalyzeIndexExec) buildSimpleStats(killerCtx context.Context, ranges []
 	return fms, nil, nil
 }
 
+// killerCtx should come from AnalyzeExec.buildAnalyzeKillCtx for the same
+// reason as analyzeIndexPushdown: preserve the statement-level cancel cause.
 func analyzeIndexNDVPushDown(killerCtx context.Context, idxExec *AnalyzeIndexExec) *statistics.AnalyzeResults {
 	ranges := ranger.FullRange()
 	// For single-column index, we do not load null rows from TiKV, so the built histogram would not include

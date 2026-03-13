@@ -543,6 +543,9 @@ func (e *AnalyzeExec) handleResultsErrorWithConcurrency(
 	return err
 }
 
+// buildAnalyzeKillCtx creates the statement-scoped ANALYZE context.
+// Callers should pass this ctx through every analyze DistSQL path so parent
+// cancellation and SQLKiller share the same cancel cause.
 func (e *AnalyzeExec) buildAnalyzeKillCtx(parent context.Context) (context.Context, func()) {
 	ctx, cancel := context.WithCancelCause(parent)
 	killer := &e.Ctx().GetSessionVars().SQLKiller
