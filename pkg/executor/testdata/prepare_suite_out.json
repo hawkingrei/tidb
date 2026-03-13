@@ -1078,9 +1078,9 @@
           "6"
         ],
         "Plan": [
-          "IndexReader_8 8000.00 root  index:Selection_7",
-          "└─Selection_7 8000.00 cop[tikv]  gt(plus(test.t.a, 0), 1)",
-          "  └─IndexFullScan_6 10000.00 cop[tikv] table:t, index:a(a) keep order:false, stats:pseudo"
+          "IndexReader_7 8000.00 root  index:Selection_6",
+          "└─Selection_6 8000.00 cop[tikv]  gt(plus(test.t.a, 0), 1)",
+          "  └─IndexFullScan_5 10000.00 cop[tikv] table:t, index:a(a) keep order:false, stats:pseudo"
         ],
         "FromCache": "0"
       },
@@ -1089,9 +1089,9 @@
           "6"
         ],
         "Plan": [
-          "IndexReader_8 8000.00 root  index:Selection_7",
-          "└─Selection_7 8000.00 cop[tikv]  gt(plus(test.t.a, 0), 5)",
-          "  └─IndexFullScan_6 10000.00 cop[tikv] table:t, index:a(a) keep order:false, stats:pseudo"
+          "IndexReader_7 8000.00 root  index:Selection_6",
+          "└─Selection_6 8000.00 cop[tikv]  gt(plus(test.t.a, 0), 5)",
+          "  └─IndexFullScan_5 10000.00 cop[tikv] table:t, index:a(a) keep order:false, stats:pseudo"
         ],
         "FromCache": "1"
       },
@@ -1109,9 +1109,9 @@
           "6 6 6"
         ],
         "Plan": [
-          "TableReader_8 3333.33 root  data:Selection_7",
-          "└─Selection_7 3333.33 cop[tikv]  gt(test.t.b, 1)",
-          "  └─TableFullScan_6 10000.00 cop[tikv] table:t keep order:false, stats:pseudo"
+          "TableReader_7 3333.33 root  data:Selection_6",
+          "└─Selection_6 3333.33 cop[tikv]  gt(test.t.b, 1)",
+          "  └─TableFullScan_5 10000.00 cop[tikv] table:t keep order:false, stats:pseudo"
         ],
         "FromCache": "0"
       },
@@ -1120,9 +1120,9 @@
           "6 6 6"
         ],
         "Plan": [
-          "TableReader_8 3333.33 root  data:Selection_7",
-          "└─Selection_7 3333.33 cop[tikv]  gt(test.t.b, 5)",
-          "  └─TableFullScan_6 10000.00 cop[tikv] table:t keep order:false, stats:pseudo"
+          "TableReader_7 3333.33 root  data:Selection_6",
+          "└─Selection_6 3333.33 cop[tikv]  gt(test.t.b, 5)",
+          "  └─TableFullScan_5 10000.00 cop[tikv] table:t keep order:false, stats:pseudo"
         ],
         "FromCache": "1"
       },
@@ -1140,11 +1140,11 @@
           "6 6 6"
         ],
         "Plan": [
-          "IndexLookUp_10 2666.67 root  ",
-          "├─Selection_8(Build) 8000.00 cop[tikv]  gt(plus(test.t.a, 0), 1)",
-          "│ └─IndexFullScan_6 10000.00 cop[tikv] table:t, index:a(a) keep order:false, stats:pseudo",
-          "└─Selection_9(Probe) 2666.67 cop[tikv]  gt(test.t.b, 1)",
-          "  └─TableRowIDScan_7 8000.00 cop[tikv] table:t keep order:false, stats:pseudo"
+          "IndexLookUp_9 2666.67 root  ",
+          "├─Selection_7(Build) 8000.00 cop[tikv]  gt(plus(test.t.a, 0), 1)",
+          "│ └─IndexFullScan_5 10000.00 cop[tikv] table:t, index:a(a) keep order:false, stats:pseudo",
+          "└─Selection_8(Probe) 2666.67 cop[tikv]  gt(test.t.b, 1)",
+          "  └─TableRowIDScan_6 8000.00 cop[tikv] table:t keep order:false, stats:pseudo"
         ],
         "FromCache": "0"
       },
@@ -1153,11 +1153,11 @@
           "6 6 6"
         ],
         "Plan": [
-          "IndexLookUp_10 2666.67 root  ",
-          "├─Selection_8(Build) 8000.00 cop[tikv]  gt(plus(test.t.a, 0), 5)",
-          "│ └─IndexFullScan_6 10000.00 cop[tikv] table:t, index:a(a) keep order:false, stats:pseudo",
-          "└─Selection_9(Probe) 2666.67 cop[tikv]  gt(test.t.b, 5)",
-          "  └─TableRowIDScan_7 8000.00 cop[tikv] table:t keep order:false, stats:pseudo"
+          "IndexLookUp_9 2666.67 root  ",
+          "├─Selection_7(Build) 8000.00 cop[tikv]  gt(plus(test.t.a, 0), 5)",
+          "│ └─IndexFullScan_5 10000.00 cop[tikv] table:t, index:a(a) keep order:false, stats:pseudo",
+          "└─Selection_8(Probe) 2666.67 cop[tikv]  gt(test.t.b, 5)",
+          "  └─TableRowIDScan_6 8000.00 cop[tikv] table:t keep order:false, stats:pseudo"
         ],
         "FromCache": "1"
       },
@@ -1176,10 +1176,10 @@
           "6 6 6"
         ],
         "Plan": [
-          "Limit_8 10.00 root  offset:0, count:10",
-          "└─TableReader_14 10.00 root  data:Limit_13",
-          "  └─Limit_13 10.00 cop[tikv]  offset:0, count:10",
-          "    └─TableFullScan_12 10.00 cop[tikv] table:t keep order:false, stats:pseudo"
+          "Limit_7 10.00 root  offset:0, count:10",
+          "└─TableReader_12 10.00 root  data:Limit_11",
+          "  └─Limit_11 10.00 cop[tikv]  offset:0, count:10",
+          "    └─TableFullScan_10 10.00 cop[tikv] table:t keep order:false, stats:pseudo"
         ],
         "FromCache": "0"
       },
@@ -1193,10 +1193,10 @@
           "6 6 6"
         ],
         "Plan": [
-          "Limit_8 20.00 root  offset:0, count:20",
-          "└─TableReader_14 20.00 root  data:Limit_13",
-          "  └─Limit_13 20.00 cop[tikv]  offset:0, count:20",
-          "    └─TableFullScan_12 20.00 cop[tikv] table:t keep order:false, stats:pseudo"
+          "Limit_7 20.00 root  offset:0, count:20",
+          "└─TableReader_12 20.00 root  data:Limit_11",
+          "  └─Limit_11 20.00 cop[tikv]  offset:0, count:20",
+          "    └─TableFullScan_10 20.00 cop[tikv] table:t keep order:false, stats:pseudo"
         ],
         "FromCache": "0"
       },
@@ -1210,10 +1210,10 @@
           "1 1 1"
         ],
         "Plan": [
-          "TopN_8 1.00 root  test.t.b, offset:0, count:1",
-          "└─TableReader_17 1.00 root  data:TopN_16",
-          "  └─TopN_16 1.00 cop[tikv]  test.t.b, offset:0, count:1",
-          "    └─TableFullScan_15 10000.00 cop[tikv] table:t keep order:false, stats:pseudo"
+          "TopN_7 1.00 root  test.t.b, offset:0, count:1",
+          "└─TableReader_16 1.00 root  data:TopN_15",
+          "  └─TopN_15 1.00 cop[tikv]  test.t.b, offset:0, count:1",
+          "    └─TableFullScan_14 10000.00 cop[tikv] table:t keep order:false, stats:pseudo"
         ],
         "FromCache": "0"
       },
@@ -1226,10 +1226,10 @@
           "5 5 5"
         ],
         "Plan": [
-          "TopN_8 5.00 root  test.t.b, offset:0, count:5",
-          "└─TableReader_17 5.00 root  data:TopN_16",
-          "  └─TopN_16 5.00 cop[tikv]  test.t.b, offset:0, count:5",
-          "    └─TableFullScan_15 10000.00 cop[tikv] table:t keep order:false, stats:pseudo"
+          "TopN_7 5.00 root  test.t.b, offset:0, count:5",
+          "└─TableReader_16 5.00 root  data:TopN_15",
+          "  └─TopN_15 5.00 cop[tikv]  test.t.b, offset:0, count:5",
+          "    └─TableFullScan_14 10000.00 cop[tikv] table:t keep order:false, stats:pseudo"
         ],
         "FromCache": "0"
       },
@@ -1249,10 +1249,10 @@
         ],
         "Plan": [
           "Projection_4 8000.00 root  test.t.b, Column#6",
-          "└─HashAgg_13 8000.00 root  group by:test.t.b, funcs:sum(Column#7)->Column#6, funcs:firstrow(test.t.b)->test.t.b",
-          "  └─TableReader_14 8000.00 root  data:HashAgg_6",
-          "    └─HashAgg_6 8000.00 cop[tikv]  group by:test.t.b, funcs:sum(plus(test.t.c, 1))->Column#7",
-          "      └─TableFullScan_12 10000.00 cop[tikv] table:t keep order:false, stats:pseudo"
+          "└─HashAgg_9 8000.00 root  group by:test.t.b, funcs:sum(Column#7)->Column#6, funcs:firstrow(test.t.b)->test.t.b",
+          "  └─TableReader_10 8000.00 root  data:HashAgg_5",
+          "    └─HashAgg_5 8000.00 cop[tikv]  group by:test.t.b, funcs:sum(plus(test.t.c, 1))->Column#7",
+          "      └─TableFullScan_8 10000.00 cop[tikv] table:t keep order:false, stats:pseudo"
         ],
         "FromCache": "0"
       },
@@ -1267,10 +1267,10 @@
         ],
         "Plan": [
           "Projection_4 8000.00 root  test.t.b, Column#6",
-          "└─HashAgg_13 8000.00 root  group by:test.t.b, funcs:sum(Column#7)->Column#6, funcs:firstrow(test.t.b)->test.t.b",
-          "  └─TableReader_14 8000.00 root  data:HashAgg_6",
-          "    └─HashAgg_6 8000.00 cop[tikv]  group by:test.t.b, funcs:sum(plus(test.t.c, 5))->Column#7",
-          "      └─TableFullScan_12 10000.00 cop[tikv] table:t keep order:false, stats:pseudo"
+          "└─HashAgg_9 8000.00 root  group by:test.t.b, funcs:sum(Column#7)->Column#6, funcs:firstrow(test.t.b)->test.t.b",
+          "  └─TableReader_10 8000.00 root  data:HashAgg_5",
+          "    └─HashAgg_5 8000.00 cop[tikv]  group by:test.t.b, funcs:sum(plus(test.t.c, 5))->Column#7",
+          "      └─TableFullScan_8 10000.00 cop[tikv] table:t keep order:false, stats:pseudo"
         ],
         "FromCache": "1"
       }
