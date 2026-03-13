@@ -1,6 +1,6 @@
 name: Update Bazel Files
 on:
-  pull_request_target:
+  pull_request:  # Temporarily changed to test in this PR
     branches:
       - master
     types:
@@ -30,8 +30,6 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-          # Using GITHUB_TOKEN is possible, but commits won't trigger other workflows (like CI).
-          # If you want CI to run on the auto-committed files, use BAZEL_PREPARE_PUSH_TOKEN (PAT).
           token: ${{ secrets.BAZEL_PREPARE_PUSH_TOKEN || github.token }}
       - name: Build Prepare
         uses: ./.github/actions/tidb_build
