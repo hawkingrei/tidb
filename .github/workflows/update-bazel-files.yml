@@ -30,7 +30,9 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-          token: ${{ secrets.BAZEL_PREPARE_PUSH_TOKEN }}
+          # Using GITHUB_TOKEN is possible, but commits won't trigger other workflows (like CI).
+          # If you want CI to run on the auto-committed files, use BAZEL_PREPARE_PUSH_TOKEN (PAT).
+          token: ${{ secrets.BAZEL_PREPARE_PUSH_TOKEN || github.token }}
       - name: Build Prepare
         uses: ./.github/actions/tidb_build
         with:
@@ -42,10 +44,18 @@ jobs:
         run: |
           #!/bin/bash
           unset CI
-          sed -i '/bazel-cache/d' DEPS.bzl
-          sed -i '/ats.apps.svc/d' DEPS.bzl
-          sed -i '/bazel-cache/d' WORKSPACE
-          sed -i '/ats.apps.svc/d' WORKSPACE
+          system_name=$(uname -s)
+          if [ "$system_name" == "Darwin" ]; then
+            sed -i '' '/bazel-cache/d' DEPS.bzl
+            sed -i '' '/ats.apps.svc/d' DEPS.bzl
+            sed -i '' '/bazel-cache/d' WORKSPACE
+            sed -i '' '/ats.apps.svc/d' WORKSPACE
+          elif [ "$system_name" == "Linux" ]; then
+            sed -i '/bazel-cache/d' DEPS.bzl
+            sed -i '/ats.apps.svc/d' DEPS.bzl
+            sed -i '/bazel-cache/d' WORKSPACE
+            sed -i '/ats.apps.svc/d' WORKSPACE
+          fi
           make bazel_prepare
       - name: Commit Bazel Files
         uses: stefanzweifel/git-auto-commit-action@v5
@@ -53,3 +63,6 @@ jobs:
           branch: ${{ github.event.pull_request.head.ref }}
           commit_message: "chore: update bazel file"
           file_pattern: "DEPS.bzl WORKSPACE MODULE.bazel **/*.bazel **/*.bzl"
+          commit_author: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+          commit_user_name: "github-actions[bot]"
+          commit_user_email: "41898282+github-actions[bot]@users.noreply.github.com>"
