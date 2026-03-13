@@ -30,8 +30,6 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-          # Ensure BAZEL_PREPARE_PUSH_TOKEN is configured in the main repository's secrets.
-          # This is required to push changes back to forks and trigger CI.
           token: ${{ secrets.BAZEL_PREPARE_PUSH_TOKEN || github.token }}
       - name: Build Prepare
         uses: ./.github/actions/tidb_build
@@ -44,22 +42,14 @@ jobs:
         run: |
           #!/bin/bash
           unset CI
-          system_name=$(uname -s)
-          if [ "$system_name" == "Darwin" ]; then
-            sed -i '' '/bazel-cache/d' DEPS.bzl
-            sed -i '' '/ats.apps.svc/d' DEPS.bzl
-            sed -i '' '/bazel-cache/d' WORKSPACE
-            sed -i '' '/ats.apps.svc/d' WORKSPACE
-          elif [ "$system_name" == "Linux" ]; then
-            sed -i '/bazel-cache/d' DEPS.bzl
-            sed -i '/ats.apps.svc/d' DEPS.bzl
-            sed -i '/bazel-cache/d' WORKSPACE
-            sed -i '/ats.apps.svc/d' WORKSPACE
-          fi
+          sed -i '/bazel-cache/d' DEPS.bzl
+          sed -i '/ats.apps.svc/d' DEPS.bzl
+          sed -i '/bazel-cache/d' WORKSPACE
+          sed -i '/ats.apps.svc/d' WORKSPACE
           make bazel_prepare
       - name: Commit Bazel Files
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           branch: ${{ github.event.pull_request.head.ref }}
           commit_message: "chore: update bazel file"
-          file_pattern: "DEPS.bzl WORKSPACE MODULE.bazel **/*.bazel **/*.bzl"
+          file_pattern: "DEPS.bzl **/*.bazel **/*.bzl"
