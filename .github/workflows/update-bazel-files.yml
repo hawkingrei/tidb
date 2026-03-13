@@ -1,8 +1,5 @@
 name: Update Bazel Files
 on:
-  push:  # Change to push for testing in your fork
-    branches:
-      - chore/auto-update-bazel-workflow
   pull_request_target:
     branches:
       - master
@@ -17,24 +14,24 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: update-bazel-files-${{ github.event.pull_request.number || github.run_id }}
+  group: update-bazel-files-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   update:
     name: Update Bazel Files
-    # Disable condition when testing in your fork
-    # if: >
-    #   github.event.pull_request.head.repo.full_name == github.repository ||
-    #   github.event.pull_request.maintainer_can_modify
+    if: >
+      github.event.pull_request.head.repo.full_name == github.repository ||
+      github.event.pull_request.maintainer_can_modify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
-          # Use default repository and ref for push event
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
+          # Ensure BAZEL_PREPARE_PUSH_TOKEN is configured in the main repository's secrets.
+          # This is required to push changes back to forks and trigger CI.
           token: ${{ secrets.BAZEL_PREPARE_PUSH_TOKEN || github.token }}
       - name: Build Prepare
         uses: ./.github/actions/tidb_build
@@ -63,7 +60,6 @@ jobs:
       - name: Commit Bazel Files
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          # Set correct branch for both push and pull_request_target
-          branch: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          branch: ${{ github.event.pull_request.head.ref }}
           commit_message: "chore: update bazel file"
           file_pattern: "DEPS.bzl WORKSPACE MODULE.bazel **/*.bazel **/*.bzl"
