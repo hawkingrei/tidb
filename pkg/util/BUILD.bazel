@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "cpu_posix.go",
         "cpu_windows.go",
+        "dummy_bazel_trigger.go",
         "errors.go",
         "etcd.go",
         "gogc.go",
