@@ -1,7 +1,5 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
-# Dummy comment for testing update-bazel-files workflow
-
 go_library(
     name = "util",
     srcs = [
