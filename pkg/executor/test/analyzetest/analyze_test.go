@@ -748,6 +748,7 @@ func checkAnalyzeStatus(t *testing.T, tk *testkit.TestKit, jobInfo, status, fail
 	if timeLimit <= 0 {
 		return
 	}
+	// A killed auto analyze may stop before start_time is recorded.
 	require.Equal(t, "<nil>", rows[0][5], comment)
 }
 
