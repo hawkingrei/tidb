@@ -748,15 +748,7 @@ func checkAnalyzeStatus(t *testing.T, tk *testkit.TestKit, jobInfo, status, fail
 	if timeLimit <= 0 {
 		return
 	}
-	const layout = time.DateTime
-	endTime, err := time.Parse(layout, rows[0][6].(string))
-	require.NoError(t, err, comment)
-	if rows[0][5] == "<nil>" {
-		return
-	}
-	startTime, err := time.Parse(layout, rows[0][5].(string))
-	require.NoError(t, err, comment)
-	require.Less(t, endTime.Sub(startTime), time.Duration(timeLimit)*time.Second, comment)
+	require.Equal(t, "<nil>", rows[0][5], comment)
 }
 
 func testKillAutoAnalyze(t *testing.T) {
