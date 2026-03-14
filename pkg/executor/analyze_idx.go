@@ -263,10 +263,10 @@ func (e *AnalyzeIndexExec) buildStatsFromResult(killerCtx context.Context, resul
 }
 
 func (e *AnalyzeIndexExec) logAnalyzeCanceledInTest(ctx context.Context, err error, msg string) {
-	if err == nil || !stderrors.Is(err, context.Canceled) {
-		return
-	}
 	if intest.InTest {
+		if err == nil || !stderrors.Is(err, context.Canceled) {
+			return
+		}
 		cause := context.Cause(ctx)
 		ctxErr := ctx.Err()
 		statslogutil.StatsLogger().Info(msg,
