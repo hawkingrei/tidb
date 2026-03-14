@@ -754,19 +754,21 @@ func drainPendingSamplingMergeTasks(taskCh <-chan []byte, memTracker *memory.Tra
 }
 
 func (e *AnalyzeColumnsExecV2) logAnalyzeCanceledInTest(ctx context.Context, err error, msg string) {
-	if !intest.InTest || err == nil || !stderrors.Is(err, context.Canceled) {
-		return
+	if intest.InTest {
+		if err == nil || !stderrors.Is(err, context.Canceled) {
+			return
+		}
+		cause := context.Cause(ctx)
+		ctxErr := ctx.Err()
+		logutil.BgLogger().Info(msg,
+			zap.Uint32("killSignal", e.ctx.GetSessionVars().SQLKiller.GetKillSignal()),
+			zap.Uint64("connID", e.ctx.GetSessionVars().ConnectionID),
+			zap.Error(err),
+			zap.Error(cause),
+			zap.Error(ctxErr),
+			zap.Stack("stack"),
+		)
 	}
-	cause := context.Cause(ctx)
-	ctxErr := ctx.Err()
-	logutil.BgLogger().Info(msg,
-		zap.Uint32("killSignal", e.ctx.GetSessionVars().SQLKiller.GetKillSignal()),
-		zap.Uint64("connID", e.ctx.GetSessionVars().ConnectionID),
-		zap.Error(err),
-		zap.Error(cause),
-		zap.Error(ctxErr),
-		zap.Stack("stack"),
-	)
 }
 
 func (e *AnalyzeColumnsExecV2) subBuildWorker(ctx context.Context, resultCh chan error, taskCh chan *samplingBuildTask, hists []*statistics.Histogram, topns []*statistics.TopN, exitCh chan struct{}) {
