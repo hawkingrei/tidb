@@ -693,20 +693,33 @@ func TestDynamicPartitionPruneUsesMergedPartitionStats(t *testing.T) {
 		dom.StatsHandle().Clear()
 		require.NoError(t, dom.StatsHandle().Update(context.Background(), dom.InfoSchema()))
 
-		stmt, err := p.ParseOneStmt("select * from pt where a < 200", "", "")
-		require.NoError(t, err)
-		require.NoError(t, executor.ResetContextOfStmt(ctx, stmt))
-		nodeW := resolve.NewNodeW(stmt)
-		plan, _, err := planner.Optimize(context.Background(), ctx, nodeW, dom.InfoSchema())
-		require.NoError(t, err)
-
-		reader, ok := plan.(*physicalop.PhysicalTableReader)
-		require.True(t, ok)
-
 		tbl, err := dom.InfoSchema().TableByName(context.Background(), ast.NewCIStr("test"), ast.NewCIStr("pt"))
 		require.NoError(t, err)
 		globalStats := dom.StatsHandle().GetPhysicalTableStats(tbl.Meta().ID, tbl.Meta())
 		require.Equal(t, int64(1200), globalStats.RealtimeCount)
-		require.Equal(t, int64(200), reader.StatsInfo().HistColl.RealtimeCount)
+		for _, tc := range []struct {
+			sql              string
+			expectedRowCount int64
+		}{
+			{
+				sql:              "select /*+ set_var(tidb_opt_enable_selected_partition_stats=0) */ * from pt where a < 200",
+				expectedRowCount: 1200,
+			},
+			{
+				sql:              "select /*+ set_var(tidb_opt_enable_selected_partition_stats=1) */ * from pt where a < 200",
+				expectedRowCount: 200,
+			},
+		} {
+			stmt, err := p.ParseOneStmt(tc.sql, "", "")
+			require.NoError(t, err)
+			require.NoError(t, executor.ResetContextOfStmt(ctx, stmt))
+			nodeW := resolve.NewNodeW(stmt)
+			plan, _, err := planner.Optimize(context.Background(), ctx, nodeW, dom.InfoSchema())
+			require.NoError(t, err)
+
+			reader, ok := plan.(*physicalop.PhysicalTableReader)
+			require.True(t, ok)
+			require.Equal(t, tc.expectedRowCount, reader.StatsInfo().HistColl.RealtimeCount)
+		}
 	})
 }

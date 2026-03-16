@@ -1934,7 +1934,7 @@ func (s *PartitionProcessor) makeUnionAllChildren(ds *logicalop.DataSource, pi *
 		return tableDual, nil
 	}
 	if ds.SCtx().GetSessionVars().StmtCtx.UseDynamicPartitionPrune() {
-		if staticPruned && len(prunedPartitionIDs) > 0 {
+		if ds.SCtx().GetSessionVars().EnableSelectedPartitionStats && staticPruned && len(prunedPartitionIDs) > 0 {
 			ds.StaticPrunedPartitionIDs = prunedPartitionIDs
 		}
 		return ds, nil
