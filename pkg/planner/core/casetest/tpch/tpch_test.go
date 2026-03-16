@@ -17,6 +17,7 @@ package tpch
 import (
 	"testing"
 
+	"github.com/pingcap/tidb/pkg/domain"
 	"github.com/pingcap/tidb/pkg/testkit"
 	"github.com/pingcap/tidb/pkg/testkit/testdata"
 	"github.com/pingcap/tidb/pkg/util/benchdaily"
@@ -87,38 +88,9 @@ func TestQ2(t *testing.T) {
 }
 
 func TestQ3(t *testing.T) {
-<<<<<<< HEAD
-	store, dom := testkit.CreateMockStoreAndDomain(t)
-	tk := testkit.NewTestKit(t, store)
-	tk.MustExec("use test")
-	createCustomer(t, tk, dom)
-	createOrders(t, tk, dom)
-	createLineItem(t, tk, dom)
-	tk.MustExec("set @@session.tidb_broadcast_join_threshold_size = 0")
-	tk.MustExec("set @@session.tidb_broadcast_join_threshold_count = 0")
-	integrationSuiteData := GetTPCHSuiteData()
-	var (
-		input  []string
-		output []struct {
-			SQL    string
-			Result []string
-		}
-	)
-	integrationSuiteData.LoadTestCases(t, &input, &output)
-	for i := range input {
-		testdata.OnRecord(func() {
-			output[i].SQL = input[i]
-		})
-		testdata.OnRecord(func() {
-			output[i].Result = testdata.ConvertRowsToStrings(tk.MustQuery(input[i]).Rows())
-		})
-		tk.MustQuery(input[i]).Check(testkit.Rows(output[i].Result...))
-	}
-=======
 	testkit.RunTestUnderCascadesWithDomain(t, func(t *testing.T, tk *testkit.TestKit, dom *domain.Domain, cascades, caller string) {
 		testQ3(t, tk, dom, cascades, caller, false)
 	})
->>>>>>> 1776433ee09 (planner: fix no access path when TiKV read is disabled under RC isolation (#65127))
 }
 
 func TestQ3RCAndDisableTikv(t *testing.T) {
