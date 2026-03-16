@@ -683,7 +683,7 @@ func testPreparedNullParam(t *testing.T, tk *testkit.TestKit) {
 		tk.MustQuery("execute stmt using @a").Check(testkit.Rows())
 		attachSessionManagerForExplain(tk)
 		tk.MustQuery(fmt.Sprintf("explain for connection %d", tk.Session().ShowProcess().ID)).Check(testkit.Rows(
-			"TableDual_7 0.00 root  rows:0"))
+			"TableDual_6 0.00 root  rows:0"))
 	}
 }
 
@@ -731,7 +731,7 @@ func testIssue29850(t *testing.T, tk *testkit.TestKit) {
 	tk.MustQuery(`execute stmt using @a1, @a1`).Check(testkit.Rows("1"))
 	attachSessionManagerForExplain(tk)
 	tk.MustQuery(fmt.Sprintf("explain for connection %d", tk.Session().ShowProcess().ID)).Check(testkit.Rows(
-		`Point_Get_6 1.00 root table:t handle:1`))
+		`Point_Get_5 1.00 root table:t handle:1`))
 	tk.MustQuery(`execute stmt using @a1, @a2`).Check(testkit.Rows("1", "2"))
 	tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))
 
@@ -739,7 +739,7 @@ func testIssue29850(t *testing.T, tk *testkit.TestKit) {
 	tk.MustQuery(`execute stmt using @a1, @a1`).Check(testkit.Rows("1"))
 	attachSessionManagerForExplain(tk)
 	tk.MustQuery(fmt.Sprintf("explain for connection %d", tk.Session().ShowProcess().ID)).Check(testkit.Rows(
-		`Point_Get_6 1.00 root table:t handle:1`))
+		`Point_Get_5 1.00 root table:t handle:1`))
 	tk.MustQuery(`execute stmt using @a1, @a2`).Check(testkit.Rows("1", "2"))
 }
 
