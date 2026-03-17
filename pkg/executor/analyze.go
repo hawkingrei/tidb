@@ -550,32 +550,48 @@ func (e *AnalyzeExec) buildAnalyzeKillCtx(parent context.Context) (context.Conte
 	ctx, cancel := context.WithCancelCause(parent)
 	killer := &e.Ctx().GetSessionVars().SQLKiller
 	killCh := killer.GetKillEventChan()
-	stopCh := make(chan struct{})
 	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-stopCh:
-				return
-			case <-killCh:
-				status := killer.GetKillSignal()
-				if status == 0 {
-					return
-				}
-				err := killer.HandleSignal()
-				if err == nil {
-					err = exeerrors.ErrQueryInterrupted
-				}
-				cancel(err)
+		select {
+		case <-ctx.Done():
+		case <-killCh:
+			status := killer.GetKillSignal()
+			if status == 0 {
 				return
 			}
+			err := killer.HandleSignal()
+			if err == nil {
+				err = exeerrors.ErrQueryInterrupted
+			}
+			cancel(err)
 		}
 	}()
 	return ctx, func() {
 		cancel(context.Canceled)
-		close(stopCh)
 	}
+}
+
+func logAnalyzeErrInTest(ctx context.Context, logger *zap.Logger, sctx sessionctx.Context, err error, msg string) {
+	if !intest.InTest || err == nil {
+		return
+	}
+	cause := context.Cause(ctx)
+	ctxErr := ctx.Err()
+	logger.Info(msg,
+		zap.Uint32("killSignal", sctx.GetSessionVars().SQLKiller.GetKillSignal()),
+		zap.Uint64("connID", sctx.GetSessionVars().ConnectionID),
+		zap.Error(err),
+		zap.Bool("isCtxCanceled", stderrors.Is(err, context.Canceled)),
+		zap.Error(cause),
+		zap.Error(ctxErr),
+		zap.Stack("stack"),
+	)
+}
+
+func logAnalyzeCanceledInTest(ctx context.Context, logger *zap.Logger, sctx sessionctx.Context, err error, msg string) {
+	if err == nil || !stderrors.Is(err, context.Canceled) {
+		return
+	}
+	logAnalyzeErrInTest(ctx, logger, sctx, err, msg)
 }
 
 func analyzeWorkerExitErr(ctx context.Context, errExitCh <-chan struct{}) error {
