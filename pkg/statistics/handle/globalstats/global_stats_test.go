@@ -761,30 +761,11 @@ func TestGlobalStats(t *testing.T) {
 	tk.MustQuery("explain format = 'brief' select a from t where a > 5").Check(testkit.Rows(
 		"IndexReader 4.00 root partition:all index:IndexRangeScan",
 		"└─IndexRangeScan 4.00 cop[tikv] table:t, index:a(a) range:(5,+inf], keep order:false"))
-	for _, tc := range []struct {
-		switchValue string
-		expected    []string
-	}{
-		{
-			switchValue: "0",
-			expected: []string{
-				"IndexReader 2.00 root partition:p1 index:IndexRangeScan",
-				"└─IndexRangeScan 2.00 cop[tikv] table:t, index:a(a) range:(15,+inf], keep order:false",
-			},
-		},
-		{
-			switchValue: "1",
-			expected: []string{
-				"IndexReader 1.00 root partition:p1 index:IndexRangeScan",
-				"└─IndexRangeScan 1.00 cop[tikv] table:t, index:a(a) range:(15,+inf], keep order:false",
-			},
-		},
-	} {
-		tk.MustExec("set @@session.tidb_opt_enable_selected_partition_stats = " + tc.switchValue)
-		// On the table with global-stats, the selected partition stats optimization should only
-		// affect single-partition estimation when the switch is enabled.
-		tk.MustQuery("explain format = 'brief' select * from t partition(p1) where a > 15;").Check(testkit.Rows(tc.expected...))
-	}
+	// On the table with global-stats, we use explain to query a single-partition query.
+	// And we should get the result that global-stats is used instead of pseudo-stats.
+	tk.MustQuery("explain format = 'brief' select * from t partition(p1) where a > 15;").Check(testkit.Rows(
+		"IndexReader 2.00 root partition:p1 index:IndexRangeScan",
+		"└─IndexRangeScan 2.00 cop[tikv] table:t, index:a(a) range:(15,+inf], keep order:false"))
 
 	// Even if we have global-stats, we will not use it when the switch is set to `static`.
 	tk.MustExec("set @@tidb_partition_prune_mode = 'static';")
@@ -985,25 +966,10 @@ func TestMergeGlobalStatsForCMSketch(t *testing.T) {
 	tk.MustExec("set @@tidb_partition_prune_mode='dynamic'")
 	tk.MustExec("insert into t values (1), (2), (3), (4), (5), (6), (6), (null), (11), (12), (13), (14), (15), (16), (17), (18), (19), (19)")
 	tk.MustExec("analyze table t")
-	for _, tc := range []struct {
-		switchValue string
-		expected    string
-	}{
-		{
-			switchValue: "0",
-			expected:    "  └─TableFullScan 18.00 cop[tikv] table:t keep order:false",
-		},
-		{
-			switchValue: "1",
-			expected:    "  └─TableFullScan 8.00 cop[tikv] table:t keep order:false",
-		},
-	} {
-		tk.MustExec("set @@session.tidb_opt_enable_selected_partition_stats = " + tc.switchValue)
-		tk.MustQuery("explain format = 'brief' select * from t where a = 1").Check(
-			testkit.Rows("TableReader 1.00 root partition:p0 data:Selection",
-				"└─Selection 1.00 cop[tikv]  eq(test.t.a, 1)",
-				tc.expected))
-	}
+	tk.MustQuery("explain format = 'brief' select * from t where a = 1").Check(
+		testkit.Rows("TableReader 1.00 root partition:p0 data:Selection",
+			"└─Selection 1.00 cop[tikv]  eq(test.t.a, 1)",
+			"  └─TableFullScan 18.00 cop[tikv] table:t keep order:false"))
 }
 
 func TestEmptyHists(t *testing.T) {
