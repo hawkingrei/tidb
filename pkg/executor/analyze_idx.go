@@ -29,7 +29,6 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/sessionctx"
 	"github.com/pingcap/tidb/pkg/statistics"
-	statslogutil "github.com/pingcap/tidb/pkg/statistics/handle/logutil"
 	handleutil "github.com/pingcap/tidb/pkg/statistics/handle/util"
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util/intest"
@@ -63,7 +62,6 @@ func analyzeIndexPushdown(ctx context.Context, idxExec *AnalyzeIndexExec) *stati
 	}
 	hist, cms, fms, topN, err := idxExec.buildStats(ctx, ranges, true)
 	if err != nil {
-		logAnalyzeCanceledInTest(ctx, statslogutil.StatsLogger(), idxExec.ctx, err, "analyze index canceled")
 		return &statistics.AnalyzeResults{Err: err, Job: idxExec.job}
 	}
 	statsVer := statistics.Version2
@@ -174,7 +172,6 @@ func (e *AnalyzeIndexExec) fetchAnalyzeResult(ctx context.Context, ranges []*ran
 	}
 	result, err := distsql.Analyze(ctx, e.ctx.GetClient(), kvReq, e.ctx.GetSessionVars().KVVars, e.ctx.GetSessionVars().InRestrictedSQL, e.ctx.GetDistSQLCtx())
 	if err != nil {
-		logAnalyzeCanceledInTest(ctx, statslogutil.StatsLogger(), e.ctx, err, "analyze index distsql canceled")
 		return err
 	}
 	if isNullRange {
@@ -234,7 +231,6 @@ func (e *AnalyzeIndexExec) buildStatsFromResult(killerCtx context.Context, resul
 		data, err := result.NextRaw(killerCtx)
 		if err != nil {
 			err = normalizeCtxErrWithCause(killerCtx, err)
-			logAnalyzeCanceledInTest(killerCtx, statslogutil.StatsLogger(), e.ctx, err, "analyze index nextRaw canceled")
 			return nil, nil, nil, nil, err
 		}
 		if data == nil {

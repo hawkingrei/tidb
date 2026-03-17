@@ -177,13 +177,14 @@ TASKLOOP:
 	}()
 
 	err = e.waitFinish(ctx, g, resultsCh)
-	if err == nil && ctx.Err() != nil {
+	if err != nil {
+		err = normalizeCtxErrWithCause(ctx, err)
+	} else if ctx.Err() != nil {
 		// Preserve the original cancellation cause before follow-up work (for example stats cache update)
 		// can degrade it into a plain context error.
 		err = normalizeCtxErrWithCause(ctx, ctx.Err())
 	}
 	if err != nil {
-		err = normalizeCtxErrWithCause(ctx, err)
 		for task := range taskCh {
 			finishJobWithLog(statsHandle, task.job, err)
 		}
@@ -486,28 +487,6 @@ func (e *AnalyzeExec) handleResultsErrorWithConcurrency(
 			break
 		}
 		if results.Err != nil {
-			if intest.InTest && stderrors.Is(results.Err, context.Canceled) {
-				jobInfo := ""
-				dbName := ""
-				tableName := ""
-				partitionName := ""
-				if results.Job != nil {
-					jobInfo = results.Job.JobInfo
-					dbName = results.Job.DBName
-					tableName = results.Job.TableName
-					partitionName = results.Job.PartitionName
-				}
-				statslogutil.StatsLogger().Info("analyze result canceled",
-					zap.Uint32("killSignal", e.Ctx().GetSessionVars().SQLKiller.GetKillSignal()),
-					zap.Uint64("connID", e.Ctx().GetSessionVars().ConnectionID),
-					zap.String("jobInfo", jobInfo),
-					zap.String("dbName", dbName),
-					zap.String("tableName", tableName),
-					zap.String("partitionName", partitionName),
-					zap.Error(results.Err),
-					zap.Stack("stack"),
-				)
-			}
 			err = results.Err
 			if isAnalyzeWorkerPanic(err) {
 				panicCnt++
@@ -555,6 +534,8 @@ func (e *AnalyzeExec) buildAnalyzeKillCtx(parent context.Context) (context.Conte
 		case <-ctx.Done():
 		case <-killCh:
 			status := killer.GetKillSignal()
+			// resetKillEvent may close killCh when the statement is reset even though no real
+			// kill signal was recorded, so ignore that synthetic wake-up here.
 			if status == 0 {
 				return
 			}
@@ -570,30 +551,9 @@ func (e *AnalyzeExec) buildAnalyzeKillCtx(parent context.Context) (context.Conte
 	}
 }
 
-func logAnalyzeErrInTest(ctx context.Context, logger *zap.Logger, sctx sessionctx.Context, err error, msg string) {
-	if !intest.InTest || err == nil {
-		return
-	}
-	cause := context.Cause(ctx)
-	ctxErr := ctx.Err()
-	logger.Info(msg,
-		zap.Uint32("killSignal", sctx.GetSessionVars().SQLKiller.GetKillSignal()),
-		zap.Uint64("connID", sctx.GetSessionVars().ConnectionID),
-		zap.Error(err),
-		zap.Bool("isCtxCanceled", stderrors.Is(err, context.Canceled)),
-		zap.Error(cause),
-		zap.Error(ctxErr),
-		zap.Stack("stack"),
-	)
-}
-
-func logAnalyzeCanceledInTest(ctx context.Context, logger *zap.Logger, sctx sessionctx.Context, err error, msg string) {
-	if err == nil || !stderrors.Is(err, context.Canceled) {
-		return
-	}
-	logAnalyzeErrInTest(ctx, logger, sctx, err, msg)
-}
-
+// analyzeWorkerExitErr is checked after a task is dequeued but before starting a new
+// analyze request. It lets the worker stop immediately when the statement was already
+// canceled or another worker has aborted the whole analyze workflow.
 func analyzeWorkerExitErr(ctx context.Context, errExitCh <-chan struct{}) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return normalizeCtxErrWithCause(ctx, ctxErr)
@@ -608,7 +568,9 @@ func analyzeWorkerExitErr(ctx context.Context, errExitCh <-chan struct{}) error 
 	}
 }
 
-func (e *AnalyzeExec) sendAnalyzeResult(ctx context.Context, statsHandle *handle.Handle, resultsCh chan<- *statistics.AnalyzeResults, result *statistics.AnalyzeResults) {
+// trySendAnalyzeResult may drop and destroy result when the statement is already
+// aborting, so callers should not reuse result after calling it.
+func (e *AnalyzeExec) trySendAnalyzeResult(ctx context.Context, statsHandle *handle.Handle, resultsCh chan<- *statistics.AnalyzeResults, result *statistics.AnalyzeResults) {
 	select {
 	case resultsCh <- result:
 		return
@@ -659,15 +621,14 @@ func (e *AnalyzeExec) analyzeWorker(ctx context.Context, taskCh <-chan *analyzeT
 			return
 		}
 		failpoint.Inject("handleAnalyzeWorkerPanic", nil)
+		statsHandle.StartAnalyzeJob(task.job)
 		switch task.taskType {
 		case colTask:
-			statsHandle.StartAnalyzeJob(task.job)
 			result := task.colExec.analyzeColumnsPushDown(ctx, e.gp)
-			e.sendAnalyzeResult(ctx, statsHandle, resultsCh, result)
+			e.trySendAnalyzeResult(ctx, statsHandle, resultsCh, result)
 		case idxTask:
-			statsHandle.StartAnalyzeJob(task.job)
 			result := analyzeIndexPushdown(ctx, task.idxExec)
-			e.sendAnalyzeResult(ctx, statsHandle, resultsCh, result)
+			e.trySendAnalyzeResult(ctx, statsHandle, resultsCh, result)
 		}
 	}
 }

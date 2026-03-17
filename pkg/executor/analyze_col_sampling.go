@@ -288,7 +288,6 @@ func (e *AnalyzeColumnsExec) buildSamplingStats(
 	})
 	err = taskEg.Wait()
 	if err != nil {
-		logAnalyzeErrInTest(taskCtx, logutil.BgLogger(), e.ctx, err, "analyze columns read task failed")
 		if err1 := mergeEg.Wait(); err1 != nil {
 			if !stderrors.Is(err1, err) && err1.Error() != err.Error() {
 				err = stderrors.Join(err, err1)
@@ -302,7 +301,6 @@ func (e *AnalyzeColumnsExec) buildSamplingStats(
 	defer e.memTracker.Release(rootRowCollector.Base().MemSize)
 	if err != nil {
 		taskCancel(err)
-		logAnalyzeCanceledInTest(mergeCtx, logutil.BgLogger(), e.ctx, err, "analyze columns merge canceled")
 		return 0, nil, nil, nil, err
 	}
 
@@ -703,7 +701,6 @@ func (e *AnalyzeColumnsExec) subMergeWorker(
 				}
 			}
 			if err != nil {
-				logAnalyzeCanceledInTest(ctx, logutil.BgLogger(), e.ctx, err, "analyze columns subMergeWorker canceled")
 				cleanupCollector()
 				resultCh <- &samplingMergeResult{err: err}
 				return
@@ -960,7 +957,6 @@ func readDataAndSendTask(ctx context.Context, sctx sessionctx.Context, handler *
 		data, err := handler.nextRaw(ctx)
 		if err != nil {
 			err = normalizeCtxErrWithCause(ctx, err)
-			logAnalyzeErrInTest(ctx, logutil.BgLogger(), sctx, err, "analyze columns nextRaw failed")
 			return errors.Trace(err)
 		}
 		if data == nil {
