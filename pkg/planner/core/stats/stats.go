@@ -30,6 +30,9 @@ import (
 	"github.com/pingcap/tidb/pkg/util/intest"
 )
 
+// AggregateSelectedPartitionCounts aggregates selected partition counts when planner/cardinality registers the helper.
+var AggregateSelectedPartitionCounts func(partitionStats []*statistics.Table) (realtimeCount, modifyCount int64, ok bool)
+
 // GetTblInfoForUsedStatsByPhysicalID get table name, partition name and HintedTable
 // that will be used to record used stats.
 func GetTblInfoForUsedStatsByPhysicalID(sctx base.PlanContext, id int64) (
@@ -67,6 +70,7 @@ func GetStatsTable(ctx base.PlanContext, tblInfo *model.TableInfo, pid int64, pa
 	}
 	var pseudoStatsForUninitialized, pseudoStatsForOutdated bool
 	var statsTbl *statistics.Table
+	selectedPartitionCountsOverridden := false
 	// 1. tidb-server started and statistics handle has not been initialized.
 	if statsHandle == nil {
 		return statistics.PseudoTable(tblInfo, false, true)
@@ -85,15 +89,15 @@ func GetStatsTable(ctx base.PlanContext, tblInfo *model.TableInfo, pid int64, pa
 		if len(uniquePartitionStats) == 1 {
 			statsTbl = uniquePartitionStats[0]
 		} else {
-			var ok bool
-			statsTbl, ok = statistics.MergePartitionStatsForRuntime(
-				ctx.GetSessionVars().StmtCtx,
-				tblInfo,
-				uniquePartitionStats,
-				ctx.GetSessionVars().AnalyzeVersion,
-			)
-			if !ok {
-				statsTbl = statistics.PseudoTable(tblInfo, false, true)
+			// Reuse the global stats objects and only narrow the table-level counts to the selected partitions.
+			statsTbl = statsHandle.GetPhysicalTableStats(tblInfo.ID, tblInfo)
+			if AggregateSelectedPartitionCounts != nil {
+				if realtimeCount, modifyCount, ok := AggregateSelectedPartitionCounts(uniquePartitionStats); ok {
+					statsTbl = statsTbl.CopyAs(statistics.MetaOnly)
+					statsTbl.RealtimeCount = realtimeCount
+					statsTbl.ModifyCount = modifyCount
+					selectedPartitionCountsOverridden = true
+				}
 			}
 		}
 	} else if pid == tblInfo.ID || ctx.GetSessionVars().StmtCtx.UseDynamicPartitionPrune() {
@@ -109,6 +113,10 @@ func GetStatsTable(ctx base.PlanContext, tblInfo *model.TableInfo, pid int64, pa
 	// RealtimeCount to the row count from the ANALYZE, which is fetched from loaded stats in GetAnalyzeRowCount()).
 	if ctx.GetSessionVars().GetOptObjective() == vardef.OptObjectiveDeterminate {
 		analyzeCount := max(int64(statsTbl.GetAnalyzeRowCount()), 0)
+		if selectedPartitionCountsOverridden {
+			// The selected-partition row count is planner-synthesized, so keep it instead of restoring the global analyze count.
+			analyzeCount = statsTbl.RealtimeCount
+		}
 		// If the two fields are already the values we want, we don't need to modify it, and also we don't need to copy.
 		if statsTbl.RealtimeCount != analyzeCount || statsTbl.ModifyCount != 0 {
 			// Here is a case that we need specially care about:
