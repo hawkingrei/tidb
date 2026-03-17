@@ -912,7 +912,7 @@ func (s *PartitionProcessor) prune(ds *logicalop.DataSource) (base.LogicalPlan, 
 
 func setStaticPartitionPruneInfo(ds *logicalop.DataSource) {
 	ds.SCtx().GetSessionVars().StmtCtx.StaticPartitionPrune = true
-	ds.SCtx().GetSessionVars().StmtCtx.SetSkipPlanCache("Static partition pruning mode")
+	ds.SCtx().GetSessionVars().StmtCtx.SetSkipPlanCache("static partition prune mode used")
 }
 
 // FindByName checks whether object name exists in list.
@@ -1924,7 +1924,7 @@ func (s *PartitionProcessor) makeUnionAllChildren(ds *logicalop.DataSource, pi *
 	}
 	slices.Sort(prunedPartitionIDs)
 	staticPruned := len(prunedPartitionIDs) < len(pi.Definitions)
-	if staticPruned {
+	if staticPruned && ds.SCtx().GetSessionVars().StmtCtx.UseDynamicPartitionPrune() && ds.SCtx().GetSessionVars().EnableSelectedPartitionStats {
 		setStaticPartitionPruneInfo(ds)
 	}
 	if len(prunedPartitionIDs) == 0 {

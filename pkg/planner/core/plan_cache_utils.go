@@ -191,7 +191,7 @@ func GeneratePlanCacheStmtWithAST(ctx context.Context, sctx sessionctx.Context, 
 
 	if cacheable && !isPrepStmt && staticPartitionPrune {
 		cacheable = false
-		reason = "Static partition pruning mode"
+		reason = "static partition prune mode used"
 		sctx.GetSessionVars().StmtCtx.AppendWarning(errors.NewNoStackError("skip prepared plan-cache: " + reason))
 	}
 

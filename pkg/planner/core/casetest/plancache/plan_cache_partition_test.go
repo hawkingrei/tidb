@@ -24,20 +24,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func requireStaticPartitionPruneWarning(t *testing.T, warning string) {
+func containsStaticPartitionPruneWarning(warning string) bool {
+	for _, prefix := range []string{
+		"skip prepared plan-cache: ",
+		"skip non-prepared plan-cache: ",
+		"skip plan-cache: ",
+	} {
+		if strings.Contains(warning, prefix+"Static partition pruning mode") ||
+			strings.Contains(warning, prefix+"static partition prune mode used") {
+			return true
+		}
+	}
+	return false
+}
+
+func requireForceStaticPartitionPruneWarning(t *testing.T, warning string) {
 	require.True(t,
-		strings.Contains(warning, "skip prepared plan-cache: Static partition pruning mode") ||
-			strings.Contains(warning, "skip non-prepared plan-cache: Static partition pruning mode") ||
-			strings.Contains(warning, "skip plan-cache: Static partition pruning mode"),
+		strings.Contains(warning, "force plan-cache: may use risky cached plan: Static partition pruning mode") ||
+			strings.Contains(warning, "force plan-cache: may use risky cached plan: static partition prune mode used"),
 		"unexpected warning: %s", warning,
 	)
 }
 
+func requireStaticPartitionPruneWarning(t *testing.T, warning string) {
+	require.True(t, containsStaticPartitionPruneWarning(warning), "unexpected warning: %s", warning)
+}
+
 func requireStaticPartitionPruneOrUnsafeRangeWarning(t *testing.T, warning string) {
 	require.True(t,
-		strings.Contains(warning, "skip prepared plan-cache: Static partition pruning mode") ||
-			strings.Contains(warning, "skip non-prepared plan-cache: Static partition pruning mode") ||
-			strings.Contains(warning, "skip plan-cache: Static partition pruning mode") ||
+		containsStaticPartitionPruneWarning(warning) ||
 			(strings.Contains(warning, "skip plan-cache: plan rebuild failed, rebuild to get an unsafe range, ") &&
 				strings.Contains(warning, " length diff")),
 		"unexpected warning: %s", warning,
@@ -46,9 +61,7 @@ func requireStaticPartitionPruneOrUnsafeRangeWarning(t *testing.T, warning strin
 
 func requireStaticPartitionPruneOrOverOptimizedWarning(t *testing.T, warning string) {
 	require.True(t,
-		strings.Contains(warning, "skip prepared plan-cache: Static partition pruning mode") ||
-			strings.Contains(warning, "skip non-prepared plan-cache: Static partition pruning mode") ||
-			strings.Contains(warning, "skip plan-cache: Static partition pruning mode") ||
+		containsStaticPartitionPruneWarning(warning) ||
 			strings.Contains(warning, "skip prepared plan-cache: Batch/PointGet plans may be over-optimized"),
 		"unexpected warning: %s", warning,
 	)
@@ -60,6 +73,7 @@ func TestPlanCachePartitionSuite(t *testing.T) {
 	tk.MustExec("drop database if exists test")
 	tk.MustExec("create database test")
 	tk.MustExec("use test")
+	tk.MustExec(`set @@tidb_opt_enable_selected_partition_stats=1`)
 
 	// fix-control-partition-plan-cache + prepared-plan-cache-partitions
 	{
@@ -73,7 +87,7 @@ func TestPlanCachePartitionSuite(t *testing.T) {
 		tk.MustExec(`execute st using @a`)
 		warnings := tk.MustQuery(`show warnings`).Rows()
 		if len(warnings) > 0 {
-			tk.MustQuery(`show warnings`).Check(testkit.Rows("Warning 1105 force plan-cache: may use risky cached plan: Static partition pruning mode"))
+			requireForceStaticPartitionPruneWarning(t, warnings[0][2].(string))
 		}
 		tk.MustExec(`execute st using @a`)
 		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))
@@ -84,7 +98,7 @@ func TestPlanCachePartitionSuite(t *testing.T) {
 		tk.MustExec(`set @a=1`)
 		tk.MustExec(`execute st using @a`)
 		if warnings := tk.MustQuery(`show warnings`).Rows(); len(warnings) > 0 {
-			tk.MustQuery(`show warnings`).Check(testkit.Rows("Warning 1105 force plan-cache: may use risky cached plan: Static partition pruning mode"))
+			requireForceStaticPartitionPruneWarning(t, warnings[0][2].(string))
 		}
 		tk.MustExec(`execute st using @a`)
 		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))

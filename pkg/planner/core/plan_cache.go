@@ -310,7 +310,7 @@ func adjustCachedPlan(ctx context.Context, sctx sessionctx.Context,
 	if skip, err := shouldSkipCachedPlanForStaticPartitionPruning(sctx, plan); err != nil {
 		return nil, false, err
 	} else if skip {
-		stmtCtx.SetSkipPlanCache("Static partition pruning mode")
+		stmtCtx.SetSkipPlanCache("static partition prune mode used")
 		return nil, false, nil
 	}
 	if !RebuildPlan4CachedPlan(plan) {
@@ -331,7 +331,7 @@ func adjustCachedPlan(ctx context.Context, sctx sessionctx.Context,
 }
 
 func shouldSkipCachedPlanForStaticPartitionPruning(sctx sessionctx.Context, plan base.Plan) (bool, error) {
-	if !sctx.GetSessionVars().StmtCtx.UseDynamicPartitionPrune() {
+	if !sctx.GetSessionVars().StmtCtx.UseDynamicPartitionPrune() || !sctx.GetSessionVars().EnableSelectedPartitionStats {
 		return false, nil
 	}
 	switch p := plan.(type) {
