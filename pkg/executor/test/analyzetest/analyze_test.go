@@ -747,6 +747,23 @@ func checkAnalyzeStatus(t *testing.T, tk *testkit.TestKit, jobInfo, status, fail
 	require.Equal(t, failReason, rows[0][8], comment)
 }
 
+func getMockKillAutoAnalyzeFailpoint(status string) string {
+	switch status {
+	case "pending":
+		return "github.com/pingcap/tidb/pkg/executor/mockKillPendingAnalyzeJob"
+	case "running":
+		return "github.com/pingcap/tidb/pkg/executor/mockKillRunningV2AnalyzeJob"
+	case "finished":
+		return "github.com/pingcap/tidb/pkg/executor/mockKillFinishedAnalyzeJob"
+	default:
+		return ""
+	}
+}
+
+func getMockSlowAutoAnalyzeFailpoint() string {
+	return "github.com/pingcap/tidb/pkg/executor/mockSlowAnalyzeV2"
+}
+
 func testKillAutoAnalyze(t *testing.T) {
 	store, dom := testkit.CreateMockStoreAndDomain(t)
 	tk := testkit.NewTestKit(t, store)
@@ -787,13 +804,14 @@ func testKillAutoAnalyze(t *testing.T) {
 		func() {
 			comment := fmt.Sprintf("kill %v analyze job", status)
 			tk.MustExec("delete from mysql.analyze_jobs")
-			mockAnalyzeStatus := "github.com/pingcap/tidb/pkg/executor/mockKill" + strings.Title(status) + "AnalyzeJob"
+			mockAnalyzeStatus := getMockKillAutoAnalyzeFailpoint(status)
+			require.NotEmpty(t, mockAnalyzeStatus)
 			require.NoError(t, failpoint.Enable(mockAnalyzeStatus, "return"))
 			defer func() {
 				require.NoError(t, failpoint.Disable(mockAnalyzeStatus))
 			}()
 			if status == "pending" || status == "running" {
-				const mockSlowAnalyze = "github.com/pingcap/tidb/pkg/executor/mockSlowAnalyze"
+				mockSlowAnalyze := getMockSlowAutoAnalyzeFailpoint()
 				require.NoError(t, failpoint.Enable(mockSlowAnalyze, "return"))
 				defer func() {
 					require.NoError(t, failpoint.Disable(mockSlowAnalyze))
@@ -854,15 +872,17 @@ func TestKillAutoAnalyzeIndex(t *testing.T) {
 		func() {
 			comment := fmt.Sprintf("kill %v analyze job", status)
 			tk.MustExec("delete from mysql.analyze_jobs")
-			mockAnalyzeStatus := "github.com/pingcap/tidb/pkg/executor/mockKill" + strings.Title(status) + "AnalyzeJob"
+			mockAnalyzeStatus := getMockKillAutoAnalyzeFailpoint(status)
+			require.NotEmpty(t, mockAnalyzeStatus)
 			require.NoError(t, failpoint.Enable(mockAnalyzeStatus, "return"))
 			defer func() {
 				require.NoError(t, failpoint.Disable(mockAnalyzeStatus))
 			}()
 			if status == "pending" || status == "running" {
-				require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/executor/mockSlowAnalyze", "return"))
+				mockSlowAnalyze := getMockSlowAutoAnalyzeFailpoint()
+				require.NoError(t, failpoint.Enable(mockSlowAnalyze, "return"))
 				defer func() {
-					require.NoError(t, failpoint.Disable("github.com/pingcap/tidb/pkg/executor/mockSlowAnalyze"))
+					require.NoError(t, failpoint.Disable(mockSlowAnalyze))
 				}()
 			}
 			require.True(t, h.HandleAutoAnalyze(), comment)
