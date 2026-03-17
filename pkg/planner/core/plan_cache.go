@@ -203,7 +203,9 @@ func GetPlanFromPlanCache(ctx context.Context, sctx sessionctx.Context,
 		stmtCtx.SetCacheType(contextutil.SessionPrepared)
 		cacheEnabled = sessVars.EnablePreparedPlanCache
 	}
-	if stmt.StmtCacheable && cacheEnabled {
+	// Instance plan cache keeps compiled plans across executions, so disable it for partitioned tables
+	// until their partition access state becomes safe to reuse.
+	if stmt.StmtCacheable && cacheEnabled && !(instancePlanCacheEnabled(ctx) && stmtAccessesPartitionedTables(stmt)) {
 		stmtCtx.EnablePlanCache()
 	}
 	if stmt.UncacheableReason != "" {
@@ -401,6 +403,15 @@ func cachedPlanUsesStaticPartitionPruning(sctx sessionctx.Context, plan base.Phy
 		}
 	}
 	return false, nil
+}
+
+func stmtAccessesPartitionedTables(stmt *PlanCacheStmt) bool {
+	for _, tbl := range stmt.tables {
+		if tbl != nil && tbl.Meta().GetPartitionInfo() != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func dynamicPartitionAccessUsesSubset(
