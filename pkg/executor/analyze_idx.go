@@ -208,14 +208,8 @@ func (e *AnalyzeIndexExec) buildStatsFromResult(killerCtx context.Context, resul
 				dom.SysProcTracker().KillSysProcess(id)
 			}
 		})
-		select {
-		case <-killerCtx.Done():
-			err := context.Cause(killerCtx)
-			if err == nil {
-				err = killerCtx.Err()
-			}
+		if err := normalizeCtxErrWithCause(killerCtx, killerCtx.Err()); err != nil {
 			return nil, nil, nil, nil, err
-		default:
 		}
 		failpoint.Inject("mockSlowAnalyzeIndex", func() {
 			select {

@@ -459,11 +459,10 @@ func (e *AnalyzeColumnsExec) handleNDVForSpecialIndexes(ctx context.Context, ind
 	}
 	var err error
 	statsHandle := domain.GetDomain(e.ctx).StatsHandle()
-LOOP:
 	for panicCnt < samplingStatsConcurrency {
 		results, ok := <-resultsCh
 		if !ok {
-			break LOOP
+			break
 		}
 		if results.Job != nil && results.Job.ID != nil {
 			delete(pendingJobs, *results.Job.ID)
@@ -474,17 +473,14 @@ LOOP:
 			if isAnalyzeWorkerPanic(err) {
 				panicCnt++
 			}
-			continue LOOP
+			continue
 		}
 		statsHandle.FinishAnalyzeJob(results.Job, nil, statistics.TableAnalysisJob)
 		totalResult.results[results.Ars[0].Hist[0].ID] = results
 	}
 	if err == nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			err = context.Cause(ctx)
-			if err == nil {
-				err = ctxErr
-			}
+		if ctxErr := normalizeCtxErrWithCause(ctx, ctx.Err()); ctxErr != nil {
+			err = ctxErr
 		}
 	}
 	if err != nil && len(pendingJobs) > 0 {
