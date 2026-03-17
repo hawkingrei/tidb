@@ -35,6 +35,7 @@ import (
 	"github.com/pingcap/tidb/pkg/tablecodec"
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util"
+	"github.com/pingcap/tidb/pkg/util/channel"
 	"github.com/pingcap/tidb/pkg/util/chunk"
 	"github.com/pingcap/tidb/pkg/util/codec"
 	"github.com/pingcap/tidb/pkg/util/collate"
@@ -377,8 +378,7 @@ func (e *AnalyzeColumnsExec) buildSamplingStats(
 	indexPushedDownResult := <-idxNDVPushDownCh
 	if indexPushedDownResult.err != nil {
 		close(exitCh)
-		for range buildResultChan {
-		}
+		channel.Clear(buildResultChan)
 		return 0, nil, nil, nil, indexPushedDownResult.err
 	}
 	for _, offset := range indexesWithVirtualColOffsets {
