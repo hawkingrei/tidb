@@ -49,6 +49,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/dbterror/exeerrors"
 	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/sqlescape"
+	"github.com/pingcap/tidb/pkg/util/sqlkiller"
 	"github.com/pingcap/tipb/go-tipb"
 	"github.com/tiancaiamao/gp"
 	"go.uber.org/zap"
@@ -536,7 +537,7 @@ func (e *AnalyzeExec) buildAnalyzeKillCtx(parent context.Context) (context.Conte
 			status := killer.GetKillSignal()
 			// resetKillEvent may close killCh when the statement is reset even though no real
 			// kill signal was recorded, so ignore that synthetic wake-up here.
-			if status == 0 {
+			if status == sqlkiller.UnspecifiedKillSignal {
 				return
 			}
 			err := killer.HandleSignal()
