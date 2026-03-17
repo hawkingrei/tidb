@@ -59,8 +59,8 @@ func GetTblInfoForUsedStatsByPhysicalID(sctx base.PlanContext, id int64) (
 // 1. tidb-server started and statistics handle has not been initialized.
 // 2. table row count from statistics is zero.
 // 3. statistics is outdated.
-// When partitionIDs is non-empty, statistics from those partitions are merged for
-// cardinality estimation instead of using the partition table global stats.
+// When partitionIDs is non-empty, the selected partitions' row counts are aggregated for
+// cardinality estimation instead of using the partition table global row count.
 // Note: please also update getLatestVersionFromStatsTable() when logic in this function changes.
 func GetStatsTable(ctx base.PlanContext, tblInfo *model.TableInfo, pid int64, partitionIDs []int64) *statistics.Table {
 	var statsHandle *handle.Handle
