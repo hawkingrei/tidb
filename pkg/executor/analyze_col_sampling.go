@@ -251,7 +251,7 @@ func (e *AnalyzeColumnsExec) buildSamplingStats(
 	for i := range samplingStatsConcurrency {
 		id := i
 		gp.Go(func() {
-			e.subMergeWorker(mergeCtx, taskCtx, taskCancel, mergeResultCh, mergeTaskCh, l, id)
+			e.subMergeWorker(mergeCtx, taskCancel, mergeResultCh, mergeTaskCh, l, id)
 		})
 	}
 	// Merge the result from collectors.
@@ -599,7 +599,6 @@ func (e *AnalyzeColumnsExec) buildSubIndexJobForSpecialIndex(indexInfos []*model
 
 func (e *AnalyzeColumnsExec) subMergeWorker(
 	ctx context.Context,
-	parentCtx context.Context,
 	cancel context.CancelCauseFunc,
 	resultCh chan<- *samplingMergeResult,
 	taskCh <-chan []byte,
@@ -690,12 +689,6 @@ func (e *AnalyzeColumnsExec) subMergeWorker(
 			subCollector.DestroyAndPutToPool()
 		case <-ctx.Done():
 			err := normalizeCtxErrWithCause(ctx, ctx.Err())
-			if (err == nil || stderrors.Is(err, context.Canceled)) && parentCtx != nil {
-				parentErr := normalizeCtxErrWithCause(parentCtx, parentCtx.Err())
-				if parentErr != nil {
-					err = parentErr
-				}
-			}
 			if err != nil {
 				cleanupCollector()
 				resultCh <- &samplingMergeResult{err: err}
