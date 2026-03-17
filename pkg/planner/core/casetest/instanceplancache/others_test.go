@@ -391,10 +391,10 @@ func TestInstancePlanCachePartitioning(t *testing.T) {
 		tk.MustExec(`prepare stmt from 'select a,b from t where a = ?;'`)
 		tk.MustExec(`set @a=1`)
 		tk.MustQuery(`execute stmt using @a`).Check(testkit.Rows("1 a"))
-		// Instance plan cache disables partitioned-table reuse by default.
+		// Instance plan cache ignores selected partition stats and keeps the dynamic-prune reuse path.
 		tk.MustExec(`set @a=4`)
 		tk.MustQuery(`execute stmt using @a`).Check(testkit.Rows("4 d"))
-		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))
+		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("1"))
 		tk.MustQuery(`show warnings`).Check(testkit.Rows())
 
 		tk.MustExec(`set @@tidb_partition_prune_mode='static'`)
@@ -402,7 +402,7 @@ func TestInstancePlanCachePartitioning(t *testing.T) {
 		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))
 		tk.MustQuery(`show warnings`).Check(testkit.Rows())
 		tk.MustQuery(`execute stmt using @a`).Check(testkit.Rows("4 d"))
-		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))
+		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("1"))
 		tk.MustQuery(`show warnings`).Check(testkit.Rows())
 		tk.MustExec(`deallocate prepare stmt`)
 		tk.MustExec(`drop table t`)

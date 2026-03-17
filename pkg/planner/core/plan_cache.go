@@ -203,9 +203,7 @@ func GetPlanFromPlanCache(ctx context.Context, sctx sessionctx.Context,
 		stmtCtx.SetCacheType(contextutil.SessionPrepared)
 		cacheEnabled = sessVars.EnablePreparedPlanCache
 	}
-	// Instance plan cache keeps compiled plans across executions, so disable it for partitioned tables
-	// until their partition access state becomes safe to reuse.
-	if stmt.StmtCacheable && cacheEnabled && !(instancePlanCacheEnabled(ctx) && stmtAccessesPartitionedTables(stmt)) {
+	if stmt.StmtCacheable && cacheEnabled {
 		stmtCtx.EnablePlanCache()
 	}
 	if stmt.UncacheableReason != "" {
@@ -309,7 +307,7 @@ func adjustCachedPlan(ctx context.Context, sctx sessionctx.Context,
 			return nil, false, err
 		}
 	}
-	if skip, err := shouldSkipCachedPlanForStaticPartitionPruning(sctx, plan); err != nil {
+	if skip, err := shouldSkipCachedPlanForStaticPartitionPruning(sctx, plan, instancePlanCacheEnabled(ctx)); err != nil {
 		return nil, false, err
 	} else if skip {
 		stmtCtx.SetSkipPlanCache("static partition prune mode used")
@@ -332,7 +330,10 @@ func adjustCachedPlan(ctx context.Context, sctx sessionctx.Context,
 	return plan, true, nil
 }
 
-func shouldSkipCachedPlanForStaticPartitionPruning(sctx sessionctx.Context, plan base.Plan) (bool, error) {
+func shouldSkipCachedPlanForStaticPartitionPruning(sctx sessionctx.Context, plan base.Plan, instanceCache bool) (bool, error) {
+	if instanceCache {
+		return false, nil
+	}
 	if !sctx.GetSessionVars().StmtCtx.UseDynamicPartitionPrune() || !sctx.GetSessionVars().EnableSelectedPartitionStats {
 		return false, nil
 	}
@@ -403,15 +404,6 @@ func cachedPlanUsesStaticPartitionPruning(sctx sessionctx.Context, plan base.Phy
 		}
 	}
 	return false, nil
-}
-
-func stmtAccessesPartitionedTables(stmt *PlanCacheStmt) bool {
-	for _, tbl := range stmt.tables {
-		if tbl != nil && tbl.Meta().GetPartitionInfo() != nil {
-			return true
-		}
-	}
-	return false
 }
 
 func dynamicPartitionAccessUsesSubset(
@@ -506,6 +498,12 @@ func generateNewPlan(ctx context.Context, sctx sessionctx.Context, isNonPrepared
 	stmtAst := stmt.PreparedAst
 	sessVars := sctx.GetSessionVars()
 	stmtCtx := sessVars.StmtCtx
+	if instancePlanCacheEnabled(ctx) && sessVars.EnableSelectedPartitionStats {
+		sessVars.EnableSelectedPartitionStats = false
+		defer func() {
+			sessVars.EnableSelectedPartitionStats = true
+		}()
+	}
 
 	core_metrics.GetPlanCacheMissCounter(isNonPrepared).Inc()
 	nodeW := resolve.NewNodeWWithCtx(stmtAst.Stmt, stmt.ResolveCtx)

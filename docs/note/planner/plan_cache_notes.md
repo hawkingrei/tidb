@@ -64,32 +64,30 @@
 - `go test -count=1 -run TestCacheable -tags=intest,deadlock ./pkg/planner/core/casetest/plancache`
 - `go test -count=1 -run TestPreparedPlanCacheWithCTE -tags=intest,deadlock ./pkg/planner/core/casetest/plancache`
 
-## 2026-03-17: Instance Plan Cache Disables Partitioned-Table Reuse by Default
+## 2026-03-17: Instance Plan Cache Treats Selected Partition Stats As Disabled
 
 ### Root Cause
 
-- Reusing a cached partitioned-table plan from instance plan cache can preserve
-  stale partition access state across executions.
-- A concrete failure shape is:
-  - prepare in dynamic prune mode
-  - cache the first execution in instance plan cache
-  - switch `tidb_partition_prune_mode`
-  - hit the cached plan and read the wrong partition/result
-- This is stricter than the session plan cache case because instance cache
-  clones and reuses a compiled plan across sessions/executions.
+- `tidb_opt_enable_selected_partition_stats` only gates the risky
+  selected-partition-stats cache reuse check.
+- For instance plan cache we want the old reuse behavior on the dynamic-prune
+  path, so this switch should be treated as disabled on cache hit.
+- `tidb_partition_prune_mode` must still stay in the cache key. Removing it
+  allows a dynamic-prune cached plan to be reused after switching to `static`,
+  which can return wrong results.
 
 ### Final Decision
 
 - Keep the selected-partition-stats-aware behavior for session plan cache.
-- For instance plan cache, do not cache statements that access partitioned
-  tables.
-- This keeps the change minimal and avoids cross-execution partition state
-  leakage without changing session plan cache behavior.
+- For instance plan cache, treat `tidb_opt_enable_selected_partition_stats` as
+  `OFF` only for the cached-plan reuse check.
+- Keep `tidb_partition_prune_mode` in the cache key so dynamic/static plans do
+  not cross-reuse.
 
 ### Regression Shape
 
 - Prepare a point query on a partitioned table with instance plan cache enabled.
-- Execute repeatedly under different prune modes / selected-partition-stats
-  settings.
-- Expect correct results and `@@last_plan_from_cache = 0` on the instance-cache
-  path.
+- In dynamic prune mode, expect cache hit even when
+  `tidb_opt_enable_selected_partition_stats = 1`.
+- Switching to `static` should still miss because prune mode remains part of the
+  cache key.
