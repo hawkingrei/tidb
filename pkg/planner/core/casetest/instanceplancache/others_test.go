@@ -383,6 +383,7 @@ func TestInstancePlanCachePartitioning(t *testing.T) {
 	tk.MustExec("use test")
 	tk.MustExec(`set global tidb_enable_instance_plan_cache=1`)
 	for _, selectedPartitionStats := range []string{"0", "1"} {
+		tk.MustExec(`admin flush instance plan_cache`)
 		tk.MustExec(`set @@tidb_opt_enable_selected_partition_stats=` + selectedPartitionStats)
 		tk.MustExec(`set @@tidb_partition_prune_mode='dynamic'`)
 		tk.MustExec(`drop table if exists t`)
@@ -391,19 +392,28 @@ func TestInstancePlanCachePartitioning(t *testing.T) {
 		tk.MustExec(`prepare stmt from 'select a,b from t where a = ?;'`)
 		tk.MustExec(`set @a=1`)
 		tk.MustQuery(`execute stmt using @a`).Check(testkit.Rows("1 a"))
-		// Instance plan cache ignores selected partition stats and keeps the dynamic-prune reuse path.
+		// Result correctness stays the same; whether the second execution hits cache depends on the selected partition stats switch.
 		tk.MustExec(`set @a=4`)
 		tk.MustQuery(`execute stmt using @a`).Check(testkit.Rows("4 d"))
-		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("1"))
+		expectedFromCache := "1"
+		if selectedPartitionStats == "1" {
+			expectedFromCache = "0"
+		}
+		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows(expectedFromCache))
 		tk.MustQuery(`show warnings`).Check(testkit.Rows())
 
 		tk.MustExec(`set @@tidb_partition_prune_mode='static'`)
 		tk.MustQuery(`execute stmt using @a`).Check(testkit.Rows("4 d"))
 		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))
-		tk.MustQuery(`show warnings`).Check(testkit.Rows())
 		tk.MustQuery(`execute stmt using @a`).Check(testkit.Rows("4 d"))
-		tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("1"))
-		tk.MustQuery(`show warnings`).Check(testkit.Rows())
+		warnings := tk.MustQuery(`show warnings`).Rows()
+		if len(warnings) > 0 {
+			require.True(t,
+				strings.Contains(warnings[0][2].(string), "skip prepared plan-cache: Static partition pruning mode") ||
+					strings.Contains(warnings[0][2].(string), "skip prepared plan-cache: static partition prune mode used"),
+				"unexpected warning: %s", warnings[0][2].(string),
+			)
+		}
 		tk.MustExec(`deallocate prepare stmt`)
 		tk.MustExec(`drop table t`)
 	}

@@ -307,7 +307,7 @@ func adjustCachedPlan(ctx context.Context, sctx sessionctx.Context,
 			return nil, false, err
 		}
 	}
-	if skip, err := shouldSkipCachedPlanForStaticPartitionPruning(sctx, plan, instancePlanCacheEnabled(ctx)); err != nil {
+	if skip, err := shouldSkipCachedPlanForStaticPartitionPruning(sctx, plan); err != nil {
 		return nil, false, err
 	} else if skip {
 		stmtCtx.SetSkipPlanCache("static partition prune mode used")
@@ -330,10 +330,7 @@ func adjustCachedPlan(ctx context.Context, sctx sessionctx.Context,
 	return plan, true, nil
 }
 
-func shouldSkipCachedPlanForStaticPartitionPruning(sctx sessionctx.Context, plan base.Plan, instanceCache bool) (bool, error) {
-	if instanceCache {
-		return false, nil
-	}
+func shouldSkipCachedPlanForStaticPartitionPruning(sctx sessionctx.Context, plan base.Plan) (bool, error) {
 	if !sctx.GetSessionVars().StmtCtx.UseDynamicPartitionPrune() || !sctx.GetSessionVars().EnableSelectedPartitionStats {
 		return false, nil
 	}
@@ -498,12 +495,6 @@ func generateNewPlan(ctx context.Context, sctx sessionctx.Context, isNonPrepared
 	stmtAst := stmt.PreparedAst
 	sessVars := sctx.GetSessionVars()
 	stmtCtx := sessVars.StmtCtx
-	if instancePlanCacheEnabled(ctx) && sessVars.EnableSelectedPartitionStats {
-		sessVars.EnableSelectedPartitionStats = false
-		defer func() {
-			sessVars.EnableSelectedPartitionStats = true
-		}()
-	}
 
 	core_metrics.GetPlanCacheMissCounter(isNonPrepared).Inc()
 	nodeW := resolve.NewNodeWWithCtx(stmtAst.Stmt, stmt.ResolveCtx)

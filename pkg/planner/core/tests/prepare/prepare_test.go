@@ -1569,7 +1569,15 @@ func TestPointGetForUpdateAutoCommitCache(t *testing.T) {
 	tk1.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("1"))
 }
 
-func TestPrepareCacheForDynamicPartitionPruning(t *testing.T) {
+func TestPrepareCacheForDynamicPartitionPruningOff(t *testing.T) {
+	testPrepareCacheForDynamicPartitionPruning(t, "0")
+}
+
+func TestPrepareCacheForDynamicPartitionPruningOn(t *testing.T) {
+	testPrepareCacheForDynamicPartitionPruning(t, "1")
+}
+
+func testPrepareCacheForDynamicPartitionPruning(t *testing.T, selectedPartitionStats string) {
 	// https://github.com/pingcap/tidb/issues/33031
 	store := testkit.CreateMockStore(t)
 	tk := testkit.NewTestKit(t, store)
@@ -1578,47 +1586,45 @@ func TestPrepareCacheForDynamicPartitionPruning(t *testing.T) {
 	tk.MustExec("use test")
 	tkExplain := testkit.NewTestKit(t, store)
 	tkExplain.MustExec("use test")
-	for _, selectedPartitionStats := range []string{"0", "1"} {
-		tk.MustExec("set @@tidb_opt_enable_selected_partition_stats = " + selectedPartitionStats)
-		tkExplain.MustExec("set @@tidb_opt_enable_selected_partition_stats = " + selectedPartitionStats)
-		for _, pruneMode := range []string{string(variable.Static), string(variable.Dynamic)} {
-			tk.MustExec("set @@tidb_partition_prune_mode = '" + pruneMode + "'")
+	tk.MustExec("set @@tidb_opt_enable_selected_partition_stats = " + selectedPartitionStats)
+	tkExplain.MustExec("set @@tidb_opt_enable_selected_partition_stats = " + selectedPartitionStats)
+	for _, pruneMode := range []string{string(variable.Static), string(variable.Dynamic)} {
+		tk.MustExec("set @@tidb_partition_prune_mode = '" + pruneMode + "'")
 
-			tk.MustExec(`drop table if exists t`)
-			tk.MustExec(`CREATE TABLE t (a int(16), b bigint, UNIQUE KEY (a)) PARTITION BY RANGE (a) (PARTITION P0 VALUES LESS THAN (0))`)
-			tk.MustExec(`insert into t values(-5, 7)`)
-			tk.MustExec(`analyze table t`)
-			tk.MustExec(`prepare stmt from 'select * from t where a = ? and b < ?'`)
-			tk.MustExec(`set @a=1, @b=111`)
-			// Note that this is not matching any partition!
-			tk.MustQuery(`execute stmt using @a,@b`).Check(testkit.Rows())
+		tk.MustExec(`drop table if exists t`)
+		tk.MustExec(`CREATE TABLE t (a int(16), b bigint, UNIQUE KEY (a)) PARTITION BY RANGE (a) (PARTITION P0 VALUES LESS THAN (0))`)
+		tk.MustExec(`insert into t values(-5, 7)`)
+		tk.MustExec(`analyze table t`)
+		tk.MustExec(`prepare stmt from 'select * from t where a = ? and b < ?'`)
+		tk.MustExec(`set @a=1, @b=111`)
+		// Note that this is not matching any partition!
+		tk.MustQuery(`execute stmt using @a,@b`).Check(testkit.Rows())
+		require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+		tkProcess := tk.Session().ShowProcess()
+		ps := []*sessmgr.ProcessInfo{tkProcess}
+		tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
+		explain := tkExplain.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID))
+		require.Contains(t, explain.Rows()[0][0].(string), "TableDual")
+		tk.MustExec(`set @a=-5, @b=112`)
+		tk.MustQuery(`execute stmt using @a,@b`).Check(testkit.Rows("-5 7"))
+
+		explain = tkExplain.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID))
+		if pruneMode == string(variable.Dynamic) {
+			require.Contains(t, explain.Rows()[0][0].(string), "Selection")
+			require.Contains(t, explain.Rows()[1][0].(string), "Point_Get")
 			require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
-			tkProcess := tk.Session().ShowProcess()
-			ps := []*sessmgr.ProcessInfo{tkProcess}
-			tk.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
-			explain := tkExplain.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID))
-			require.Contains(t, explain.Rows()[0][0].(string), "TableDual")
-			tk.MustExec(`set @a=-5, @b=112`)
-			tk.MustQuery(`execute stmt using @a,@b`).Check(testkit.Rows("-5 7"))
-
-			explain = tkExplain.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID))
-			if pruneMode == string(variable.Dynamic) {
-				require.Contains(t, explain.Rows()[0][0].(string), "Selection")
-				require.Contains(t, explain.Rows()[1][0].(string), "Point_Get")
-				require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
-				tk.MustQuery(`show warnings`).Check(testkit.Rows())
-			} else {
-				require.Contains(t, explain.Rows()[0][0].(string), "Selection")
-				require.Contains(t, explain.Rows()[1][0].(string), "Point_Get")
-				require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
-				tk.MustQuery(`show warnings`).Check(testkit.Rows("Warning 1105 skip prepared plan-cache: query accesses partitioned tables is un-cacheable if tidb_partition_pruning_mode = 'static'"))
-			}
-
-			// Test TableDual
-			tk.MustExec(`set @b=5, @a=113`)
-			tk.MustQuery(`execute stmt using @a,@b`).Check(testkit.Rows())
-			require.Equal(t, pruneMode == string(variable.Dynamic) && selectedPartitionStats == "0", tk.Session().GetSessionVars().FoundInPlanCache)
+			tk.MustQuery(`show warnings`).Check(testkit.Rows())
+		} else {
+			require.Contains(t, explain.Rows()[0][0].(string), "Selection")
+			require.Contains(t, explain.Rows()[1][0].(string), "Point_Get")
+			require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
+			tk.MustQuery(`show warnings`).Check(testkit.Rows("Warning 1105 skip prepared plan-cache: query accesses partitioned tables is un-cacheable if tidb_partition_pruning_mode = 'static'"))
 		}
+
+		// Test TableDual
+		tk.MustExec(`set @b=5, @a=113`)
+		tk.MustQuery(`execute stmt using @a,@b`).Check(testkit.Rows())
+		require.Equal(t, pruneMode == string(variable.Dynamic) && selectedPartitionStats == "0", tk.Session().GetSessionVars().FoundInPlanCache)
 	}
 }
 
