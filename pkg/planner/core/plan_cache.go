@@ -363,35 +363,27 @@ func cachedPlanUsesStaticPartitionPruning(sctx sessionctx.Context, plan base.Phy
 			return skip, err
 		}
 	case *physicalop.PhysicalTableReader:
-		if len(p.TablePlans) > 0 {
-			if ts, ok := p.TablePlans[0].(*physicalop.PhysicalTableScan); ok {
-				if skip, err := dynamicPartitionAccessUsesSubset(sctx.GetPlanCtx(), ts.Table, p.PlanPartInfo); err != nil || skip {
-					return skip, err
-				}
+		if ts := findPhysicalTableScan(p.TablePlans); ts != nil {
+			if skip, err := dynamicPartitionAccessUsesSubset(sctx.GetPlanCtx(), ts.Table, p.PlanPartInfo); err != nil || skip {
+				return skip, err
 			}
 		}
 	case *physicalop.PhysicalIndexReader:
-		if len(p.IndexPlans) > 0 {
-			if is, ok := p.IndexPlans[0].(*physicalop.PhysicalIndexScan); ok {
-				if skip, err := dynamicPartitionAccessUsesSubset(sctx.GetPlanCtx(), is.Table, p.PlanPartInfo); err != nil || skip {
-					return skip, err
-				}
+		if is := findPhysicalIndexScan(p.IndexPlans); is != nil {
+			if skip, err := dynamicPartitionAccessUsesSubset(sctx.GetPlanCtx(), is.Table, p.PlanPartInfo); err != nil || skip {
+				return skip, err
 			}
 		}
 	case *physicalop.PhysicalIndexLookUpReader:
-		if len(p.TablePlans) > 0 {
-			if ts, ok := p.TablePlans[0].(*physicalop.PhysicalTableScan); ok {
-				if skip, err := dynamicPartitionAccessUsesSubset(sctx.GetPlanCtx(), ts.Table, p.PlanPartInfo); err != nil || skip {
-					return skip, err
-				}
+		if ts := findPhysicalTableScan(p.TablePlans); ts != nil {
+			if skip, err := dynamicPartitionAccessUsesSubset(sctx.GetPlanCtx(), ts.Table, p.PlanPartInfo); err != nil || skip {
+				return skip, err
 			}
 		}
 	case *physicalop.PhysicalIndexMergeReader:
-		if len(p.TablePlans) > 0 {
-			if ts, ok := p.TablePlans[0].(*physicalop.PhysicalTableScan); ok {
-				if skip, err := dynamicPartitionAccessUsesSubset(sctx.GetPlanCtx(), ts.Table, p.PlanPartInfo); err != nil || skip {
-					return skip, err
-				}
+		if ts := findPhysicalTableScan(p.TablePlans); ts != nil {
+			if skip, err := dynamicPartitionAccessUsesSubset(sctx.GetPlanCtx(), ts.Table, p.PlanPartInfo); err != nil || skip {
+				return skip, err
 			}
 		}
 	}
@@ -401,6 +393,24 @@ func cachedPlanUsesStaticPartitionPruning(sctx sessionctx.Context, plan base.Phy
 		}
 	}
 	return false, nil
+}
+
+func findPhysicalTableScan(plans []base.PhysicalPlan) *physicalop.PhysicalTableScan {
+	for i := len(plans) - 1; i >= 0; i-- {
+		if ts, ok := plans[i].(*physicalop.PhysicalTableScan); ok {
+			return ts
+		}
+	}
+	return nil
+}
+
+func findPhysicalIndexScan(plans []base.PhysicalPlan) *physicalop.PhysicalIndexScan {
+	for i := len(plans) - 1; i >= 0; i-- {
+		if is, ok := plans[i].(*physicalop.PhysicalIndexScan); ok {
+			return is
+		}
+	}
+	return nil
 }
 
 func dynamicPartitionAccessUsesSubset(

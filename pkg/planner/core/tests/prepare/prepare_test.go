@@ -1609,14 +1609,20 @@ func testPrepareCacheForDynamicPartitionPruning(t *testing.T, selectedPartitionS
 		tk.MustQuery(`execute stmt using @a,@b`).Check(testkit.Rows("-5 7"))
 
 		explain = tkExplain.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID))
+		hasSelection, hasPointGet := false, false
+		for _, row := range explain.Rows() {
+			planID := row[0].(string)
+			hasSelection = hasSelection || strings.Contains(planID, "Selection")
+			hasPointGet = hasPointGet || strings.Contains(planID, "Point_Get")
+		}
 		if pruneMode == string(variable.Dynamic) {
-			require.Contains(t, explain.Rows()[0][0].(string), "Selection")
-			require.Contains(t, explain.Rows()[1][0].(string), "Point_Get")
+			require.True(t, hasSelection)
+			require.True(t, hasPointGet)
 			require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
 			tk.MustQuery(`show warnings`).Check(testkit.Rows())
 		} else {
-			require.Contains(t, explain.Rows()[0][0].(string), "Selection")
-			require.Contains(t, explain.Rows()[1][0].(string), "Point_Get")
+			require.True(t, hasSelection)
+			require.True(t, hasPointGet)
 			require.False(t, tk.Session().GetSessionVars().FoundInPlanCache)
 			tk.MustQuery(`show warnings`).Check(testkit.Rows("Warning 1105 skip prepared plan-cache: query accesses partitioned tables is un-cacheable if tidb_partition_pruning_mode = 'static'"))
 		}

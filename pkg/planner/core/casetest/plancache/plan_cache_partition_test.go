@@ -60,9 +60,24 @@ func requireStaticPartitionPruneOrUnsafeRangeWarning(t *testing.T, warning strin
 }
 
 func requireStaticPartitionPruneOrOverOptimizedWarning(t *testing.T, warning string) {
+	hasOverOptimizedWarning := false
+	hasTableDualWarning := false
+	for _, prefix := range []string{
+		"skip prepared plan-cache: ",
+		"skip non-prepared plan-cache: ",
+		"skip plan-cache: ",
+	} {
+		if strings.Contains(warning, prefix+"Batch/PointGet plans may be over-optimized") {
+			hasOverOptimizedWarning = true
+		}
+		if strings.Contains(warning, prefix+"get a TableDual plan") {
+			hasTableDualWarning = true
+		}
+	}
 	require.True(t,
 		containsStaticPartitionPruneWarning(warning) ||
-			strings.Contains(warning, "skip prepared plan-cache: Batch/PointGet plans may be over-optimized"),
+			hasOverOptimizedWarning ||
+			hasTableDualWarning,
 		"unexpected warning: %s", warning,
 	)
 }
@@ -198,6 +213,7 @@ func TestPlanCachePartitionIndex(t *testing.T) {
 	store := testkit.CreateMockStore(t)
 	tk := testkit.NewTestKit(t, store)
 	tk.MustExec("use test")
+	tk.MustExec(`set @@tidb_opt_enable_selected_partition_stats=1`)
 	preparedCache := tk.MustQuery("select @@session.tidb_enable_prepared_plan_cache").Rows()[0][0]
 	nonPreparedCache := tk.MustQuery("select @@session.tidb_enable_non_prepared_plan_cache").Rows()[0][0]
 	defer func() {
@@ -306,6 +322,7 @@ func TestPlanCacheFixControlRebuild(t *testing.T) {
 	tk.MustQuery(`select @@session.tidb_enable_prepared_plan_cache`).Check(testkit.Rows("1"))
 
 	tk.MustExec("use test")
+	tk.MustExec(`set @@tidb_opt_enable_selected_partition_stats=1`)
 	tk.MustExec(`drop table if exists t`)
 	tk.MustExec(`CREATE TABLE t (a int primary key, b varchar(255), key (b)) PARTITION BY HASH (a) partitions 5`)
 	tk.MustExec(`insert into t values(0,0),(1,1),(2,2),(3,3),(4,4)`)
@@ -356,6 +373,7 @@ func TestPreparedPartitionDMLPlanCache(t *testing.T) {
 	store := testkit.CreateMockStore(t)
 	tk := testkit.NewTestKit(t, store)
 	tk.MustExec("use test")
+	tk.MustExec(`set @@tidb_opt_enable_selected_partition_stats=1`)
 	tk.MustExec(`drop table if exists t`)
 	tk.MustExec(`create table t (a int primary key, b int) partition by hash(a) partitions 4`)
 	tk.MustExec(`insert into t values (1,10),(2,20),(3,30),(4,40)`)

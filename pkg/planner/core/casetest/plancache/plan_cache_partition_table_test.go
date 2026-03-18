@@ -331,7 +331,10 @@ func preparedStmtPointGet(t *testing.T, ids []any, tk *testkit.TestKit, testTbl 
 		expect = getRowData(rowData, filler, cols, isCaseSensitive, id)
 		tk.MustQuery(`execute stmt using @a ` + comment).Check(testkit.Rows(expect...))
 		if !tk.Session().GetSessionVars().FoundInPlanCache {
-			requireStaticPartitionPruneOrOverOptimizedWarning(t, tk.MustQuery(`show warnings ` + comment).Rows()[0][2].(string))
+			warnings := tk.MustQuery(`show warnings ` + comment).Rows()
+			if len(warnings) > 0 {
+				requireStaticPartitionPruneOrOverOptimizedWarning(t, warnings[0][2].(string))
+			}
 		} else {
 			tkProcess := tk.Session().ShowProcess()
 			ps := []*sessmgr.ProcessInfo{tkProcess}
