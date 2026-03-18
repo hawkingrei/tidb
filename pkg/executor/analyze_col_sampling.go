@@ -639,15 +639,18 @@ func (e *AnalyzeColumnsExec) subMergeWorker(
 			time.Sleep(100 * time.Millisecond)
 		}
 	})
+	// Keep one private collector per merge worker and flush it when taskCh is closed.
 	retCollector := statistics.NewRowSampleCollector(int(e.analyzePB.ColReq.SampleSize), e.analyzePB.ColReq.GetSampleRate(), l)
 	for range l {
 		retCollector.Base().FMSketches = append(retCollector.Base().FMSketches, statistics.NewFMSketch(statistics.MaxSketchSize))
 	}
+	// Early-return paths need to release the worker-local collector explicitly.
 	cleanupCollector := func() {
 		e.memTracker.Release(retCollector.Base().MemSize)
 		retCollector.DestroyAndPutToPool()
 	}
 	statsHandle := domain.GetDomain(e.ctx).StatsHandle()
+	// Merge sampled batches until the producer closes taskCh or cancellation arrives.
 	for {
 		select {
 		case data, ok := <-taskCh:
