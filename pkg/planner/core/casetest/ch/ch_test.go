@@ -47,7 +47,7 @@ func TestQ2(t *testing.T) {
 			}
 		)
 		integrationSuiteData.LoadTestCases(t, &input, &output, cascades, caller)
-		briefFormat := `explain format = 'plan_tree' `
+		briefFormat := `explain format='brief' `
 		for i := range input {
 			testdata.OnRecord(func() {
 				output[i].SQL = input[i]
@@ -89,7 +89,7 @@ func TestQ5(t *testing.T) {
 			}
 		)
 		integrationSuiteData.LoadTestCases(t, &input, &output, cascades, caller)
-		briefFormat := `explain format = 'plan_tree' `
+		briefFormat := `explain format='brief' `
 		for i := range input {
 			testdata.OnRecord(func() {
 				output[i].SQL = input[i]
