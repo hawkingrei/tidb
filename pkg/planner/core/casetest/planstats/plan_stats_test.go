@@ -552,14 +552,14 @@ func TestStatsAnalyzedInDDL(t *testing.T) {
 				output[i].Query = input[i]
 				if isSelect {
 					// explain the query
-					output[i].Result = testdata.ConvertRowsToStrings(testKit.MustQuery("explain format = 'plan_tree' " + sql).Rows())
+					output[i].Result = testdata.ConvertRowsToStrings(testKit.MustQuery("explain format='brief' " + sql).Rows())
 				} else {
 					output[i].Result = nil
 				}
 			})
 			if isSelect {
 				// explain the query
-				testKit.MustQuery("explain format = 'plan_tree' " + sql).Check(testkit.Rows(output[i].Result...))
+				testKit.MustQuery("explain format='brief' " + sql).Check(testkit.Rows(output[i].Result...))
 				// assert the version
 				indexName := ""
 				if strings.Contains(sql, "idx_c") {
@@ -614,7 +614,7 @@ func TestPartialStatsInExplain(t *testing.T) {
 		testKit.MustExec("analyze table t2")
 		testKit.MustExec("analyze table tp all columns")
 		testKit.RequireNoError(dom.StatsHandle().Update(context.Background(), dom.InfoSchema()))
-		testKit.MustQuery("explain format = 'plan_tree' select * from tp where a = 1")
+		testKit.MustQuery("explain select * from tp where a = 1")
 		testKit.MustExec("set @@tidb_stats_load_sync_wait = 0")
 		type explainCase struct {
 			sql         string
