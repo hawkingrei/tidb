@@ -78,3 +78,4 @@ Planner/core and non-core packages are peers. Place tests in their owning packag
 - For cost-oriented assertions, prefer `EXPLAIN format = 'cost_trace'` rather than `plan_tree`.
 - For plan cache tests, preserve the existing `explain for connection` / `EXPLAIN format='plan_cache'` style; do not rewrite those assertions to `plan_tree`.
 - For hint tests, prefer `EXPLAIN format = 'plan_tree'` when the assertion is about the final chosen plan. Keep the nearby suite's existing format only for warning text, hint applicability, or other format-sensitive output.
+- Keep suites that rely on `load stats` on their existing explain format; do not switch them to `plan_tree` unless the suite's load-stats-based assertion strategy is intentionally redesigned.
