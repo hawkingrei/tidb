@@ -267,19 +267,19 @@ func (la *LogicalAggregation) ExtractColGroups(_ [][]*expression.Column) [][]*ex
 // PreparePossibleProperties implements base.LogicalPlan.<13th> interface.
 func (la *LogicalAggregation) PreparePossibleProperties(_ *expression.Schema, childrenProperties ...*base.PossiblePropertiesInfo) *base.PossiblePropertiesInfo {
 	childProps := childrenProperties[0]
-	la.hasTiflash = childProps != nil && childProps.HasTiflash
+	la.hasTiFlash = childProps != nil && childProps.HasTiFlash
 	// If there's no group-by item, the stream aggregation could have no order property. So we can add an empty property
 	// when its group-by item is empty.
 	if len(la.GroupByItems) == 0 {
 		la.PossibleProperties = base.PossiblePropertiesInfo{
 			Orders:     [][]*expression.Column{nil},
-			HasTiflash: la.hasTiflash,
+			HasTiFlash: la.hasTiFlash,
 		}
 		return &la.PossibleProperties
 	}
 	if childProps == nil {
 		la.PossibleProperties = base.PossiblePropertiesInfo{
-			HasTiflash: la.hasTiflash,
+			HasTiFlash: la.hasTiFlash,
 		}
 		return &la.PossibleProperties
 	}
@@ -294,7 +294,7 @@ func (la *LogicalAggregation) PreparePossibleProperties(_ *expression.Schema, ch
 	}
 	la.PossibleProperties = base.PossiblePropertiesInfo{
 		Orders:     resultProperties,
-		HasTiflash: la.hasTiflash,
+		HasTiFlash: la.hasTiFlash,
 	}
 	return &la.PossibleProperties
 }

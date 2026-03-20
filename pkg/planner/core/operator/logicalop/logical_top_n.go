@@ -139,20 +139,20 @@ func (lt *LogicalTopN) DeriveStats(childStats []*property.StatsInfo, _ *expressi
 
 // PreparePossibleProperties implements base.LogicalPlan.<13th> interface.
 func (lt *LogicalTopN) PreparePossibleProperties(_ *expression.Schema, infos ...*base.PossiblePropertiesInfo) *base.PossiblePropertiesInfo {
-	hasTiflash := false
+	hasTiFlash := false
 	if len(infos) > 0 && infos[0] != nil {
-		hasTiflash = infos[0].HasTiflash
+		hasTiFlash = infos[0].HasTiFlash
 	}
-	lt.hasTiflash = hasTiflash
+	lt.hasTiFlash = hasTiFlash
 	propCols := getPossiblePropertyFromByItems(lt.ByItems)
 	if len(propCols) == 0 {
 		return &base.PossiblePropertiesInfo{
-			HasTiflash: lt.hasTiflash,
+			HasTiFlash: lt.hasTiFlash,
 		}
 	}
 	return &base.PossiblePropertiesInfo{
 		Orders:     [][]*expression.Column{propCols},
-		HasTiflash: lt.hasTiflash,
+		HasTiFlash: lt.hasTiFlash,
 	}
 }
 

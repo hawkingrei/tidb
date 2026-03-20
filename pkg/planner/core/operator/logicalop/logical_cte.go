@@ -232,31 +232,31 @@ func (p *LogicalCTE) DeriveStats(_ []*property.StatsInfo, selfSchema *expression
 // PreparePossibleProperties implements base.LogicalPlan.<13th> interface.
 func (p *LogicalCTE) PreparePossibleProperties(_ *expression.Schema, childrenProperties ...*base.PossiblePropertiesInfo) *base.PossiblePropertiesInfo {
 	if len(childrenProperties) > 0 {
-		hasTiflash := false
+		hasTiFlash := false
 		hasValidChild := false
 		for _, child := range childrenProperties {
 			if child == nil {
 				continue
 			}
 			if !hasValidChild {
-				hasTiflash = child.HasTiflash
+				hasTiFlash = child.HasTiFlash
 				hasValidChild = true
 				continue
 			}
-			hasTiflash = hasTiflash && child.HasTiflash
+			hasTiFlash = hasTiFlash && child.HasTiFlash
 		}
 		if hasValidChild {
-			p.hasTiflash = hasTiflash
-			return &base.PossiblePropertiesInfo{HasTiflash: p.hasTiflash}
+			p.hasTiFlash = hasTiFlash
+			return &base.PossiblePropertiesInfo{HasTiFlash: p.hasTiFlash}
 		}
 	}
 
-	hasTiflash := false
+	hasTiFlash := false
 	if p.Cte != nil && p.Cte.SeedPartLogicalPlan != nil {
-		hasTiflash = GetHasTiFlash(p.Cte.SeedPartLogicalPlan)
+		hasTiFlash = GetHasTiFlash(p.Cte.SeedPartLogicalPlan)
 	}
-	p.hasTiflash = hasTiflash
-	return &base.PossiblePropertiesInfo{HasTiflash: p.hasTiflash}
+	p.hasTiFlash = hasTiFlash
+	return &base.PossiblePropertiesInfo{HasTiFlash: p.hasTiFlash}
 }
 
 // ExtractCorrelatedCols implements the base.LogicalPlan.<15th> interface.

@@ -191,9 +191,9 @@ func TestResolveExprAndReplaceCopyOnWrite(t *testing.T) {
 func TestLogicalCTEPreparePossiblePropertiesSkipNilChild(t *testing.T) {
 	ctx := mock.NewContext()
 	cte := logicalop.LogicalCTE{}.Init(ctx, 0)
-	props := cte.PreparePossibleProperties(nil, nil, &base.PossiblePropertiesInfo{HasTiflash: true})
+	props := cte.PreparePossibleProperties(nil, nil, &base.PossiblePropertiesInfo{HasTiFlash: true})
 	require.NotNil(t, props)
-	require.True(t, props.HasTiflash)
+	require.True(t, props.HasTiFlash)
 }
 
 func TestLogicalProjectionPushDownTopN(t *testing.T) {

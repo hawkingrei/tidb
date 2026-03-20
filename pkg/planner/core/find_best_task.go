@@ -2133,7 +2133,7 @@ func findBestTask4LogicalDataSource(super base.LogicalPlan, prop *property.Physi
 			if ds.PreferStoreType&h.PreferTiKV != 0 && path.StoreType == kv.TiFlash {
 				continue
 			}
-			if !ds.HasTiflash() && path.StoreType == kv.TiFlash {
+			if !ds.HasTiFlash() && path.StoreType == kv.TiFlash {
 				continue
 			}
 			var tblTask base.Task
@@ -2662,16 +2662,16 @@ func convertToTableScan(ds *logicalop.DataSource, prop *property.PhysicalPropert
 	if !prop.IsSortItemEmpty() && candidate.path.ForceNoKeepOrder {
 		return base.InvalidTask, nil
 	}
-	hasTiflash := ds.HasTiflash()
+	hasTiFlash := ds.HasTiFlash()
 	mppAllowed := ds.SCtx().GetSessionVars().IsMPPAllowed()
-	hasTiflashForMPP := hasTiflash && mppAllowed
+	hasTiFlashForMPP := hasTiFlash && mppAllowed
 	ts, _ := physicalop.GetOriginalPhysicalTableScan(ds, prop, candidate.path, candidate.matchPropResult.Matched())
 	// In disaggregated tiflash mode, only MPP is allowed, cop and batchCop is deprecated.
 	// So if prop.TaskTp is RootTaskType, have to use mppTask then convert to rootTask.
-	isTiFlashPath := hasTiflash && ts.StoreType == kv.TiFlash
-	canMppConvertToRoot := hasTiflashForMPP && prop.TaskTp == property.RootTaskType && isTiFlashPath
-	canMppConvertToRootForDisaggregatedTiFlash := hasTiflashForMPP && config.GetGlobalConfig().DisaggregatedTiFlash && canMppConvertToRoot
-	canMppConvertToRootForWhenTiFlashCopIsBanned := hasTiflashForMPP && ds.SCtx().GetSessionVars().IsTiFlashCopBanned() && canMppConvertToRoot
+	isTiFlashPath := hasTiFlash && ts.StoreType == kv.TiFlash
+	canMppConvertToRoot := hasTiFlashForMPP && prop.TaskTp == property.RootTaskType && isTiFlashPath
+	canMppConvertToRootForDisaggregatedTiFlash := hasTiFlashForMPP && config.GetGlobalConfig().DisaggregatedTiFlash && canMppConvertToRoot
+	canMppConvertToRootForWhenTiFlashCopIsBanned := hasTiFlashForMPP && ds.SCtx().GetSessionVars().IsTiFlashCopBanned() && canMppConvertToRoot
 
 	// Fast checks
 	if isTiFlashPath && ts.KeepOrder && (ts.Desc || ds.SCtx().GetSessionVars().TiFlashFastScan) {

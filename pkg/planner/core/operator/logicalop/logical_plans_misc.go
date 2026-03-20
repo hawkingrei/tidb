@@ -133,7 +133,7 @@ func GetHasTiFlash(lp base.LogicalPlan) bool {
 	if !ok || baseLP == nil {
 		return false
 	}
-	return baseLP.hasTiflash
+	return baseLP.hasTiFlash
 }
 
 func pruneByItems(p base.LogicalPlan, old []*util.ByItems) (byItems []*util.ByItems,

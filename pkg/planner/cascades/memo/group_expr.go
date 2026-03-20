@@ -230,7 +230,7 @@ func (e *GroupExpression) DeriveLogicalProp() (err error) {
 		childSchema = append(childSchema, childGProp.Schema)
 		childProperties = append(childProperties, &base.PossiblePropertiesInfo{
 			Orders:     childGProp.PossibleProps,
-			HasTiflash: childGProp.HasTiflash,
+			HasTiFlash: childGProp.HasTiFlash,
 		})
 	}
 	e.GetGroup().SetLogicalProperty(property.NewLogicalProp())
@@ -239,7 +239,7 @@ func (e *GroupExpression) DeriveLogicalProp() (err error) {
 	tmpSchema := e.LogicalPlan.Schema()
 	tmpStats := e.LogicalPlan.StatsInfo()
 	var tmpPossibleProps [][]*expression.Column
-	var tmpHasTiflash bool
+	var tmpHasTiFlash bool
 	// the leaves node may have already had their stats in join reorder est phase, while
 	// their group ndv signal is passed in CollectPredicateColumnsPoint which is applied
 	// behind join reorder rule, we should build their group ndv again (implied in DeriveStats).
@@ -259,14 +259,14 @@ func (e *GroupExpression) DeriveLogicalProp() (err error) {
 		tmp := e.LogicalPlan.PreparePossibleProperties(tmpSchema, childProperties...)
 		if tmp != nil {
 			tmpPossibleProps = tmp.Orders
-			tmpHasTiflash = tmp.HasTiflash
+			tmpHasTiFlash = tmp.HasTiFlash
 		}
 	}
 	e.GetGroup().GetLogicalProperty().Schema = tmpSchema
 	e.GetGroup().GetLogicalProperty().Stats = tmpStats
 	e.GetGroup().GetLogicalProperty().FD = tmpFD
 	e.GetGroup().GetLogicalProperty().PossibleProps = tmpPossibleProps
-	e.GetGroup().GetLogicalProperty().HasTiflash = tmpHasTiflash
+	e.GetGroup().GetLogicalProperty().HasTiFlash = tmpHasTiFlash
 	return nil
 }
 

@@ -595,7 +595,7 @@ func derivePathStatsAndTryHeuristics(ds *logicalop.DataSource) error {
 	var tiflashPath *util.AccessPath
 	isMPPEnforced := ds.SCtx().GetSessionVars().IsMPPEnforced()
 	// Use table info/hypo replicas here because PreparePossibleProperties has not run yet.
-	hasTiFlashReplica := ds.HasTiflash()
+	hasTiFlashReplica := ds.HasTiFlash()
 	if (ds.PreferStoreType&h.PreferTiFlash != 0 || isMPPEnforced) && hasTiFlashReplica {
 		for _, path := range ds.AllPossibleAccessPaths {
 			if path.StoreType == kv.TiFlash {

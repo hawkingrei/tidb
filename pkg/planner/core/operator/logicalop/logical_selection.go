@@ -242,10 +242,10 @@ func (p *LogicalSelection) DeriveStats(childStats []*property.StatsInfo, _ *expr
 // PreparePossibleProperties implements base.LogicalPlan.<13th> interface.
 func (p *LogicalSelection) PreparePossibleProperties(_ *expression.Schema, childrenProperties ...*base.PossiblePropertiesInfo) *base.PossiblePropertiesInfo {
 	if len(childrenProperties) == 0 || childrenProperties[0] == nil {
-		p.hasTiflash = false
+		p.hasTiFlash = false
 		return &base.PossiblePropertiesInfo{}
 	}
-	p.hasTiflash = childrenProperties[0].HasTiflash
+	p.hasTiFlash = childrenProperties[0].HasTiFlash
 	return childrenProperties[0]
 }
 

@@ -341,7 +341,7 @@ func (p *LogicalProjection) PreparePossibleProperties(_ *expression.Schema, chil
 			oldCols = append(oldCols, col)
 		}
 	}
-	p.hasTiflash = childProperties.HasTiflash
+	p.hasTiFlash = childProperties.HasTiFlash
 	tmpSchema := expression.NewSchema(oldCols...)
 	newProperties := make([][]*expression.Column, 0, len(childProperties.Orders))
 	for _, childProperty := range childProperties.Orders {
@@ -359,7 +359,7 @@ func (p *LogicalProjection) PreparePossibleProperties(_ *expression.Schema, chil
 	}
 	return &base.PossiblePropertiesInfo{
 		Orders:     newProperties,
-		HasTiflash: p.hasTiflash,
+		HasTiFlash: p.hasTiFlash,
 	}
 }
 

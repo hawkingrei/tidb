@@ -708,7 +708,7 @@ func (p *LogicalJoin) ExtractColGroups(colGroups [][]*expression.Column) [][]*ex
 func (p *LogicalJoin) PreparePossibleProperties(_ *expression.Schema, childrenProperties ...*base.PossiblePropertiesInfo) *base.PossiblePropertiesInfo {
 	leftProperties := childrenProperties[0].Orders
 	rightProperties := childrenProperties[1].Orders
-	p.hasTiflash = childrenProperties[0].HasTiflash && childrenProperties[1].HasTiflash
+	p.hasTiFlash = childrenProperties[0].HasTiFlash && childrenProperties[1].HasTiFlash
 	// TODO: We should consider properties propagation.
 	p.LeftProperties = leftProperties
 	p.RightProperties = rightProperties
@@ -729,7 +729,7 @@ func (p *LogicalJoin) PreparePossibleProperties(_ *expression.Schema, childrenPr
 	}
 	return &base.PossiblePropertiesInfo{
 		Orders:     resultProperties,
-		HasTiflash: p.hasTiflash,
+		HasTiFlash: p.hasTiFlash,
 	}
 }
 

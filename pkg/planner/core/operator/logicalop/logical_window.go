@@ -442,7 +442,7 @@ func (p *LogicalWindow) ExtractColGroups(colGroups [][]*expression.Column) [][]*
 
 // PreparePossibleProperties implements base.LogicalPlan.<13th> interface.
 func (p *LogicalWindow) PreparePossibleProperties(_ *expression.Schema, infos ...*base.PossiblePropertiesInfo) *base.PossiblePropertiesInfo {
-	p.hasTiflash = infos[0].HasTiflash
+	p.hasTiFlash = infos[0].HasTiFlash
 	result := make([]*expression.Column, 0, len(p.PartitionBy)+len(p.OrderBy))
 	for i := range p.PartitionBy {
 		result = append(result, p.PartitionBy[i].Col)
@@ -452,7 +452,7 @@ func (p *LogicalWindow) PreparePossibleProperties(_ *expression.Schema, infos ..
 	}
 	return &base.PossiblePropertiesInfo{
 		Orders:     [][]*expression.Column{result},
-		HasTiflash: p.hasTiflash,
+		HasTiFlash: p.hasTiFlash,
 	}
 }
 

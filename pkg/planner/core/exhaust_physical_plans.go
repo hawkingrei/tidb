@@ -1950,7 +1950,7 @@ func hasTiFlashReplicaForMPP(lp base.LogicalPlan) bool {
 	ds, ok := lp.(*logicalop.DataSource)
 	if ok {
 		preferTiKVOnly := ds.PreferStoreType&h.PreferTiKV != 0 && ds.PreferStoreType&h.PreferTiFlash == 0
-		return ds.HasTiflash() && !preferTiKVOnly && ds.SCtx().GetSessionVars().IsMPPAllowed()
+		return ds.HasTiFlash() && !preferTiKVOnly && ds.SCtx().GetSessionVars().IsMPPAllowed()
 	}
 
 	children := lp.Children()
@@ -1969,8 +1969,8 @@ func canTryMPPJoinForJoin(p *logicalop.LogicalJoin) bool {
 	intest.Assert(len(p.Children()) == 2, "LogicalJoin should have exactly 2 children")
 	hasTiFlashChildren := logicalop.GetHasTiFlash(p.Children()[0]) && logicalop.GetHasTiFlash(p.Children()[1])
 	intest.Assert(logicalop.GetHasTiFlash(p) == hasTiFlashChildren,
-		"LogicalJoin hasTiflash should be conjunction of children hasTiflash")
-	// `hasTiflash` has been propagated in `PreparePossibleProperties` before task enumeration.
+		"LogicalJoin hasTiFlash should be conjunction of children hasTiFlash")
+	// `hasTiFlash` has been propagated in `PreparePossibleProperties` before task enumeration.
 	canTryMPPJoin := util.ShouldCheckTiFlashPushDown(p.SCtx(), logicalop.GetHasTiFlash(p))
 	// In strict SQL mode, non-readonly statements temporarily remove TiFlash from isolation engines.
 	// Keep join enumeration behavior compatible with previous versions in that case.

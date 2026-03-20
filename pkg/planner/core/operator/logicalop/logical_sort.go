@@ -112,20 +112,20 @@ func (ls *LogicalSort) PushDownTopN(topNLogicalPlan base.LogicalPlan) base.Logic
 
 // PreparePossibleProperties implements base.LogicalPlan.<13th> interface.
 func (ls *LogicalSort) PreparePossibleProperties(_ *expression.Schema, infos ...*base.PossiblePropertiesInfo) *base.PossiblePropertiesInfo {
-	hasTiflash := false
+	hasTiFlash := false
 	if len(infos) > 0 && infos[0] != nil {
-		hasTiflash = infos[0].HasTiflash
+		hasTiFlash = infos[0].HasTiFlash
 	}
-	ls.hasTiflash = hasTiflash
+	ls.hasTiFlash = hasTiFlash
 	propCols := getPossiblePropertyFromByItems(ls.ByItems)
 	if len(propCols) == 0 {
 		return &base.PossiblePropertiesInfo{
-			HasTiflash: ls.hasTiflash,
+			HasTiFlash: ls.hasTiFlash,
 		}
 	}
 	return &base.PossiblePropertiesInfo{
 		Orders:     [][]*expression.Column{propCols},
-		HasTiflash: ls.hasTiflash,
+		HasTiFlash: ls.hasTiFlash,
 	}
 }
 

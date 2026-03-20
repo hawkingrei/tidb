@@ -126,14 +126,14 @@ func (p *LogicalUnionScan) PreparePossibleProperties(_ *expression.Schema, child
 	// ref exhaustPhysicalPlans4LogicalUnionScan: it will push down the sort prop directly.
 	// in union scan exec, it will feel the underlying tableReader or indexReader to get the keepOrder.
 	if len(childrenProperties) == 0 || childrenProperties[0] == nil {
-		p.hasTiflash = false
+		p.hasTiFlash = false
 		return &base.PossiblePropertiesInfo{}
 	}
 	childProps := childrenProperties[0]
-	p.hasTiflash = false
+	p.hasTiFlash = false
 	return &base.PossiblePropertiesInfo{
 		Orders:     childProps.Orders,
-		HasTiflash: false,
+		HasTiFlash: false,
 	}
 }
 

@@ -847,7 +847,7 @@ func TestLogicalAggregationHash64Equals(t *testing.T) {
 
 	la2.PossibleProperties = plannerbase.PossiblePropertiesInfo{
 		Orders:     [][]*expression.Column{{col}},
-		HasTiflash: true,
+		HasTiFlash: true,
 	}
 	hasher2.Reset()
 	la2.Hash64(hasher2)

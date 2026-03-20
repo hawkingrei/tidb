@@ -105,15 +105,15 @@ func (p *LogicalSequence) DeriveStats(childStats []*property.StatsInfo, _ *expre
 
 // PreparePossibleProperties implements base.LogicalPlan.<13th> interface.
 func (p *LogicalSequence) PreparePossibleProperties(_ *expression.Schema, childrenProperties ...*base.PossiblePropertiesInfo) *base.PossiblePropertiesInfo {
-	hasTiflash := len(childrenProperties) > 0
+	hasTiFlash := len(childrenProperties) > 0
 	for _, child := range childrenProperties {
 		if child == nil {
 			continue
 		}
-		hasTiflash = hasTiflash && child.HasTiflash
+		hasTiFlash = hasTiFlash && child.HasTiFlash
 	}
-	p.hasTiflash = hasTiflash
-	return &base.PossiblePropertiesInfo{HasTiflash: p.hasTiflash}
+	p.hasTiFlash = hasTiFlash
+	return &base.PossiblePropertiesInfo{HasTiFlash: p.hasTiFlash}
 }
 
 // ExtractCorrelatedCols inherits BaseLogicalPlan.LogicalPlan.<15th> implementation.

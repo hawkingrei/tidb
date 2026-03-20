@@ -360,7 +360,7 @@ func preparePossibleProperties(g *memo.Group, propertyMap map[*memo.Group]*base.
 		return prop
 	}
 	groupPropertyMap := make(map[string][]*expression.Column)
-	groupHasTiflash := false
+	groupHasTiFlash := false
 	for elem := g.Equivalents.Front(); elem != nil; elem = elem.Next() {
 		expr := elem.Value.(*memo.GroupExpr)
 		childrenProperties := make([]*base.PossiblePropertiesInfo, len(expr.Children))
@@ -375,7 +375,7 @@ func preparePossibleProperties(g *memo.Group, propertyMap map[*memo.Group]*base.
 		if exprInfo == nil {
 			continue
 		}
-		groupHasTiflash = groupHasTiflash || exprInfo.HasTiflash
+		groupHasTiFlash = groupHasTiFlash || exprInfo.HasTiFlash
 		exprProperties := exprInfo.Orders
 		for _, newPropCols := range exprProperties {
 			// Check if the prop has already been in `groupPropertyMap`.
@@ -392,7 +392,7 @@ func preparePossibleProperties(g *memo.Group, propertyMap map[*memo.Group]*base.
 	}
 	result := &base.PossiblePropertiesInfo{
 		Orders:     resultProps,
-		HasTiflash: groupHasTiflash,
+		HasTiFlash: groupHasTiFlash,
 	}
 	propertyMap[g] = result
 	return result

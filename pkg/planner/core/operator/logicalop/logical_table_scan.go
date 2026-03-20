@@ -95,11 +95,11 @@ func (ts *LogicalTableScan) DeriveStats(_ []*property.StatsInfo, _ *expression.S
 
 // PreparePossibleProperties implements base.LogicalPlan.<13th> interface.
 func (ts *LogicalTableScan) PreparePossibleProperties(_ *expression.Schema, _ ...*base.PossiblePropertiesInfo) *base.PossiblePropertiesInfo {
-	hasTiflash := false
+	hasTiFlash := false
 	if ts.Source != nil {
-		hasTiflash = ts.Source.HasTiflash() && ts.SCtx().GetSessionVars().IsMPPAllowed()
+		hasTiFlash = ts.Source.HasTiFlash() && ts.SCtx().GetSessionVars().IsMPPAllowed()
 	}
-	ts.hasTiflash = hasTiflash
+	ts.hasTiFlash = hasTiFlash
 	if ts.HandleCols != nil {
 		cols := make([]*expression.Column, ts.HandleCols.NumCols())
 		for i, c := range ts.HandleCols.IterColumns2() {
@@ -107,12 +107,12 @@ func (ts *LogicalTableScan) PreparePossibleProperties(_ *expression.Schema, _ ..
 		}
 		return &base.PossiblePropertiesInfo{
 			Orders:     [][]*expression.Column{cols},
-			HasTiflash: ts.hasTiflash,
+			HasTiFlash: ts.hasTiFlash,
 		}
 	}
 	return &base.PossiblePropertiesInfo{
 		Orders:     nil,
-		HasTiflash: ts.hasTiflash,
+		HasTiFlash: ts.hasTiFlash,
 	}
 }
 

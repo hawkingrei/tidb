@@ -383,8 +383,8 @@ type PhysicalJoin interface {
 type PossiblePropertiesInfo struct {
 	// all possible order properties
 	Orders [][]*expression.Column
-	// HasTiflash is a runtime pruning signal and is intentionally excluded from hash/equals.
-	HasTiflash bool
+	// HasTiFlash is a runtime pruning signal and is intentionally excluded from hash/equals.
+	HasTiFlash bool
 }
 
 // Hash64 implements the HashEquals interface.

@@ -57,7 +57,7 @@ type BaseLogicalPlan struct {
 	// removing Max1Row operators, and mapping semi-joins to inner-joins.
 	// for now, it's hard to maintain in individual operator, build it from bottom up when using.
 	fdSet      *fd.FDSet
-	hasTiflash bool
+	hasTiFlash bool
 	// Flag is with that each bit has its meaning to mark this logical plan for special handling.
 	Flag uint64
 }
@@ -255,16 +255,16 @@ func (*BaseLogicalPlan) ExtractColGroups(_ [][]*expression.Column) [][]*expressi
 
 // PreparePossibleProperties implements LogicalPlan.<13th> interface.
 func (p *BaseLogicalPlan) PreparePossibleProperties(_ *expression.Schema, info ...*base.PossiblePropertiesInfo) *base.PossiblePropertiesInfo {
-	hasTiflash := len(info) > 0
+	hasTiFlash := len(info) > 0
 	for _, childInfo := range info {
 		if childInfo == nil {
-			hasTiflash = false
+			hasTiFlash = false
 			continue
 		}
-		hasTiflash = hasTiflash && childInfo.HasTiflash
+		hasTiFlash = hasTiFlash && childInfo.HasTiFlash
 	}
-	p.hasTiflash = hasTiflash
-	return &base.PossiblePropertiesInfo{HasTiflash: p.hasTiflash}
+	p.hasTiFlash = hasTiFlash
+	return &base.PossiblePropertiesInfo{HasTiFlash: p.hasTiFlash}
 }
 
 // ExtractCorrelatedCols implements LogicalPlan.<15th> interface.
