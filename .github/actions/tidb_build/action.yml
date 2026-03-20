@@ -18,7 +18,7 @@ runs:
       uses: bazel-contrib/setup-bazel@0.16.0
       with:
         bazelisk-cache: true
-        repository-cache: true
+        repository-cache: false
         external-cache: false
         disk-cache: ${{ github.workflow }}
         google-credentials: ${{ inputs.gcp_sa_key }}
