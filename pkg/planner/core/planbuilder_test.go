@@ -141,13 +141,13 @@ func TestGetPathByIndexName(t *testing.T) {
 
 		ignored := []*util.AccessPath{getPathByIndexName(paths, ast.NewCIStr("idx_contract_sys_no_delete_flag"), tblInfo)}
 		require.Same(t, longPath, ignored[0])
-		remained := removeIgnoredPaths(paths, ignored, tblInfo)
+		remained := removeIgnoredPaths(paths, ignored)
 		require.Len(t, remained, 1)
 		require.Same(t, shortPath, remained[0])
 
 		ignored = []*util.AccessPath{getPathByIndexName(paths, ast.NewCIStr("idx_contract_sys_no_delete"), tblInfo)}
 		require.Same(t, longPath, ignored[0])
-		remained = removeIgnoredPaths(paths, ignored, tblInfo)
+		remained = removeIgnoredPaths(paths, ignored)
 		require.Len(t, remained, 1)
 		require.Same(t, shortPath, remained[0])
 	})
