@@ -2544,6 +2544,13 @@ type subqueryExprExtractor struct {
 	exprs []ast.ExprNode
 }
 
+func (e *subqueryExprExtractor) collect(node ast.Node) {
+	if node == nil {
+		return
+	}
+	node.Accept(e)
+}
+
 // Enter implements Visitor interface.
 func (e *subqueryExprExtractor) Enter(n ast.Node) (ast.Node, bool) {
 	switch subq := n.(type) {
@@ -2554,12 +2561,14 @@ func (e *subqueryExprExtractor) Enter(n ast.Node) (ast.Node, bool) {
 		e.exprs = append(e.exprs, subq)
 		return n, true
 	case *ast.CompareSubqueryExpr:
+		e.collect(subq.L)
 		e.exprs = append(e.exprs, subq)
 		return n, true
 	case *ast.PatternInExpr:
 		if subq.Sel == nil {
 			return n, false
 		}
+		e.collect(subq.Expr)
 		e.exprs = append(e.exprs, subq)
 		return n, true
 	}

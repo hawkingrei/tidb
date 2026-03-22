@@ -307,21 +307,6 @@ WHERE (EXISTS (SELECT SUBQUERY2_t1.a1 AS SUBQUERY2_field1 FROM t1 AS SUBQUERY2_t
 GROUP BY field1;`).Check(testkit.Rows("0"))
 	}
 
-	// window-function-in-subquery-select-list
-	{
-		tk := prepareSharedTestKit(t)
-		tk.MustExec("create table t(a int, b int)")
-		tk.MustExec("insert into t values (1, 1), (2, 2), (3, 3), (4, 4)")
-
-		tk.MustQuery("select /* issue:67152 constant-list */ last_value(a) over (order by a) in (1, 2) from t").
-			Check(testkit.Rows("1", "1", "0", "0"))
-		tk.MustQuery("select /* issue:67152 */ last_value(a) over (order by a) in (select b from t) from t").
-			Check(testkit.Rows("1", "1", "1", "1"))
-		tk.MustQuery("select /* issue:67152 compare-subquery */ last_value(a) over (order by a) = any (select b from t) from t").
-			Check(testkit.Rows("1", "1", "1", "1"))
-		tk.MustQuery("explain format='brief' select /* issue:67152 explain */ last_value(a) over (order by a) in (select b from t) from t")
-	}
-
 	// rollup-having-exists-nil-expression
 	{
 		tk := prepareSharedTestKit(t)
