@@ -2614,6 +2614,24 @@ func findColumnNameByUniqueID(p base.LogicalPlan, uniqueID int64) *ast.ColumnNam
 	return nil
 }
 
+func cloneResultSetNodeForAuxiliaryFields(ctx base.PlanContext, node ast.ResultSetNode) (ast.ResultSetNode, error) {
+	var sb strings.Builder
+	restoreCtx := format.NewRestoreCtx(format.DefaultRestoreFlags, &sb)
+	if err := node.Restore(restoreCtx); err != nil {
+		return nil, err
+	}
+	charset, collation := ctx.GetSessionVars().GetCharsetInfo()
+	stmt, err := parser.New().ParseOneStmt(sb.String(), charset, collation)
+	if err != nil {
+		return nil, err
+	}
+	resultNode, ok := stmt.(ast.ResultSetNode)
+	if !ok {
+		return nil, errors.Errorf("unexpected auxiliary subquery type %T", stmt)
+	}
+	return resultNode, nil
+}
+
 // buildSubqueryPlanForAuxiliaryFields builds only the inner subquery plan for correlated outer-column discovery.
 // This avoids rewriting deferred window-expression wrappers before the window outputs are materialized.
 func (b *PlanBuilder) buildSubqueryPlanForAuxiliaryFields(ctx context.Context, p base.LogicalPlan, expr ast.ExprNode) (base.LogicalPlan, bool, error) {
@@ -2649,6 +2667,10 @@ func (b *PlanBuilder) buildSubqueryPlanForAuxiliaryFields(ctx context.Context, p
 	default:
 		return nil, false, nil
 	}
+	clonedQuery, err := cloneResultSetNodeForAuxiliaryFields(b.ctx, subq.Query)
+	if err != nil {
+		return nil, true, err
+	}
 
 	outerSchema, outerNames := p.Schema(), p.OutputNames()
 	if join, ok := p.(*logicalop.LogicalJoin); ok && join.FullSchema != nil {
@@ -2660,22 +2682,27 @@ func (b *PlanBuilder) buildSubqueryPlanForAuxiliaryFields(ctx context.Context, p
 	b.outerNames = append(b.outerNames, outerNames)
 	b.outerBlockExpand = append(b.outerBlockExpand, b.currentBlockExpand)
 	b.currentBlockExpand = nil
+	oldCurClause := b.curClause
 	oldSubQCtx := b.subQueryCtx
 	b.subQueryCtx = sCtx
 	oldHintFlags := b.subQueryHintFlags
 	b.subQueryHintFlags = 0
+	oldCorrelatedAggMapper := b.correlatedAggMapper
+	b.correlatedAggMapper = make(map[*ast.AggregateFuncExpr]*expression.CorrelatedColumn)
 	outerWindowSpecs := b.windowSpecs
 	defer func() {
 		b.outerSchemas = b.outerSchemas[:len(b.outerSchemas)-1]
 		b.outerNames = b.outerNames[:len(b.outerNames)-1]
 		b.currentBlockExpand = b.outerBlockExpand[len(b.outerBlockExpand)-1]
 		b.outerBlockExpand = b.outerBlockExpand[:len(b.outerBlockExpand)-1]
+		b.curClause = oldCurClause
 		b.windowSpecs = outerWindowSpecs
 		b.subQueryCtx = oldSubQCtx
 		b.subQueryHintFlags = oldHintFlags
+		b.correlatedAggMapper = oldCorrelatedAggMapper
 	}()
 
-	np, err := b.buildResultSetNode(ctx, subq.Query, false)
+	np, err := b.buildResultSetNode(ctx, clonedQuery, false)
 	if err != nil {
 		return nil, true, err
 	}
