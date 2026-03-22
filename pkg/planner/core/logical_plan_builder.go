@@ -2605,6 +2605,75 @@ func findColumnNameByUniqueID(p base.LogicalPlan, uniqueID int64) *ast.ColumnNam
 	return nil
 }
 
+// buildSubqueryPlanForAuxiliaryFields builds only the inner subquery plan for correlated outer-column discovery.
+// This avoids rewriting deferred window-expression wrappers before the window outputs are materialized.
+func (b *PlanBuilder) buildSubqueryPlanForAuxiliaryFields(ctx context.Context, p base.LogicalPlan, expr ast.ExprNode) (base.LogicalPlan, bool, error) {
+	var (
+		subq *ast.SubqueryExpr
+		sCtx subQueryCtx
+	)
+	switch v := expr.(type) {
+	case *ast.SubqueryExpr:
+		subq = v
+		sCtx = handlingScalarSubquery
+	case *ast.ExistsSubqueryExpr:
+		q, ok := v.Sel.(*ast.SubqueryExpr)
+		if !ok {
+			return nil, false, nil
+		}
+		subq = q
+		sCtx = handlingExistsSubquery
+	case *ast.CompareSubqueryExpr:
+		q, ok := v.R.(*ast.SubqueryExpr)
+		if !ok {
+			return nil, false, nil
+		}
+		subq = q
+		sCtx = handlingCompareSubquery
+	case *ast.PatternInExpr:
+		q, ok := v.Sel.(*ast.SubqueryExpr)
+		if !ok {
+			return nil, false, nil
+		}
+		subq = q
+		sCtx = handlingInSubquery
+	default:
+		return nil, false, nil
+	}
+
+	outerSchema, outerNames := p.Schema(), p.OutputNames()
+	if join, ok := p.(*logicalop.LogicalJoin); ok && join.FullSchema != nil {
+		outerSchema = join.FullSchema
+		outerNames = join.FullNames
+	}
+
+	b.outerSchemas = append(b.outerSchemas, outerSchema.Clone())
+	b.outerNames = append(b.outerNames, outerNames)
+	b.outerBlockExpand = append(b.outerBlockExpand, b.currentBlockExpand)
+	b.currentBlockExpand = nil
+	oldSubQCtx := b.subQueryCtx
+	b.subQueryCtx = sCtx
+	oldHintFlags := b.subQueryHintFlags
+	b.subQueryHintFlags = 0
+	outerWindowSpecs := b.windowSpecs
+	defer func() {
+		b.outerSchemas = b.outerSchemas[:len(b.outerSchemas)-1]
+		b.outerNames = b.outerNames[:len(b.outerNames)-1]
+		b.currentBlockExpand = b.outerBlockExpand[len(b.outerBlockExpand)-1]
+		b.outerBlockExpand = b.outerBlockExpand[:len(b.outerBlockExpand)-1]
+		b.windowSpecs = outerWindowSpecs
+		b.subQueryCtx = oldSubQCtx
+		b.subQueryHintFlags = oldHintFlags
+	}()
+
+	np, err := b.buildResultSetNode(ctx, subq.Query, false)
+	if err != nil {
+		return nil, true, err
+	}
+	b.handleHelper.popMap()
+	return np, true, nil
+}
+
 func (b *PlanBuilder) appendAuxiliaryFieldsForSubqueries(ctx context.Context, p base.LogicalPlan, selectFields []*ast.SelectField, nodes ...ast.Node) ([]*ast.SelectField, error) {
 	for _, node := range nodes {
 		if node == nil {
@@ -2617,9 +2686,15 @@ func (b *PlanBuilder) appendAuxiliaryFieldsForSubqueries(ctx context.Context, p 
 			// so subqueries inside deferred window expressions can still resolve against this query block.
 			// TODO: Reuse the rewritten expression/plan from the pre-build phase instead of rebuilding it
 			// only for correlated outer-column discovery.
-			_, np, err := b.rewrite(ctx, expr, p, nil, true)
+			np, handled, err := b.buildSubqueryPlanForAuxiliaryFields(ctx, p, expr)
 			if err != nil {
 				return nil, errors.Trace(err)
+			}
+			if !handled {
+				_, np, err = b.rewrite(ctx, expr, p, nil, true)
+				if err != nil {
+					return nil, errors.Trace(err)
+				}
 			}
 			correlatedCols := coreusage.ExtractCorrelatedCols4LogicalPlan(np)
 			for _, corCol := range correlatedCols {
