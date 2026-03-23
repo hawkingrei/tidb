@@ -7580,19 +7580,6 @@ def go_deps():
         ],
     )
     go_repository(
-        name = "com_github_tdakkota_asciicheck",
-        build_file_proto_mode = "disable_global",
-        importpath = "github.com/tdakkota/asciicheck",
-        sha256 = "1bc4ac6afaff5165b2f0565c6c1e8b1f7fc7e1000cb4fb7832eef7bb2cc61e4e",
-        strip_prefix = "github.com/tdakkota/asciicheck@v0.4.1",
-        urls = [
-            "http://bazel-cache.pingcap.net:8080/gomod/github.com/tdakkota/asciicheck/com_github_tdakkota_asciicheck-v0.4.1.zip",
-            "http://ats.apps.svc/gomod/github.com/tdakkota/asciicheck/com_github_tdakkota_asciicheck-v0.4.1.zip",
-            "https://cache.hawkingrei.com/gomod/github.com/tdakkota/asciicheck/com_github_tdakkota_asciicheck-v0.4.1.zip",
-            "https://storage.googleapis.com/pingcapmirror/gomod/github.com/tdakkota/asciicheck/com_github_tdakkota_asciicheck-v0.4.1.zip",
-        ],
-    )
-    go_repository(
         name = "com_github_tdewolff_minify_v2",
         build_file_proto_mode = "disable_global",
         importpath = "github.com/tdewolff/minify/v2",
