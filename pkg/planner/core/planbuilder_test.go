@@ -189,6 +189,65 @@ func TestRewriterPool(t *testing.T) {
 	require.Zero(t, cleanRewriter.disableFoldCounter)
 	require.Len(t, cleanRewriter.ctxStack, 0)
 	builder.rewriterCounter--
+
+	t.Run("expression rewriter subquery preserves builder state", func(t *testing.T) {
+		testExpressionRewriterBuildSubqueryPreservesBuilderState(t)
+	})
+}
+
+func testExpressionRewriterBuildSubqueryPreservesBuilderState(t *testing.T) {
+	suite := coretestsdk.CreatePlannerSuiteElems()
+	defer suite.Close()
+
+	stmtNode, err := suite.GetParser().ParseOneStmt(
+		"select * from t where exists (select 1 from t2 where t2.a = t.a)",
+		"",
+		"",
+	)
+	require.NoError(t, err)
+	nodeW := resolve.NewNodeW(stmtNode)
+	err = Preprocess(context.Background(), suite.GetSCtx(), nodeW, WithPreprocessorReturn(&PreprocessorReturn{InfoSchema: suite.GetIS()}))
+	require.NoError(t, err)
+
+	stmt := stmtNode.(*ast.SelectStmt)
+	existsExpr, ok := stmt.Where.(*ast.ExistsSubqueryExpr)
+	require.True(t, ok)
+	subq, ok := existsExpr.Sel.(*ast.SubqueryExpr)
+	require.True(t, ok)
+
+	outerStmtNode, err := suite.GetParser().ParseOneStmt("select * from t", "", "")
+	require.NoError(t, err)
+	outerNodeW := resolve.NewNodeW(outerStmtNode)
+	err = Preprocess(context.Background(), suite.GetSCtx(), outerNodeW, WithPreprocessorReturn(&PreprocessorReturn{InfoSchema: suite.GetIS()}))
+	require.NoError(t, err)
+	outerBuilder, _ := NewPlanBuilder().Init(suite.GetCtx(), suite.GetIS(), hint.NewQBHintHandler(nil))
+	p, err := outerBuilder.Build(context.Background(), outerNodeW)
+	require.NoError(t, err)
+
+	builder, _ := NewPlanBuilder().Init(suite.GetCtx(), suite.GetIS(), hint.NewQBHintHandler(nil))
+	builder.resolveCtx = nodeW.GetResolveContext()
+	builder.curClause = whereClause
+	builder.subQueryHintFlags = hint.HintFlagSemiJoinRewrite
+	builder.windowSpecs = map[string]*ast.WindowSpec{
+		"outer": {Name: ast.NewCIStr("outer")},
+	}
+
+	rewriter := &expressionRewriter{
+		schema: p.Schema().Clone(),
+		names:  p.OutputNames(),
+	}
+	planCtx := &exprRewriterPlanCtx{builder: builder}
+
+	np, hintFlags, err := rewriter.buildSubquery(context.Background(), planCtx, subq, handlingExistsSubquery)
+	require.NoError(t, err)
+	require.NotNil(t, np)
+	require.Zero(t, hintFlags)
+	require.Equal(t, whereClause, builder.curClause)
+	require.Equal(t, hint.HintFlagSemiJoinRewrite, builder.subQueryHintFlags)
+	require.Contains(t, builder.windowSpecs, "outer")
+	require.Len(t, builder.outerSchemas, 0)
+	require.Len(t, builder.outerNames, 0)
+	require.Len(t, builder.outerBlockExpand, 0)
 }
 
 func TestGetInsertColExprDeepCopiesValueExprFieldType(t *testing.T) {
