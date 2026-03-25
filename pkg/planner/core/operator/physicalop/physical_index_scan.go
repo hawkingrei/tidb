@@ -388,12 +388,9 @@ func (p *PhysicalIndexScan) InitSchema(idxExprCols []*expression.Column, isDoubl
 		for _, col := range p.Columns {
 			if (mysql.HasPriKeyFlag(col.GetFlag()) && p.Table.PKIsHandle) || col.ID == model.ExtraHandleID {
 				handleCol := expression.ColInfo2Col(p.DataSourceSchema.Columns, col)
+				intest.Assert(handleCol != nil, "handle column %d should exist in DataSourceSchema", col.ID)
 				if handleCol == nil {
-					handleCol = &expression.Column{
-						ID:       col.ID,
-						RetType:  &col.FieldType,
-						UniqueID: p.SCtx().GetSessionVars().AllocPlanColumnID(),
-					}
+					continue
 				}
 				indexCols = append(indexCols, handleCol)
 				setHandle = true
