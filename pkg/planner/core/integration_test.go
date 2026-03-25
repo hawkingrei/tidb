@@ -2301,4 +2301,37 @@ func TestIssue66619(t *testing.T) {
 
 	tk.MustQuery("select a, (select count(1) from t2 where t2.a = t1.a) from t1 order by a").
 		Check(testkit.Rows("1 1", "2 1", "3 0", "4 0"))
+
+	tk.MustExec("drop table if exists t0")
+	tk.MustExec("create table t0(c0 float unique, c1 numeric zerofill, c2 text(192))")
+	tk.MustExec("insert into t0(c0, c1, c2) values (1.074197572E9, 0, '⋧h')")
+
+	tk.MustQuery(`select /* issue:66922-direct */ t0.c1, t0.c0, t0.c2
+from t0
+group by t0.c1, t0.c0, t0.c2
+having (
+    (count(t0.c1) != -1)
+        and
+    (
+        (case t0.c1 when false then t0.c0 else true end)
+            like
+        t0.c0
+    )
+)`).Check(testkit.Rows())
+
+	tk.MustQuery(`select /* issue:66922-derived */ ref0, ref1, ref2
+from (
+    select t0.c1 as ref0, t0.c0 as ref1, t0.c2 as ref2,
+           (
+               (count(t0.c1) != -1)
+                   and
+               (
+                   (case t0.c1 when false then t0.c0 else true end)
+                       like
+                   t0.c0
+               )
+           ) as ref3
+    from t0
+    group by t0.c1, t0.c0, t0.c2
+) as s where ref3`).Check(testkit.Rows())
 }
