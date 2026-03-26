@@ -135,12 +135,22 @@ func findColumnNameByUniqueID(p base.LogicalPlan, uniqueID int64) *ast.ColumnNam
 		}
 	}
 	// USING/NATURAL JOIN can keep table-qualified outer references only in FullSchema/FullNames.
-	if join, ok := p.(*logicalop.LogicalJoin); ok && join.FullSchema != nil && len(join.FullNames) != 0 {
-		for idx, pCol := range join.FullSchema.Columns {
+	// LogicalApply embeds LogicalJoin and can carry the same redundant columns when a
+	// LATERAL join sits above a USING/NATURAL join.
+	var fullSchema *expression.Schema
+	var fullNames types.NameSlice
+	switch x := p.(type) {
+	case *logicalop.LogicalJoin:
+		fullSchema, fullNames = x.FullSchema, x.FullNames
+	case *logicalop.LogicalApply:
+		fullSchema, fullNames = x.FullSchema, x.FullNames
+	}
+	if fullSchema != nil && len(fullNames) != 0 {
+		for idx, pCol := range fullSchema.Columns {
 			if uniqueID != pCol.UniqueID {
 				continue
 			}
-			pName := join.FullNames[idx]
+			pName := fullNames[idx]
 			return &ast.ColumnName{
 				Schema: pName.DBName,
 				Table:  pName.TblName,
