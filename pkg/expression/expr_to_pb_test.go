@@ -2129,6 +2129,8 @@ func TestPushDownSwitcher(t *testing.T) {
 		require.Equalf(t, cases[i].sig, pbExpr.Sig, "function: %s, sig: %v", cases[i].name, cases[i].sig)
 	}
 
+	// Negative-zero float constants must not be pushed down because protobuf
+	// encoding loses the sign bit and changes the behavior of ATAN2.
 	negZero := &Constant{
 		Value:   types.NewFloat64Datum(math.Copysign(0, -1)),
 		RetType: types.NewFieldType(mysql.TypeDouble),
