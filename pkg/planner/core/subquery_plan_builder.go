@@ -69,59 +69,6 @@ func (*subqueryExprExtractor) Leave(n ast.Node) (ast.Node, bool) {
 	return n, true
 }
 
-type subqueryBuildState struct {
-	builder                    *PlanBuilder
-	restoreOuterScope          bool
-	restoreCorrelatedAggMapper bool
-	oldCurClause               clauseCode
-	oldSubQueryCtx             subQueryCtx
-	oldSubQueryHintFlags       uint64
-	oldWindowSpecs             map[string]*ast.WindowSpec
-	oldCorrelatedAggMapper     map[*ast.AggregateFuncExpr]*expression.CorrelatedColumn
-}
-
-func (s *subqueryBuildState) restore() {
-	if s.restoreOuterScope {
-		s.builder.outerSchemas = s.builder.outerSchemas[:len(s.builder.outerSchemas)-1]
-		s.builder.outerNames = s.builder.outerNames[:len(s.builder.outerNames)-1]
-		s.builder.currentBlockExpand = s.builder.outerBlockExpand[len(s.builder.outerBlockExpand)-1]
-		s.builder.outerBlockExpand = s.builder.outerBlockExpand[:len(s.builder.outerBlockExpand)-1]
-	}
-	s.builder.curClause = s.oldCurClause
-	s.builder.windowSpecs = s.oldWindowSpecs
-	s.builder.subQueryCtx = s.oldSubQueryCtx
-	s.builder.subQueryHintFlags = s.oldSubQueryHintFlags
-	if s.restoreCorrelatedAggMapper {
-		s.builder.correlatedAggMapper = s.oldCorrelatedAggMapper
-	}
-}
-
-func (b *PlanBuilder) enterSubqueryBuild(outerSchema *expression.Schema, outerNames types.NameSlice, subqueryCtx subQueryCtx, resetCorrelatedAggMapper bool) *subqueryBuildState {
-	state := &subqueryBuildState{
-		builder:                    b,
-		restoreOuterScope:          outerSchema != nil,
-		restoreCorrelatedAggMapper: resetCorrelatedAggMapper,
-		oldCurClause:               b.curClause,
-		oldSubQueryCtx:             b.subQueryCtx,
-		oldSubQueryHintFlags:       b.subQueryHintFlags,
-		oldWindowSpecs:             b.windowSpecs,
-		oldCorrelatedAggMapper:     b.correlatedAggMapper,
-	}
-	if outerSchema != nil {
-		b.outerSchemas = append(b.outerSchemas, outerSchema.Clone())
-		b.outerNames = append(b.outerNames, outerNames)
-		b.outerBlockExpand = append(b.outerBlockExpand, b.currentBlockExpand)
-		// Clear outer expand metadata, otherwise the inner block can rewrite expressions against it.
-		b.currentBlockExpand = nil
-	}
-	b.subQueryCtx = subqueryCtx
-	b.subQueryHintFlags = 0
-	if resetCorrelatedAggMapper {
-		b.correlatedAggMapper = make(map[*ast.AggregateFuncExpr]*expression.CorrelatedColumn)
-	}
-	return state
-}
-
 func findColumnNameByUniqueID(p base.LogicalPlan, uniqueID int64) *ast.ColumnName {
 	for idx, pCol := range p.Schema().Columns {
 		if uniqueID != pCol.UniqueID {
@@ -190,7 +137,7 @@ func cloneResultSetNodeForAuxiliaryFields(ctx base.PlanContext, node ast.ResultS
 
 // buildSubqueryPlanForAuxiliaryFields builds only the inner subquery plan for correlated outer-column discovery.
 // This avoids rewriting deferred window-expression wrappers before the window outputs are materialized.
-func (b *PlanBuilder) buildSubqueryPlanForAuxiliaryFields(ctx context.Context, p base.LogicalPlan, expr ast.ExprNode) (base.LogicalPlan, bool, error) {
+func (b *PlanBuilder) buildSubqueryPlanForAuxiliaryFields(ctx context.Context, p base.LogicalPlan, expr ast.ExprNode) (base.LogicalPlan, error) {
 	var (
 		subq *ast.SubqueryExpr
 		sCtx subQueryCtx
@@ -202,30 +149,30 @@ func (b *PlanBuilder) buildSubqueryPlanForAuxiliaryFields(ctx context.Context, p
 	case *ast.ExistsSubqueryExpr:
 		q, ok := v.Sel.(*ast.SubqueryExpr)
 		if !ok {
-			return nil, false, nil
+			return nil, errors.Errorf("unexpected EXISTS subquery type %T", v.Sel)
 		}
 		subq = q
 		sCtx = handlingExistsSubquery
 	case *ast.CompareSubqueryExpr:
 		q, ok := v.R.(*ast.SubqueryExpr)
 		if !ok {
-			return nil, false, nil
+			return nil, errors.Errorf("unexpected compare-subquery type %T", v.R)
 		}
 		subq = q
 		sCtx = handlingCompareSubquery
 	case *ast.PatternInExpr:
 		q, ok := v.Sel.(*ast.SubqueryExpr)
 		if !ok {
-			return nil, false, nil
+			return nil, errors.Errorf("unexpected IN-subquery type %T", v.Sel)
 		}
 		subq = q
 		sCtx = handlingInSubquery
 	default:
-		return nil, false, nil
+		return nil, errors.Errorf("unexpected auxiliary subquery expr %T", expr)
 	}
 	clonedQuery, err := cloneResultSetNodeForAuxiliaryFields(b.ctx, subq.Query)
 	if err != nil {
-		return nil, true, err
+		return nil, err
 	}
 
 	outerSchema, outerNames := p.Schema(), p.OutputNames()
@@ -234,15 +181,41 @@ func (b *PlanBuilder) buildSubqueryPlanForAuxiliaryFields(ctx context.Context, p
 		outerNames = join.FullNames
 	}
 
-	restore := b.enterSubqueryBuild(outerSchema, outerNames, sCtx, true)
-	defer restore.restore()
+	if outerSchema != nil {
+		b.outerSchemas = append(b.outerSchemas, outerSchema.Clone())
+		b.outerNames = append(b.outerNames, outerNames)
+		b.outerBlockExpand = append(b.outerBlockExpand, b.currentBlockExpand)
+		// Clear outer expand metadata, otherwise the inner block can rewrite expressions against it.
+		b.currentBlockExpand = nil
+		defer func() {
+			b.outerSchemas = b.outerSchemas[0 : len(b.outerSchemas)-1]
+			b.outerNames = b.outerNames[0 : len(b.outerNames)-1]
+			b.currentBlockExpand = b.outerBlockExpand[len(b.outerBlockExpand)-1]
+			b.outerBlockExpand = b.outerBlockExpand[0 : len(b.outerBlockExpand)-1]
+		}()
+	}
+	oldCurClause := b.curClause
+	oldSubQCtx := b.subQueryCtx
+	oldHintFlags := b.subQueryHintFlags
+	oldWindowSpecs := b.windowSpecs
+	oldCorrelatedAggMapper := b.correlatedAggMapper
+	b.subQueryCtx = sCtx
+	b.subQueryHintFlags = 0
+	b.correlatedAggMapper = make(map[*ast.AggregateFuncExpr]*expression.CorrelatedColumn)
+	defer func() {
+		b.curClause = oldCurClause
+		b.windowSpecs = oldWindowSpecs
+		b.subQueryCtx = oldSubQCtx
+		b.subQueryHintFlags = oldHintFlags
+		b.correlatedAggMapper = oldCorrelatedAggMapper
+	}()
 
 	np, err := b.buildResultSetNode(ctx, clonedQuery, false)
 	if err != nil {
-		return nil, true, err
+		return nil, err
 	}
 	b.handleHelper.popMap()
-	return np, true, nil
+	return np, nil
 }
 
 func (b *PlanBuilder) appendAuxiliaryFieldsForSubqueries(ctx context.Context, p base.LogicalPlan, selectFields []*ast.SelectField, nodes ...ast.Node) ([]*ast.SelectField, error) {
@@ -257,15 +230,9 @@ func (b *PlanBuilder) appendAuxiliaryFieldsForSubqueries(ctx context.Context, p 
 			// so subqueries inside deferred window expressions can still resolve against this query block.
 			// TODO: Reuse the rewritten expression/plan from the pre-build phase instead of rebuilding it
 			// only for correlated outer-column discovery.
-			np, handled, err := b.buildSubqueryPlanForAuxiliaryFields(ctx, p, expr)
+			np, err := b.buildSubqueryPlanForAuxiliaryFields(ctx, p, expr)
 			if err != nil {
 				return nil, errors.Trace(err)
-			}
-			if !handled {
-				_, np, err = b.rewrite(ctx, expr, p, nil, true)
-				if err != nil {
-					return nil, errors.Trace(err)
-				}
 			}
 			correlatedCols := coreusage.ExtractCorrelatedCols4LogicalPlan(np)
 			for _, corCol := range correlatedCols {
