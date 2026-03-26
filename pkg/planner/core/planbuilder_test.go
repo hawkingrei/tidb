@@ -232,9 +232,8 @@ func testBuildSubqueryPlanForAuxiliaryFieldsPreservesBuilderState(t *testing.T) 
 	builder.correlatedAggMapper = map[*ast.AggregateFuncExpr]*expression.CorrelatedColumn{sentinelAgg: sentinelCol}
 	builder.curClause = orderByClause
 
-	np, handled, err := builder.buildSubqueryPlanForAuxiliaryFields(context.Background(), p.(base.LogicalPlan), stmt.Fields.Fields[0].Expr)
+	np, err := builder.buildSubqueryPlanForAuxiliaryFields(context.Background(), p.(base.LogicalPlan), stmt.Fields.Fields[0].Expr)
 	require.NoError(t, err)
-	require.True(t, handled)
 	require.NotNil(t, np)
 	require.Len(t, builder.correlatedAggMapper, 1)
 	require.Same(t, sentinelCol, builder.correlatedAggMapper[sentinelAgg])
