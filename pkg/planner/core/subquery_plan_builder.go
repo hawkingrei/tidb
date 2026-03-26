@@ -156,6 +156,10 @@ func findColumnNameByUniqueID(p base.LogicalPlan, uniqueID int64) *ast.ColumnNam
 	return nil
 }
 
+// cloneResultSetNodeForAuxiliaryFields creates a syntactic copy by restoring the
+// query to SQL text and reparsing it. The auxiliary-field path only needs a
+// fresh AST for correlated outer-column discovery, so dropping resolver state is
+// acceptable here and keeps the implementation simpler than a deep AST clone.
 func cloneResultSetNodeForAuxiliaryFields(ctx base.PlanContext, node ast.ResultSetNode) (ast.ResultSetNode, error) {
 	var sb strings.Builder
 	restoreCtx := format.NewRestoreCtx(format.DefaultRestoreFlags, &sb)
