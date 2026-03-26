@@ -57,59 +57,6 @@ func (*subqueryExprExtractor) Leave(n ast.Node) (ast.Node, bool) {
 	return n, true
 }
 
-type subqueryBuildState struct {
-	builder                    *PlanBuilder
-	restoreOuterScope          bool
-	restoreCorrelatedAggMapper bool
-	oldCurClause               clauseCode
-	oldSubQueryCtx             subQueryCtx
-	oldSubQueryHintFlags       uint64
-	oldWindowSpecs             map[string]*ast.WindowSpec
-	oldCorrelatedAggMapper     map[*ast.AggregateFuncExpr]*expression.CorrelatedColumn
-}
-
-func (s *subqueryBuildState) restore() {
-	if s.restoreOuterScope {
-		s.builder.outerSchemas = s.builder.outerSchemas[:len(s.builder.outerSchemas)-1]
-		s.builder.outerNames = s.builder.outerNames[:len(s.builder.outerNames)-1]
-		s.builder.currentBlockExpand = s.builder.outerBlockExpand[len(s.builder.outerBlockExpand)-1]
-		s.builder.outerBlockExpand = s.builder.outerBlockExpand[:len(s.builder.outerBlockExpand)-1]
-	}
-	s.builder.curClause = s.oldCurClause
-	s.builder.windowSpecs = s.oldWindowSpecs
-	s.builder.subQueryCtx = s.oldSubQueryCtx
-	s.builder.subQueryHintFlags = s.oldSubQueryHintFlags
-	if s.restoreCorrelatedAggMapper {
-		s.builder.correlatedAggMapper = s.oldCorrelatedAggMapper
-	}
-}
-
-func (b *PlanBuilder) enterSubqueryBuild(outerSchema *expression.Schema, outerNames types.NameSlice, subqueryCtx subQueryCtx, resetCorrelatedAggMapper bool) *subqueryBuildState {
-	state := &subqueryBuildState{
-		builder:                    b,
-		restoreOuterScope:          outerSchema != nil,
-		restoreCorrelatedAggMapper: resetCorrelatedAggMapper,
-		oldCurClause:               b.curClause,
-		oldSubQueryCtx:             b.subQueryCtx,
-		oldSubQueryHintFlags:       b.subQueryHintFlags,
-		oldWindowSpecs:             b.windowSpecs,
-		oldCorrelatedAggMapper:     b.correlatedAggMapper,
-	}
-	if outerSchema != nil {
-		b.outerSchemas = append(b.outerSchemas, outerSchema.Clone())
-		b.outerNames = append(b.outerNames, outerNames)
-		b.outerBlockExpand = append(b.outerBlockExpand, b.currentBlockExpand)
-		// Clear outer expand metadata, otherwise the inner block can rewrite expressions against it.
-		b.currentBlockExpand = nil
-	}
-	b.subQueryCtx = subqueryCtx
-	b.subQueryHintFlags = 0
-	if resetCorrelatedAggMapper {
-		b.correlatedAggMapper = make(map[*ast.AggregateFuncExpr]*expression.CorrelatedColumn)
-	}
-	return state
-}
-
 func findColumnNameByUniqueID(p base.LogicalPlan, uniqueID int64) *ast.ColumnName {
 	for idx, pCol := range p.Schema().Columns {
 		if uniqueID != pCol.UniqueID {
@@ -179,7 +126,6 @@ func (b *PlanBuilder) appendAuxiliaryFieldsForSubqueries(ctx context.Context, p 
 				columnNameExpr := &ast.ColumnNameExpr{Name: colName}
 				for _, field := range selectFields {
 					if c, ok := field.Expr.(*ast.ColumnNameExpr); ok && c.Name.Match(columnNameExpr.Name) && field.AsName.L == "" {
-						// Keep the old behavior: aliased select fields still count as distinct output columns here.
 						columnNameExpr = nil
 						break
 					}

@@ -480,8 +480,31 @@ func (er *expressionRewriter) constructBinaryOpFunction(l expression.Expression,
 func (er *expressionRewriter) buildSubquery(ctx context.Context, planCtx *exprRewriterPlanCtx, subq *ast.SubqueryExpr, subqueryCtx subQueryCtx) (np base.LogicalPlan, hintFlags uint64, err error) {
 	intest.AssertNotNil(planCtx)
 	b := planCtx.builder
-	restore := b.enterSubqueryBuild(er.schema, er.names, subqueryCtx, false)
-	defer restore.restore()
+	if er.schema != nil {
+		outerSchema := er.schema.Clone()
+		b.outerSchemas = append(b.outerSchemas, outerSchema)
+		b.outerNames = append(b.outerNames, er.names)
+		b.outerBlockExpand = append(b.outerBlockExpand, b.currentBlockExpand)
+		// set it to nil, otherwise, inner qb will use outer expand meta to rewrite expressions.
+		b.currentBlockExpand = nil
+		defer func() {
+			b.outerSchemas = b.outerSchemas[0 : len(b.outerSchemas)-1]
+			b.outerNames = b.outerNames[0 : len(b.outerNames)-1]
+			b.currentBlockExpand = b.outerBlockExpand[len(b.outerBlockExpand)-1]
+			b.outerBlockExpand = b.outerBlockExpand[0 : len(b.outerBlockExpand)-1]
+		}()
+	}
+	// Store the old value before we enter the subquery and reset they to default value.
+	oldSubQCtx := b.subQueryCtx
+	b.subQueryCtx = subqueryCtx
+	oldHintFlags := b.subQueryHintFlags
+	b.subQueryHintFlags = 0
+	outerWindowSpecs := b.windowSpecs
+	defer func() {
+		b.windowSpecs = outerWindowSpecs
+		b.subQueryCtx = oldSubQCtx
+		b.subQueryHintFlags = oldHintFlags
+	}()
 
 	np, err = b.buildResultSetNode(ctx, subq.Query, false)
 	if err != nil {
