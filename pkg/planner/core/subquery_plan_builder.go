@@ -181,40 +181,27 @@ func (b *PlanBuilder) buildSubqueryPlanForAuxiliaryFields(ctx context.Context, p
 		outerNames = join.FullNames
 	}
 
-	if outerSchema != nil {
-		b.outerSchemas = append(b.outerSchemas, outerSchema.Clone())
-		b.outerNames = append(b.outerNames, outerNames)
-		b.outerBlockExpand = append(b.outerBlockExpand, b.currentBlockExpand)
-		// Clear outer expand metadata, otherwise the inner block can rewrite expressions against it.
-		b.currentBlockExpand = nil
-		defer func() {
-			b.outerSchemas = b.outerSchemas[0 : len(b.outerSchemas)-1]
-			b.outerNames = b.outerNames[0 : len(b.outerNames)-1]
-			b.currentBlockExpand = b.outerBlockExpand[len(b.outerBlockExpand)-1]
-			b.outerBlockExpand = b.outerBlockExpand[0 : len(b.outerBlockExpand)-1]
-		}()
-	}
 	oldCurClause := b.curClause
-	oldSubQCtx := b.subQueryCtx
-	oldHintFlags := b.subQueryHintFlags
-	oldWindowSpecs := b.windowSpecs
 	oldCorrelatedAggMapper := b.correlatedAggMapper
-	b.subQueryCtx = sCtx
-	b.subQueryHintFlags = 0
 	b.correlatedAggMapper = make(map[*ast.AggregateFuncExpr]*expression.CorrelatedColumn)
 	defer func() {
 		b.curClause = oldCurClause
-		b.windowSpecs = oldWindowSpecs
-		b.subQueryCtx = oldSubQCtx
-		b.subQueryHintFlags = oldHintFlags
 		b.correlatedAggMapper = oldCorrelatedAggMapper
 	}()
 
-	np, err := b.buildResultSetNode(ctx, clonedQuery, false)
+	rewriter := &expressionRewriter{
+		schema: outerSchema,
+		names:  outerNames,
+	}
+	np, _, err := rewriter.buildSubquery(
+		ctx,
+		&exprRewriterPlanCtx{builder: b},
+		&ast.SubqueryExpr{Query: clonedQuery},
+		sCtx,
+	)
 	if err != nil {
 		return nil, err
 	}
-	b.handleHelper.popMap()
 	return np, nil
 }
 
