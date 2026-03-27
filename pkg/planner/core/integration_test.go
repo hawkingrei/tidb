@@ -2353,7 +2353,7 @@ group by tom0.c0, tom0.c0
 having c1
 ) as s`).Check(testkit.Rows())
 
-	tk.MustExec("drop table t70")
+	tk.MustExec("drop table if exists t70")
 	tk.MustExec("create table t70(c0 char)")
 	tk.MustExec("insert into t70(c0) values (1)")
 	tk.MustQuery(`select /* issue:67039 without-pk */ hex(c1) from (
