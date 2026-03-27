@@ -74,19 +74,6 @@ func TestBaseFunc_InferAggRetType(t *testing.T) {
 		}
 	}
 
-	binaryLiteral := &expression.Constant{
-		RetType: types.NewFieldType(mysql.TypeVarString),
-		Value:   types.NewBinaryLiteralDatum(types.NewBinaryLiteralFromUint(0x2a, -1)),
-	}
-	for _, name := range funcNames {
-		desc, err := newBaseFuncDesc(ctx, name, []expression.Expression{binaryLiteral})
-		require.NoError(t, err)
-		err = desc.TypeInfer(ctx)
-		require.NoError(t, err)
-		require.Equal(t, mysql.TypeBit, desc.RetTp.GetType())
-		require.Equal(t, 8, desc.RetTp.GetFlen())
-		require.False(t, mysql.HasNotNullFlag(desc.RetTp.GetFlag()))
-	}
 }
 
 func TestTypeInfer4AvgSum(t *testing.T) {

@@ -220,7 +220,10 @@ func rewriteBitFunc(ctx expression.BuildContext, funcType string, arg expression
 
 // wrapCastFunction will wrap a cast if the targetTp is not equal to the arg's.
 func wrapCastFunction(ctx expression.BuildContext, arg expression.Expression, targetTp *types.FieldType) expression.Expression {
-	if arg.GetType(ctx.GetEvalCtx()).Equal(targetTp) {
+	// Binary literals must still go through CAST when aggregation is eliminated.
+	// Otherwise the rewritten expression keeps literal truthiness semantics
+	// instead of the aggregate result semantics observed at execution time.
+	if arg.GetType(ctx.GetEvalCtx()).Equal(targetTp) && !expression.IsBinaryLiteral(arg) {
 		return arg
 	}
 	return expression.BuildCastFunction(ctx, arg, targetTp)
