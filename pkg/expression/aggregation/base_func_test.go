@@ -73,7 +73,6 @@ func TestBaseFunc_InferAggRetType(t *testing.T) {
 			require.Equal(t, dataType, desc.RetTp)
 		}
 	}
-
 }
 
 func TestTypeInfer4AvgSum(t *testing.T) {
