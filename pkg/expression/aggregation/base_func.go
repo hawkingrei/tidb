@@ -332,7 +332,8 @@ func (a *baseFuncDesc) typeInfer4MaxMin(ctx expression.BuildContext) {
 		a.RetTp = a.Args[0].GetType(ctx.GetEvalCtx()).Clone()
 		a.RetTp.DelFlag(mysql.NotNullFlag)
 		if a.Name == ast.AggFuncMax || a.Name == ast.AggFuncMin {
-			if con, ok := a.Args[0].(*expression.Constant); ok && con.Value.Kind() == types.KindBinaryLiteral {
+			if expression.IsBinaryLiteral(a.Args[0]) {
+				con := a.Args[0].(*expression.Constant)
 				a.RetTp.SetType(mysql.TypeBit)
 				a.RetTp.SetFlen(len(con.Value.GetBinaryLiteral()) * 8)
 			}
