@@ -2351,7 +2351,7 @@ select 1 as c0, min(b'101010') as c1
 from t70 as tom0
 group by tom0.c0, tom0.c0
 having c1
-) as s`).Check(testkit.Rows())
+	) as s`).Check(testkit.Rows("2A"))
 
 	tk.MustExec("drop table if exists t70")
 	tk.MustExec("create table t70(c0 char)")
@@ -2361,7 +2361,7 @@ select 1 as c0, min(b'101010') as c1
 from t70 as tom0
 group by tom0.c0, tom0.c0
 having c1
-) as s`).Check(testkit.Rows())
+	) as s`).Check(testkit.Rows("2A"))
 
 	tk.MustExec("drop table if exists t0")
 	tk.MustExec("create table t0(c0 float unique, c1 numeric zerofill, c2 text(192))")
