@@ -2323,4 +2323,24 @@ func TestIssue66619(t *testing.T) {
 		Check(testkit.Rows("20"))
 	tk.MustQuery("select /* issue:66947 derived-filter */ hex(ref0) from (select t0.c0 as ref0, (sum(t0.c0) > -1 and char_length(t0.c0)) as ref1 from t0 group by t0.c0) as s where ref1").
 		Check(testkit.Rows("20"))
+
+	tk.MustExec("drop table if exists t70")
+	tk.MustExec("create table t70(c0 char, primary key(c0))")
+	tk.MustExec("insert into t70(c0) values (1)")
+	tk.MustQuery(`select /* issue:67039 with-pk */ hex(c1) from (
+select 1 as c0, min(b'101010') as c1
+from t70 as tom0
+group by tom0.c0, tom0.c0
+having c1
+) as s`).Check(testkit.Rows("2A"))
+
+	tk.MustExec("drop table t70")
+	tk.MustExec("create table t70(c0 char)")
+	tk.MustExec("insert into t70(c0) values (1)")
+	tk.MustQuery(`select /* issue:67039 without-pk */ hex(c1) from (
+select 1 as c0, min(b'101010') as c1
+from t70 as tom0
+group by tom0.c0, tom0.c0
+having c1
+) as s`).Check(testkit.Rows("2A"))
 }
