@@ -54,7 +54,9 @@ import (
 	"github.com/pingcap/tidb/pkg/util/dbterror/plannererrors"
 	utilhint "github.com/pingcap/tidb/pkg/util/hint"
 	"github.com/pingcap/tidb/pkg/util/logutil"
+	"github.com/pingcap/tidb/pkg/util/memory"
 	"github.com/pingcap/tidb/pkg/util/set"
+	"github.com/pingcap/tidb/pkg/util/size"
 	"github.com/pingcap/tidb/pkg/util/tracing"
 	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/atomic"
@@ -1181,12 +1183,8 @@ func disableReuseChunkIfNeeded(sctx base.PlanContext, plan base.PhysicalPlan) {
 	if !sctx.GetSessionVars().IsAllocValid() {
 		return
 	}
-<<<<<<< HEAD
 
-	if checkOverlongColType(sctx, plan) {
-=======
 	if disableReuseChunk, continueIterating := checkSkipReuseChunkForOverlongType(sctx, plan); disableReuseChunk || !continueIterating {
->>>>>>> de3035d3fa5 (planner: refine reuse chunk gating for overlong types (#67235))
 		return
 	}
 
@@ -1195,19 +1193,6 @@ func disableReuseChunkIfNeeded(sctx base.PlanContext, plan base.PhysicalPlan) {
 	}
 }
 
-<<<<<<< HEAD
-// checkOverlongColType Check if read field type is long field.
-func checkOverlongColType(sctx base.PlanContext, plan base.PhysicalPlan) bool {
-	if plan == nil {
-		return false
-	}
-	switch plan.(type) {
-	case *PhysicalTableReader, *PhysicalIndexReader,
-		*PhysicalIndexLookUpReader, *PhysicalIndexMergeReader, *PointGetPlan:
-		if existsOverlongType(plan.Schema()) {
-			sctx.GetSessionVars().ClearAlloc(nil, false)
-			return true
-=======
 // checkSkipReuseChunkForOverlongType walks the root-side physical plan tree top-down and stops at
 // the first reader / point get boundary. Only those operators materialize rows into the reusable
 // chunk owned by the current statement, so higher-level physical operators only decide whether the
@@ -1217,13 +1202,13 @@ func checkSkipReuseChunkForOverlongType(sctx base.PlanContext, plan base.Physica
 		return false, false
 	}
 	switch plan.(type) {
-	case *physicalop.PhysicalTableReader, *physicalop.PhysicalIndexReader,
-		*physicalop.PhysicalIndexLookUpReader, *physicalop.PhysicalIndexMergeReader:
+	case *PhysicalTableReader, *PhysicalIndexReader,
+		*PhysicalIndexLookUpReader, *PhysicalIndexMergeReader:
 		if shouldSkipReuseChunkForPhysicalPlan(plan) {
 			sctx.GetSessionVars().ClearAlloc(nil, false)
 			return true, false
 		}
-	case *physicalop.PointGetPlan, *physicalop.BatchPointGetPlan:
+	case *PointGetPlan, *BatchPointGetPlan:
 		if shouldSkipReuseChunkForPhysicalPlan(plan) {
 			sctx.GetSessionVars().ClearAlloc(nil, false)
 			return true, false
@@ -1284,7 +1269,6 @@ func shouldSkipReuseChunkForPhysicalPlan(plan base.PhysicalPlan) bool {
 			}
 			totalFlen += column.RetType.GetFlen()
 			overlongColumns = append(overlongColumns, column)
->>>>>>> de3035d3fa5 (planner: refine reuse chunk gating for overlong types (#67235))
 		}
 	}
 	if totalFlen == 0 {
@@ -1293,26 +1277,6 @@ func shouldSkipReuseChunkForPhysicalPlan(plan base.PhysicalPlan) bool {
 	return !allowReuseChunkForOverlongType(plan, overlongColumns, totalFlen)
 }
 
-<<<<<<< HEAD
-// existsOverlongType Check if exists long type column.
-func existsOverlongType(schema *expression.Schema) bool {
-	if schema == nil {
-		return false
-	}
-	for _, column := range schema.Columns {
-		switch column.RetType.GetType() {
-		case mysql.TypeTinyBlob, mysql.TypeMediumBlob, mysql.TypeLongBlob,
-			mysql.TypeBlob, mysql.TypeJSON, mysql.TypeTiDBVectorFloat32:
-			return true
-		case mysql.TypeVarString, mysql.TypeVarchar:
-			// if the column is varchar and the length of
-			// the column is defined to be more than 1000,
-			// the column is considered a large type and
-			// disable chunk_reuse.
-			if column.RetType.GetFlen() > 1000 {
-				return true
-			}
-=======
 // allowReuseChunkForOverlongType applies the relaxed rule for bounded overlong columns. It first
 // checks the host-memory gate, then estimates the retained memory of one reusable chunk instead of
 // the whole result set.
@@ -1330,7 +1294,7 @@ func allowReuseChunkForOverlongType(plan base.PhysicalPlan, overlongColumns []*e
 	// Estimate the retained reusable chunk size as rows per chunk * bytes per row.
 	rowsPerReusableChunk := estimatedRows
 	switch plan.(type) {
-	case *physicalop.PointGetPlan:
+	case *PointGetPlan:
 	default:
 		rowsPerReusableChunk = min(rowsPerReusableChunk, float64(plan.SCtx().GetSessionVars().MaxChunkSize))
 	}
@@ -1358,10 +1322,9 @@ func hasUsableOverlongTypeSizeStats(statsInfo *property.StatsInfo, overlongColum
 		// Keep the schema-level fallback when this column would still fall back to EstimateTypeWidth.
 		if !colStats.IsHandle && colStats.TotColSize == 0 && colStats.NullCount != statsInfo.HistColl.RealtimeCount {
 			return false
->>>>>>> de3035d3fa5 (planner: refine reuse chunk gating for overlong types (#67235))
 		}
 	}
-	return false
+	return true
 }
 
 // estimateReusableChunkRowsForOverlongType returns the row bound used by the reusable-chunk memory
@@ -1375,15 +1338,15 @@ func estimateReusableChunkRowsForOverlongType(plan base.PhysicalPlan) (estimated
 	}
 
 	switch plan.(type) {
-	case *physicalop.PointGetPlan:
+	case *PointGetPlan:
 		return math.Ceil(statsInfo.RowCount), true
-	case *physicalop.BatchPointGetPlan:
+	case *BatchPointGetPlan:
 		if statsInfo.HistColl == nil || statsInfo.HistColl.Pseudo {
 			return math.Ceil(statsInfo.RowCount), false
 		}
 		return math.Ceil(statsInfo.RowCount), true
-	case *physicalop.PhysicalTableReader, *physicalop.PhysicalIndexReader,
-		*physicalop.PhysicalIndexLookUpReader, *physicalop.PhysicalIndexMergeReader:
+	case *PhysicalTableReader, *PhysicalIndexReader,
+		*PhysicalIndexLookUpReader, *PhysicalIndexMergeReader:
 		// Non-point readers only take the relaxed path when row-count stats are trusted.
 		if statsInfo.HistColl == nil || statsInfo.HistColl.Pseudo ||
 			statsInfo.HistColl.RealtimeCount == 0 || statsInfo.HistColl.ColNum() == 0 {
