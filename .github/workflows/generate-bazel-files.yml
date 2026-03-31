@@ -47,10 +47,40 @@ jobs:
         shell: bash
         run: |
           git restore --worktree --source=HEAD -- WORKSPACE
-      - name: Package Bazel Files
+      - name: Create Bazel Patch
         shell: bash
         run: |
-          bash .github/scripts/package-bazel-files.sh bazel-artifact
+          set -euo pipefail
+
+          mapfile -t tracked_changes < <(git diff --name-only --no-renames HEAD -- .)
+          mapfile -t untracked_changes < <(git ls-files --others --exclude-standard)
+          changed_files=("${tracked_changes[@]}" "${untracked_changes[@]}")
+
+          for path in "${changed_files[@]}"; do
+            if [[ -z "${path}" ]]; then
+              continue
+            fi
+
+            case "${path}" in
+              DEPS.bzl|*.bazel|*.bzl)
+                ;;
+              *)
+                echo "Unexpected file changed by bazel_prepare: ${path}" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          if ((${#untracked_changes[@]} > 0)); then
+            git add -N -- "${untracked_changes[@]}"
+          fi
+
+          mkdir -p bazel-artifact
+          git diff --binary --full-index --no-ext-diff -- \
+            DEPS.bzl \
+            ':(glob)**/*.bazel' \
+            ':(glob)**/*.bzl' \
+            > bazel-artifact/bazel.patch
       - name: Upload Bazel Files Artifact
         uses: actions/upload-artifact@v4
         with:

@@ -60,14 +60,6 @@ jobs:
         shell: bash
         run: |
           echo "Skip stale bazel update for PR #${{ steps.pr.outputs.pr_number }}."
-      - name: Checkout trusted workflow repo
-        if: steps.pr.outputs.same_repo == 'true' && steps.pr.outputs.stale != 'true'
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.sha }}
-          path: trusted
-          fetch-depth: 1
-          persist-credentials: false
       - name: Checkout PR branch
         if: steps.pr.outputs.same_repo == 'true' && steps.pr.outputs.stale != 'true'
         uses: actions/checkout@v6
@@ -91,7 +83,51 @@ jobs:
         if: steps.pr.outputs.same_repo == 'true' && steps.pr.outputs.stale != 'true'
         shell: bash
         run: |
-          bash trusted/.github/scripts/apply-bazel-files.sh bazel-artifact pr
+          set -euo pipefail
+
+          patch_path="${PWD}/bazel-artifact/bazel.patch"
+          summary="$(git apply --summary "${patch_path}")"
+
+          while IFS= read -r line; do
+            case "${line}" in
+              " rename "*|" copy "*)
+                echo "Unsupported patch summary: ${line}" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "${summary}"
+
+          declare -A seen_paths=()
+
+          while IFS= read -r -d '' record; do
+            if [[ -z "${record}" ]]; then
+              continue
+            fi
+
+            IFS=$'\t' read -r _ _ path <<< "${record}"
+
+            case "${path}" in
+              ""|/*|..|../*|*/..|*/../*)
+                echo "Unexpected patch path: ${path}" >&2
+                exit 1
+                ;;
+              DEPS.bzl|*.bazel|*.bzl)
+                ;;
+              *)
+                echo "Unexpected patch path: ${path}" >&2
+                exit 1
+                ;;
+            esac
+
+            if [[ -n "${seen_paths[${path}]:-}" ]]; then
+              echo "Duplicate patch path: ${path}" >&2
+              exit 1
+            fi
+            seen_paths["${path}"]=1
+          done < <(git apply --numstat -z "${patch_path}")
+
+          git -C pr apply --check --index "${patch_path}"
+          git -C pr apply --index "${patch_path}"
       - name: Commit Bazel Files
         if: steps.pr.outputs.same_repo == 'true' && steps.pr.outputs.stale != 'true'
         shell: bash
