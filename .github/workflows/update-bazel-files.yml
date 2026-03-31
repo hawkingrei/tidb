@@ -21,8 +21,11 @@ jobs:
   update:
     name: Update Bazel Files
     if: >
-      github.event.pull_request.head.repo.full_name == github.repository ||
-      github.event.pull_request.maintainer_can_modify
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (
+        github.event.pull_request.author_association == 'MEMBER' ||
+        github.event.pull_request.author_association == 'OWNER'
+      )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -31,11 +34,11 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
           token: ${{ secrets.BAZEL_PREPARE_PUSH_TOKEN || github.token }}
+          persist-credentials: false
       - name: Build Prepare
         uses: ./.github/actions/tidb_build
         with:
           bazelrc: ${{ secrets.BAZELRC }}
-          gcp_sa_key: ${{ secrets.GCP_SA_KEY }}
           go-version: 1.25
       - name: Run Bazel Prepare
         shell: bash
@@ -47,13 +50,27 @@ jobs:
           sed -i '/bazel-cache/d' WORKSPACE
           sed -i '/ats.apps.svc/d' WORKSPACE
           make bazel_prepare
+      - name: Restore non-generated files
+        shell: bash
+        run: |
+          git restore --worktree --source=HEAD -- WORKSPACE
       - name: Commit Bazel Files
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          branch: ${{ github.event.pull_request.head.ref }}
-          commit_message: "chore: update bazel file"
-          disable_globbing: true
-          file_pattern: >-
-            DEPS.bzl
-            :(top,glob)**/*.bazel
-            :(top,glob)**/*.bzl
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PUSH_TOKEN: ${{ secrets.BAZEL_PREPARE_PUSH_TOKEN || github.token }}
+          TARGET_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- DEPS.bzl ':(glob)**/*.bazel' ':(glob)**/*.bzl'; then
+            echo "No generated Bazel changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- DEPS.bzl ':(glob)**/*.bazel' ':(glob)**/*.bzl'
+          git commit -m "chore: update bazel file"
+          git remote set-url origin "https://x-access-token:${PUSH_TOKEN}@github.com/${TARGET_REPOSITORY}.git"
+          git push origin "HEAD:${HEAD_REF}"
