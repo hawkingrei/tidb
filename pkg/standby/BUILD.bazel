@@ -1,6 +1,5 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
 
-# Temporary change to trigger the Bazel update workflow.
 go_library(
     name = "standby",
     srcs = [
