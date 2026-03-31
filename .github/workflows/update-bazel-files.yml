@@ -55,11 +55,6 @@ jobs:
           fi
 
           echo "stale=false" >> "${GITHUB_OUTPUT}"
-      - name: Skip unsupported fork PR
-        if: steps.pr.outputs.same_repo != 'true'
-        shell: bash
-        run: |
-          echo "Skip bazel update for PR #${{ steps.pr.outputs.pr_number }} because github.token can only push to ${GITHUB_REPOSITORY}."
       - name: Skip stale workflow run
         if: steps.pr.outputs.same_repo == 'true' && steps.pr.outputs.stale == 'true'
         shell: bash
