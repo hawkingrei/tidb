@@ -4,8 +4,7 @@ set -euo pipefail
 
 artifact_root="${1:-bazel-artifact}"
 target_root="${2:-.}"
-manifest_path="${artifact_root}/manifest.tsv"
-files_root="${artifact_root}/files"
+patch_path="${artifact_root}/bazel.patch"
 
 is_allowed_path() {
   case "$1" in
@@ -29,34 +28,34 @@ is_safe_relative_path() {
   esac
 }
 
-if [[ ! -f "${manifest_path}" ]]; then
-  echo "Missing manifest: ${manifest_path}" >&2
+if [[ ! -f "${patch_path}" ]]; then
+  echo "Missing patch artifact: ${patch_path}" >&2
   exit 1
 fi
 
-if [[ -d "${files_root}" ]] && find "${files_root}" -type l -print -quit | grep -q .; then
-  echo "Artifact must not contain symlinks." >&2
-  exit 1
-fi
+patch_path="$(cd "$(dirname "${patch_path}")" && pwd)/$(basename "${patch_path}")"
+summary="$(git apply --summary "${patch_path}")"
 
-declare -A seen_paths=()
-
-while IFS=$'\t' read -r entry_type path; do
-  if [[ -z "${entry_type}" && -z "${path}" ]]; then
-    continue
-  fi
-
-  case "${entry_type}" in
-    F|D)
-      ;;
-    *)
-      echo "Unexpected manifest entry type: ${entry_type}" >&2
+while IFS= read -r line; do
+  case "${line}" in
+    " rename "*|" copy "*)
+      echo "Unsupported patch summary: ${line}" >&2
       exit 1
       ;;
   esac
+done <<< "${summary}"
 
-  if ! is_safe_relative_path "${path}" || ! is_allowed_path "${path}"; then
-    echo "Unexpected artifact path: ${path}" >&2
+declare -A seen_paths=()
+
+while IFS= read -r -d '' record; do
+  if [[ -z "${record}" ]]; then
+    continue
+  fi
+
+  IFS=$'\t' read -r _ _ path <<< "${record}"
+
+  if [[ -z "${path}" ]] || ! is_safe_relative_path "${path}" || ! is_allowed_path "${path}"; then
+    echo "Unexpected patch path: ${path}" >&2
     exit 1
   fi
 
@@ -65,30 +64,7 @@ while IFS=$'\t' read -r entry_type path; do
     exit 1
   fi
   seen_paths["${path}"]=1
+done < <(git apply --numstat -z "${patch_path}")
 
-  case "${entry_type}" in
-    F)
-      source_path="${files_root}/${path}"
-      destination_path="${target_root}/${path}"
-      if [[ ! -f "${source_path}" || -L "${source_path}" ]]; then
-        echo "Missing artifact file: ${source_path}" >&2
-        exit 1
-      fi
-      mkdir -p "$(dirname "${destination_path}")"
-      cp "${source_path}" "${destination_path}"
-      ;;
-    D)
-      rm -f -- "${target_root}/${path}"
-      ;;
-  esac
-done < "${manifest_path}"
-
-if [[ -d "${files_root}" ]]; then
-  while IFS= read -r -d '' source_path; do
-    relative_path="${source_path#${files_root}/}"
-    if [[ -z "${seen_paths[${relative_path}]:-}" ]]; then
-      echo "Artifact file missing from manifest: ${relative_path}" >&2
-      exit 1
-    fi
-  done < <(find "${files_root}" -type f -print0)
-fi
+git -C "${target_root}" apply --check --index "${patch_path}"
+git -C "${target_root}" apply --index "${patch_path}"

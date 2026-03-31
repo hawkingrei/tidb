@@ -55,6 +55,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: bazel-files
-          path: bazel-artifact
+          path: bazel-artifact/bazel.patch
           if-no-files-found: error
           retention-days: 1

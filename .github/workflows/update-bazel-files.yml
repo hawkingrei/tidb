@@ -102,13 +102,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          if git -C pr diff --quiet -- DEPS.bzl ':(glob)**/*.bazel' ':(glob)**/*.bzl'; then
+          if git -C pr diff --cached --quiet -- DEPS.bzl ':(glob)**/*.bazel' ':(glob)**/*.bzl'; then
             echo "No generated Bazel changes to commit."
             exit 0
           fi
 
-          git -C pr config user.name "github-actions[bot]"
-          git -C pr config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C pr add -A -- DEPS.bzl ':(glob)**/*.bazel' ':(glob)**/*.bzl'
+          git -C pr config user.name "Ti Chi Robot"
+          git -C pr config user.email "ti-community-prow-bot@tidb.io"
           git -C pr commit -m "chore: update bazel file"
           git -C pr push "https://x-access-token:${PUSH_TOKEN}@github.com/${TARGET_REPOSITORY}.git" "HEAD:${HEAD_REF}"

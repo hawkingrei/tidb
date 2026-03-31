@@ -3,8 +3,7 @@
 set -euo pipefail
 
 artifact_root="${1:-bazel-artifact}"
-manifest_path="${artifact_root}/manifest.tsv"
-files_root="${artifact_root}/files"
+patch_path="${artifact_root}/bazel.patch"
 
 is_allowed_path() {
   case "$1" in
@@ -17,8 +16,7 @@ is_allowed_path() {
   esac
 }
 
-mkdir -p "${files_root}"
-: > "${manifest_path}"
+mkdir -p "${artifact_root}"
 
 mapfile -t tracked_changes < <(git diff --name-only --no-renames HEAD -- .)
 mapfile -t untracked_changes < <(git ls-files --others --exclude-standard)
@@ -38,14 +36,7 @@ record_path() {
     exit 1
   fi
 
-  if [[ -e "${path}" ]]; then
-    mkdir -p "${files_root}/$(dirname "${path}")"
-    cp "${path}" "${files_root}/${path}"
-    printf 'F\t%s\n' "${path}" >> "${manifest_path}"
-    return 0
-  fi
-
-  printf 'D\t%s\n' "${path}" >> "${manifest_path}"
+  return 0
 }
 
 for path in "${tracked_changes[@]}"; do
@@ -56,4 +47,12 @@ for path in "${untracked_changes[@]}"; do
   record_path "${path}"
 done
 
-sort -o "${manifest_path}" "${manifest_path}"
+if ((${#untracked_changes[@]} > 0)); then
+  git add -N -- "${untracked_changes[@]}"
+fi
+
+git diff --binary --full-index --no-ext-diff -- \
+  DEPS.bzl \
+  ':(glob)**/*.bazel' \
+  ':(glob)**/*.bzl' \
+  > "${patch_path}"
