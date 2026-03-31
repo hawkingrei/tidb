@@ -644,6 +644,45 @@ HAVING EXISTS (SELECT 1 FROM t_panic WHERE x IS NULL);`).Check(testkit.Rows("<ni
 		tk.MustQuery(fmt.Sprintf("explain for connection %d", tkProcess.ID)).MultiCheckContain([]string{"IndexRangeScan"})
 	}
 
+	// issue-66610-normal-vs-prepared-hashagg
+	{
+		tk := prepareSharedTestKit(t)
+		tk.MustExec("create table t0(c0 float unsigned)")
+		tk.MustExec(`insert into t0 (c0)
+with recursive seq as (
+    select 1 as n
+    union all
+    select n + 1 from seq where n < 1000
+)
+select rand() * 10000 from seq`)
+		tk.MustExec("create index i54 on t0(c0)")
+		tk.MustExec("set @a = 107237831")
+		tk.MustExec("set @b = '\t'")
+		tk.MustExec("set @c = 240227228")
+		tk.MustExec("set @d = 160227190")
+		tk.MustExec("set @e = 'B'")
+
+		explainRows := testkit.Rows(
+			"Projection 0.00 root  107237831->Column#7, reverse(cast(and(0, istrue_with_null(test.t0.c0)), var_string(20)))->Column#8, test.t0.c0",
+			"└─TableDual 0.00 root  rows:0")
+
+		tk.MustQuery("select /* issue:66610 */ 107237831, reverse(((radians('\t')) and (t0.c0))), t0.c0 from t0 where 240227228 group by t0.c0 having max(concat_ws(160227190, 'B'));").Check(testkit.Rows())
+		tk.MustQuery("explain format='brief' select /* issue:66610 */ 107237831, reverse(((radians('\t')) and (t0.c0))), t0.c0 from t0 where 240227228 group by t0.c0 having max(concat_ws(160227190, 'B'));").Check(explainRows)
+
+		tk.MustExec("prepare stmt66610 from 'select ?, reverse(((radians(?)) and (t0.c0))), t0.c0 from t0 where ? group by t0.c0 having max(concat_ws(?, ?));'")
+		tk.MustQuery("execute stmt66610 using @a, @b, @c, @d, @e").Check(testkit.Rows())
+		tk.MustExec("deallocate prepare stmt66610")
+
+		tk.MustExec("prepare stmt66610 from 'explain format=''brief'' select ?, reverse(((radians(?)) and (t0.c0))), t0.c0 from t0 where ? group by t0.c0 having max(concat_ws(?, ?));'")
+		tk.MustQuery("execute stmt66610 using @a, @b, @c, @d, @e").Check(explainRows)
+		tk.MustExec("deallocate prepare stmt66610")
+
+		tk.MustQuery("explain format='brief' select 107237831, reverse(((radians('\t')) and (t0.c0))), t0.c0 from t0 where 240227228 group by t0.c0 having min(concat_ws(160227190, 'B'));").Check(explainRows)
+		tk.MustExec("prepare stmt66610 from 'explain format=''brief'' select ?, reverse(((radians(?)) and (t0.c0))), t0.c0 from t0 where ? group by t0.c0 having min(concat_ws(?, ?));'")
+		tk.MustQuery("execute stmt66610 using @a, @b, @c, @d, @e").Check(explainRows)
+		tk.MustExec("deallocate prepare stmt66610")
+	}
+
 	// issue-66399-outer-join-eliminate-must-keep-parent-join-condition-columns
 	{
 		tk := prepareSharedTestKit(t)
