@@ -20,13 +20,13 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/pkg/expression"
-	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/format"
 	"github.com/pingcap/tidb/pkg/planner/core/base"
 	"github.com/pingcap/tidb/pkg/planner/core/operator/logicalop"
 	"github.com/pingcap/tidb/pkg/planner/util/coreusage"
 	"github.com/pingcap/tidb/pkg/types"
+	parserutil "github.com/pingcap/tidb/pkg/util/parser"
 )
 
 type subqueryExprExtractor struct {
@@ -124,7 +124,9 @@ func cloneResultSetNodeForAuxiliaryFields(ctx base.PlanContext, node ast.ResultS
 		return nil, err
 	}
 	charset, collation := ctx.GetSessionVars().GetCharsetInfo()
-	stmt, err := parser.New().ParseOneStmt(sb.String(), charset, collation)
+	p := parserutil.GetParser()
+	defer parserutil.DestroyParser(p)
+	stmt, err := p.ParseOneStmt(sb.String(), charset, collation)
 	if err != nil {
 		return nil, err
 	}
