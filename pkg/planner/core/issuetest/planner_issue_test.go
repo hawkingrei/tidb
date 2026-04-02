@@ -683,6 +683,38 @@ select rand() * 10000 from seq`)
 		tk.MustExec("deallocate prepare stmt66610")
 	}
 
+	// issue-66607-normal-vs-prepared-streamagg
+	{
+		tk := prepareSharedTestKit(t)
+		tk.MustExec("create table t5(c0 numeric unsigned zerofill)")
+		tk.MustExec(`insert into t5 (c0)
+with recursive seq as (
+    select 1 as n
+    union all
+    select n + 1 from seq where n < 1000
+)
+select rand() * 1000000 from seq`)
+		tk.MustExec("create index i0 on t5(c0 asc)")
+		tk.MustExec("set @a = 1794240494")
+		tk.MustExec("set @b = true")
+		tk.MustExec("set @c = 'g3h'")
+
+		explainRows := testkit.Rows(
+			"Projection 0.00 root  1->Column#6",
+			"└─TableDual 0.00 root  rows:0")
+
+		tk.MustQuery("select /* issue:66607 */ (binary (((1794240494) regexp (true)))) from t5 group by t5.c0 having max('g3h');").Check(testkit.Rows())
+		tk.MustQuery("explain format='brief' select /* issue:66607 */ (binary (((1794240494) regexp (true)))) from t5 group by t5.c0 having max('g3h');").Check(explainRows)
+
+		tk.MustExec("prepare stmt66607 from 'select /* issue:66607 */ (binary (((?) regexp (?)))) from t5 group by t5.c0 having max(?);'")
+		tk.MustQuery("execute stmt66607 using @a, @b, @c").Check(testkit.Rows())
+		tk.MustExec("deallocate prepare stmt66607")
+
+		tk.MustExec("prepare stmt66607 from 'explain format=''brief'' select /* issue:66607 */ (binary (((?) regexp (?)))) from t5 group by t5.c0 having max(?);'")
+		tk.MustQuery("execute stmt66607 using @a, @b, @c").Check(explainRows)
+		tk.MustExec("deallocate prepare stmt66607")
+	}
+
 	// issue-66399-outer-join-eliminate-must-keep-parent-join-condition-columns
 	{
 		tk := prepareSharedTestKit(t)
