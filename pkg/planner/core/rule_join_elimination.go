@@ -133,6 +133,9 @@ func (*OuterJoinEliminator) extractInnerJoinKeys(join *logicalop.LogicalJoin, in
 
 // check whether one of unique keys sets is contained by inner join keys
 func (*OuterJoinEliminator) isInnerJoinKeysContainUniqueKey(innerPlan base.LogicalPlan, joinKeys *expression.Schema, innerNullEQKeys intset.FastIntSet) (bool, error) {
+	if isSelectionPartitionedRowNumberWindowOneUnique(innerPlan, joinKeys) {
+		return true, nil
+	}
 	for _, keyInfo := range innerPlan.Schema().PKOrUK {
 		joinKeysContainKeyInfo := true
 		for _, col := range keyInfo {
@@ -162,6 +165,72 @@ func (*OuterJoinEliminator) isInnerJoinKeysContainUniqueKey(innerPlan base.Logic
 		}
 	}
 	return false, nil
+}
+
+func isSelectionPartitionedRowNumberWindowOneUnique(innerPlan base.LogicalPlan, joinKeys *expression.Schema) bool {
+	sel, ok := innerPlan.(*logicalop.LogicalSelection)
+	if !ok || len(sel.Conditions) == 0 {
+		return false
+	}
+
+	window, ok := sel.Children()[0].(*logicalop.LogicalWindow)
+	if !ok || len(window.WindowFuncDescs) != 1 || window.WindowFuncDescs[0].Name != "row_number" {
+		return false
+	}
+	if window.Frame == nil || window.Frame.Start == nil || window.Frame.End == nil {
+		return false
+	}
+	if window.Frame.Type != ast.Rows || window.Frame.Start.Type != ast.CurrentRow || window.Frame.End.Type != ast.CurrentRow {
+		return false
+	}
+
+	windowColumns := window.GetWindowResultColumns()
+	if len(windowColumns) != 1 || !hasRowNumberUpperBoundOne(sel.Conditions, windowColumns[0]) {
+		return false
+	}
+
+	for _, partitionCol := range window.GetPartitionByCols() {
+		if !joinKeys.Contains(partitionCol) {
+			return false
+		}
+	}
+	return true
+}
+
+func hasRowNumberUpperBoundOne(conditions []expression.Expression, rowNumberCol *expression.Column) bool {
+	for _, cond := range conditions {
+		if isColEqConst(cond, rowNumberCol, 1) {
+			return true
+		}
+		if col, upperBound := expression.FindUpperBound(cond); col != nil && col.EqualColumn(rowNumberCol) && upperBound <= 1 {
+			return true
+		}
+	}
+	return false
+}
+
+func isColEqConst(expr expression.Expression, targetCol *expression.Column, value int64) bool {
+	sf, ok := expr.(*expression.ScalarFunction)
+	if !ok || sf.FuncName.L != ast.EQ || len(sf.GetArgs()) != 2 {
+		return false
+	}
+	if col, ok := sf.GetArgs()[0].(*expression.Column); ok && col.EqualColumn(targetCol) {
+		constant, ok := sf.GetArgs()[1].(*expression.Constant)
+		if !ok {
+			return false
+		}
+		constantValue, ok := constant.Value.GetValue().(int64)
+		return ok && constantValue == value
+	}
+	if col, ok := sf.GetArgs()[1].(*expression.Column); ok && col.EqualColumn(targetCol) {
+		constant, ok := sf.GetArgs()[0].(*expression.Constant)
+		if !ok {
+			return false
+		}
+		constantValue, ok := constant.Value.GetValue().(int64)
+		return ok && constantValue == value
+	}
+	return false
 }
 
 // check whether one of index sets is contained by inner join index
