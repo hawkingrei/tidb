@@ -2351,6 +2351,12 @@ select 1 as c0, min(b'101010') as c1
 from t70 as tom0
 group by tom0.c0, tom0.c0
 having c1
+	) as s`).Check(testkit.Rows())
+
+	tk.MustQuery(`select /* issue:67039 with-pk */ hex(c1) from (
+select 1 as c0, min(b'101010') as c1
+from t70 as tom0
+group by tom0.c0, tom0.c0
 	) as s`).Check(testkit.Rows("2A"))
 
 	tk.MustExec("drop table if exists t70")
@@ -2361,6 +2367,12 @@ select 1 as c0, min(b'101010') as c1
 from t70 as tom0
 group by tom0.c0, tom0.c0
 having c1
+	) as s`).Check(testkit.Rows())
+
+	tk.MustQuery(`select /* issue:67039 without-pk */ hex(c1) from (
+select 1 as c0, min(b'101010') as c1
+from t70 as tom0
+group by tom0.c0, tom0.c0
 	) as s`).Check(testkit.Rows("2A"))
 
 	tk.MustExec("drop table if exists t0")

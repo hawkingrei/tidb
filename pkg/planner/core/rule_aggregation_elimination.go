@@ -219,13 +219,10 @@ func rewriteBitFunc(ctx expression.BuildContext, funcType string, arg expression
 }
 
 // wrapCastFunction will wrap a cast if the targetTp is not equal to the arg's.
+// Keep CAST for binary literals even when the field types compare equal,
+// otherwise aggregation elimination can expose the raw literal and change
+// truthiness in HAVING.
 func wrapCastFunction(ctx expression.BuildContext, arg expression.Expression, targetTp *types.FieldType) expression.Expression {
-	// Keep CAST for binary literals even when the field types already compare equal.
-	// MIN/MAX can keep the same string-like FieldType here, but dropping CAST
-	// exposes the raw literal b'101010'. For example, in `SELECT MIN(b'101010')
-	// AS c1 ... HAVING c1`, HAVING can then evaluate that raw binary literal
-	// numerically as 42, so truthiness differs from the casted aggregate-result
-	// form.
 	if arg.GetType(ctx.GetEvalCtx()).Equal(targetTp) && !expression.IsBinaryLiteral(arg) {
 		return arg
 	}

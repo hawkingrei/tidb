@@ -331,11 +331,6 @@ func (a *baseFuncDesc) typeInfer4MaxMin(ctx expression.BuildContext) {
 		a.Name == ast.WindowFuncLead || a.Name == ast.WindowFuncLag {
 		a.RetTp = a.Args[0].GetType(ctx.GetEvalCtx()).Clone()
 		a.RetTp.DelFlag(mysql.NotNullFlag)
-		if (a.Name == ast.AggFuncMax || a.Name == ast.AggFuncMin) && expression.IsBinaryLiteral(a.Args[0]) {
-			con := a.Args[0].(*expression.Constant)
-			a.RetTp.SetType(mysql.TypeBit)
-			a.RetTp.SetFlen(len(con.Value.GetBinaryLiteral()) * 8)
-		}
 	}
 	// issue #13027, #13961
 	if (a.RetTp.GetType() == mysql.TypeEnum || a.RetTp.GetType() == mysql.TypeSet) &&
