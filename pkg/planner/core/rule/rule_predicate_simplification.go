@@ -574,6 +574,12 @@ func recursiveMergeORToINList(sctx base.PlanContext, predicate expression.Expres
 		for i, orItem := range orList {
 			orList[i] = recursiveMergeORToINList(sctx, orItem)
 		}
+		// Avoid reshaping OR trees that contain mutable or side-effect expressions.
+		// Even if the logical condition is equivalent, changing the evaluation form can
+		// change observable semantics for nondeterministic functions.
+		if slices.ContainsFunc(orList, expression.IsMutableEffectsExpr) {
+			return expression.ComposeDNFCondition(sctx.GetExprCtx(), orList...)
+		}
 		mergedPredicate, merged := tryMergeORListToINList(sctx, orFunc, orList)
 		if merged {
 			if expression.MaybeOverOptimized4PlanCache(sctx.GetExprCtx(), predicate) {
@@ -590,11 +596,11 @@ func recursiveMergeORToINList(sctx base.PlanContext, predicate expression.Expres
 func tryMergeORListToINList(sctx base.PlanContext, orFunc *expression.ScalarFunction, orList []expression.Expression) (expression.Expression, bool) {
 	evalCtx := sctx.GetExprCtx().GetEvalCtx()
 	type orMergeGroup struct {
-		col          *expression.Column
-		firstExpr    expression.Expression
-		values       []*expression.Constant
-		dedupValues  map[string]struct{}
-		disjunctCnt  int
+		col         *expression.Column
+		firstExpr   expression.Expression
+		values      []*expression.Constant
+		dedupValues map[string]struct{}
+		disjunctCnt int
 	}
 	appendValue := func(group *orMergeGroup, value *expression.Constant) bool {
 		if value.Value.IsNull() {
@@ -622,9 +628,12 @@ func tryMergeORListToINList(sctx base.PlanContext, orFunc *expression.ScalarFunc
 		sortedValues := slices.Clone(group.values)
 		var sortErr error
 		slices.SortFunc(sortedValues, func(a, b *expression.Constant) int {
-			var cmp int
-			cmp, sortErr = a.Value.Compare(evalCtx.TypeCtx(), &b.Value, collate.GetCollator(group.col.GetType(evalCtx).GetCollate()))
 			if sortErr != nil {
+				return 0
+			}
+			cmp, err := a.Value.Compare(evalCtx.TypeCtx(), &b.Value, collate.GetCollator(group.col.GetType(evalCtx).GetCollate()))
+			if err != nil {
+				sortErr = err
 				return 0
 			}
 			return cmp

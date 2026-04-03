@@ -11,6 +11,7 @@
       "SELECT STRAIGHT_JOIN * FROM t1 LEFT JOIN t0 ON t1.a = t0.a WHERE t1.a = t0.a OR t1.a = t0.b;",
       "select * from t6 use index() where a = 4 or a = 1;",
       "select * from t6 use index() where a > 1 or a = 2;",
+      "select * from t6 use index() where rand() < 0.5 or a = 1 or a = 2;",
       "select * from t6 use index() where a > 1 or a = 2 or a = 3;",
       "select * from t6 use index() where a = 1 or a = 2 or a = 3;",
       "select * from t6 use index() where a = 1 or a in (2, 3);",

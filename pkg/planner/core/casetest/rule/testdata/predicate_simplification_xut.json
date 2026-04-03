@@ -151,6 +151,20 @@
         "Warning": null
       },
       {
+        "SQL": "select * from t6 use index() where rand() < 0.5 or a = 1 or a = 2;",
+        "Plan": [
+          "Selection root  or(lt(rand(), 0.5), or(eq(test.t6.a, 1), eq(test.t6.a, 2)))",
+          "└─TableReader root  data:TableFullScan",
+          "  └─TableFullScan cop[tikv] table:t6 keep order:false, stats:pseudo"
+        ],
+        "LastPlanFromCache": [
+          "1"
+        ],
+        "Warning": [
+          "Warning 1105 Scalar function 'rand'(signature: Rand, return type: double) is not supported to push down to storage layer now."
+        ]
+      },
+      {
         "SQL": "select * from t6 use index() where a > 1 or a = 2 or a = 3;",
         "Plan": [
           "TableReader root  data:Selection",
