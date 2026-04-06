@@ -1093,22 +1093,18 @@ const minLargeNotInListLenForIndexJoinProbeRewrite = 8
 // unchanged while shrinking the pushed-down expression payload; we intentionally avoid turning
 // these filters into access ranges because wide range scans can regress MVCC-heavy workloads.
 func rewriteLargeIntNotInFiltersForIndexJoinProbe(sctx base.PlanContext, conds []expression.Expression) []expression.Expression {
-	var rewritten []expression.Expression
-	for i, cond := range conds {
+	rewritten := make([]expression.Expression, 0, len(conds))
+	changed := false
+	for _, cond := range conds {
 		newCond, ok := tryRewriteLargeIntNotInFilterForIndexJoinProbe(sctx, cond)
 		if !ok {
-			if rewritten != nil {
-				rewritten = append(rewritten, cond)
-			}
+			rewritten = append(rewritten, cond)
 			continue
 		}
-		if rewritten == nil {
-			rewritten = make([]expression.Expression, 0, len(conds))
-			rewritten = append(rewritten, conds[:i]...)
-		}
+		changed = true
 		rewritten = append(rewritten, newCond)
 	}
-	if rewritten == nil {
+	if !changed {
 		return conds
 	}
 	return rewritten
