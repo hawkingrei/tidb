@@ -12,6 +12,7 @@
       "select * from t6 use index() where a = 4 or a = 1;",
       "select * from t6 use index() where a > 1 or a = 2;",
       "select * from t6 use index() where rand() < 0.5 or a = 1 or a = 2;",
+      "select * from t1 use index(primary) where id = uuid() or id = uuid();",
       "select * from t6 use index() where a > 1 or a = 2 or a = 3;",
       "select * from t6 use index() where a = 1 or a = 2 or a = 3;",
       "select * from t6 use index() where a = 1 or a in (2, 3);",

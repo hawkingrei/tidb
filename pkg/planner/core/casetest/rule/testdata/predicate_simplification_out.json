@@ -165,6 +165,18 @@
         ]
       },
       {
+        "SQL": "select * from t1 use index(primary) where id = uuid() or id = uuid();",
+        "Plan": [
+          "Selection root  or(eq(test.t1.id, uuid()), eq(test.t1.id, uuid()))",
+          "└─TableReader root  data:TableFullScan",
+          "  └─TableFullScan cop[tikv] table:t1 keep order:false, stats:pseudo"
+        ],
+        "LastPlanFromCache": [
+          "1"
+        ],
+        "Warning": null
+      },
+      {
         "SQL": "select * from t6 use index() where a > 1 or a = 2 or a = 3;",
         "Plan": [
           "TableReader root  data:Selection",
