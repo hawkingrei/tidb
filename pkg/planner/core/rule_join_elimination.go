@@ -167,6 +167,9 @@ func (*OuterJoinEliminator) isInnerJoinKeysContainUniqueKey(innerPlan base.Logic
 	return false, nil
 }
 
+// isSelectionPartitionedRowNumberWindowOneUnique recognizes Selection(Window(row_number))
+// shapes where the filter keeps at most one row for each partition key, so the
+// inner side is unique on the join keys for outer join elimination.
 func isSelectionPartitionedRowNumberWindowOneUnique(innerPlan base.LogicalPlan, joinKeys *expression.Schema) bool {
 	sel, ok := innerPlan.(*logicalop.LogicalSelection)
 	if !ok || len(sel.Conditions) == 0 {
@@ -197,6 +200,9 @@ func isSelectionPartitionedRowNumberWindowOneUnique(innerPlan base.LogicalPlan, 
 	return true
 }
 
+// hasRowNumberUpperBoundOne matches predicates that keep the row_number() result
+// column at or below 1, either through an equality to 1 or through simple upper
+// bounds recognized by expression.FindUpperBound.
 func hasRowNumberUpperBoundOne(conditions []expression.Expression, rowNumberCol *expression.Column) bool {
 	for _, cond := range conditions {
 		if isColEqConst(cond, rowNumberCol, 1) {
