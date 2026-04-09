@@ -21,13 +21,10 @@
 set -o pipefail
 
 coverage_report=./bazel-out/_coverage/_coverage_report.dat
-
-# TODO: Remove this bootstrap once the CI image includes bazel_collect.
-go install github.com/hawkingrei/bazel_collect@latest
+junit_report=./bazel.xml
 make bazel_coverage_test_ddlargsv1
 EXIT_STATUS=$?
 # collect the junit and coverage report
-bazel_collect
 if [ -f "${coverage_report}" ]; then
     cp "${coverage_report}" ./coverage.dat
 else
@@ -35,5 +32,10 @@ else
     echo "warning: coverage report ${coverage_report} not found, created empty coverage.dat" >&2
 fi
 mkdir -p test_coverage
-mv bazel.xml test_coverage/bazel.xml
+if [ -f "${junit_report}" ]; then
+    mv "${junit_report}" test_coverage/bazel.xml
+else
+    : > test_coverage/bazel.xml
+    echo "warning: junit report ${junit_report} not found, created empty test_coverage/bazel.xml" >&2
+fi
 exit ${EXIT_STATUS}
