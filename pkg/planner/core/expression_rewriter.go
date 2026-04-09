@@ -2109,6 +2109,9 @@ func (er *expressionRewriter) inToExpression(lLen int, not bool, tp *types.Field
 		if arg.GetType(er.sctx.GetEvalCtx()).GetType() == mysql.TypeNull {
 			continue
 		}
+		if c, ok := arg.(*expression.Constant); ok && c.Value.Kind() == types.KindNull {
+			continue
+		}
 		cmpType := expression.GetAccurateCmpType(er.sctx.GetEvalCtx(), args[0], arg)
 		if cmpType != leftEt {
 			allSameType = false
@@ -2123,15 +2126,12 @@ func (er *expressionRewriter) inToExpression(lLen int, not bool, tp *types.Field
 			break
 		}
 	}
-	if leftEt == types.ETDecimal {
-		if err := er.validateMutableDecimalInList(args[1:]); err != nil {
-			er.err = err
-			return
-		}
-	}
 	var function expression.Expression
 	if allSameType && l == 1 && lLen > 1 {
-		function = er.notToExpression(not, ast.In, tp, er.ctxStack[stkLen-lLen-1:]...)
+		function, er.err = er.buildPreservedInFunction(not, tp, args, leftEt)
+		if er.err != nil {
+			return
+		}
 	} else if allSameCmpType && hasCommonCmpType && l == 1 && lLen > 1 {
 		preserveArgs := args
 		if !not && leftEt == types.ETInt && (commonCmpType == types.ETReal || commonCmpType == types.ETDecimal) {
@@ -2154,21 +2154,9 @@ func (er *expressionRewriter) inToExpression(lLen int, not bool, tp *types.Field
 			}
 		}
 		if function == nil {
-			normalizedArgs := slices.Clone(preserveArgs)
-			// Preserve a single IN when every element uses the same numeric comparison type with the left operand.
-			// The IN builtin will cast the remaining arguments and fold constant casts for us.
-			switch commonCmpType {
-			case types.ETInt:
-				normalizedArgs[0] = expression.WrapWithCastAsInt(er.sctx, normalizedArgs[0], nil)
-			case types.ETReal:
-				normalizedArgs[0] = expression.WrapWithCastAsReal(er.sctx, normalizedArgs[0])
-			case types.ETDecimal:
-				normalizedArgs[0] = expression.WrapWithCastAsDecimal(er.sctx, normalizedArgs[0])
-			default:
-				normalizedArgs = nil
-			}
-			if normalizedArgs != nil {
-				function = er.notToExpression(not, ast.In, tp, normalizedArgs...)
+			function, er.err = er.buildPreservedInFunction(not, tp, preserveArgs, commonCmpType)
+			if er.err != nil {
+				return
 			}
 		}
 	}
@@ -2200,6 +2188,33 @@ func (er *expressionRewriter) inToExpression(lLen int, not bool, tp *types.Field
 	}
 	er.ctxStackPop(lLen + 1)
 	er.ctxStackAppend(function, types.EmptyName)
+}
+
+func (er *expressionRewriter) buildPreservedInFunction(
+	not bool,
+	tp *types.FieldType,
+	args []expression.Expression,
+	cmpType types.EvalType,
+) (expression.Expression, error) {
+	if cmpType == types.ETDecimal {
+		if err := er.validateMutableDecimalInList(args[1:]); err != nil {
+			return nil, err
+		}
+	}
+	normalizedArgs := slices.Clone(args)
+	// Preserve a single IN when every element uses the same numeric comparison type with the left operand.
+	// The IN builtin will cast the remaining arguments and fold constant casts for us.
+	switch cmpType {
+	case types.ETInt:
+		normalizedArgs[0] = expression.WrapWithCastAsInt(er.sctx, normalizedArgs[0], nil)
+	case types.ETReal:
+		normalizedArgs[0] = expression.WrapWithCastAsReal(er.sctx, normalizedArgs[0])
+	case types.ETDecimal:
+		normalizedArgs[0] = expression.WrapWithCastAsDecimal(er.sctx, normalizedArgs[0])
+	default:
+		return nil, nil
+	}
+	return er.notToExpression(not, ast.In, tp, normalizedArgs...), nil
 }
 
 func (er *expressionRewriter) pruneImpossibleIntInList(leftFt *types.FieldType, args []expression.Expression) ([]expression.Expression, bool) {
