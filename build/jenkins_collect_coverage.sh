@@ -20,7 +20,16 @@
 
 set -o pipefail
 
+coverage_report=./bazel-out/_coverage/_coverage_report.dat
+
+# TODO: Remove this bootstrap once the CI image includes bazel_collect.
+go install github.com/hawkingrei/bazel_collect@latest
 bazel_collect
 mkdir -p test_coverage
-cp ./bazel-out/_coverage/_coverage_report.dat ./coverage.dat
+if [ -f "${coverage_report}" ]; then
+    cp "${coverage_report}" ./coverage.dat
+else
+    : > ./coverage.dat
+    echo "warning: coverage report ${coverage_report} not found, created empty coverage.dat" >&2
+fi
 mv bazel.xml test_coverage/bazel.xml
