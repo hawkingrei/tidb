@@ -22,6 +22,8 @@ set -o pipefail
 
 coverage_report=./bazel-out/_coverage/_coverage_report.dat
 junit_report=./bazel.xml
+
+go install github.com/hawkingrei/bazel_collect@latest
 mkdir -p test_coverage
 if [ -f "${coverage_report}" ]; then
     cp "${coverage_report}" ./coverage.dat
