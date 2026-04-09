@@ -32,6 +32,5 @@ fi
 if [ -f "${junit_report}" ]; then
     mv "${junit_report}" test_coverage/bazel.xml
 else
-    : > test_coverage/bazel.xml
-    echo "warning: junit report ${junit_report} not found, created empty test_coverage/bazel.xml" >&2
+    echo "warning: junit report ${junit_report} not found, skipping junit artifact collection" >&2
 fi
