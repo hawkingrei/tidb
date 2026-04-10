@@ -47,9 +47,24 @@ type PhysicalWindow struct {
 	StoreTp kv.StoreType
 }
 
+// PhysicalStreamWindow is the physical operator of stream window function.
+// It requires the child to naturally provide the partition/order property and
+// does not allow a sort enforcer to manufacture that order.
+type PhysicalStreamWindow struct {
+	PhysicalWindow
+}
+
 // Init initializes PhysicalWindow.
 func (p PhysicalWindow) Init(ctx base.PlanContext, stats *property.StatsInfo, offset int, props ...*property.PhysicalProperty) *PhysicalWindow {
 	p.BasePhysicalPlan = NewBasePhysicalPlan(ctx, plancodec.TypeWindow, &p, offset)
+	p.SetChildrenReqProps(props)
+	p.SetStats(stats)
+	return &p
+}
+
+// Init initializes PhysicalStreamWindow.
+func (p PhysicalStreamWindow) Init(ctx base.PlanContext, stats *property.StatsInfo, offset int, props ...*property.PhysicalProperty) *PhysicalStreamWindow {
+	p.BasePhysicalPlan = NewBasePhysicalPlan(ctx, "StreamWindow", &p, offset)
 	p.SetChildrenReqProps(props)
 	p.SetStats(stats)
 	return &p
@@ -104,6 +119,34 @@ func (p *PhysicalWindow) Clone(newCtx base.PlanContext) (base.PhysicalPlan, erro
 		cloned.Frame = p.Frame.Clone()
 	}
 
+	return cloned, nil
+}
+
+// Clone implements op.PhysicalPlan interface.
+func (p *PhysicalStreamWindow) Clone(newCtx base.PlanContext) (base.PhysicalPlan, error) {
+	cloned := new(PhysicalStreamWindow)
+	*cloned = *p
+	cloned.SetSCtx(newCtx)
+	base, err := p.PhysicalSchemaProducer.CloneWithSelf(newCtx, cloned)
+	if err != nil {
+		return nil, err
+	}
+	cloned.PhysicalSchemaProducer = *base
+	cloned.PartitionBy = make([]property.SortItem, 0, len(p.PartitionBy))
+	for _, it := range p.PartitionBy {
+		cloned.PartitionBy = append(cloned.PartitionBy, it.Clone())
+	}
+	cloned.OrderBy = make([]property.SortItem, 0, len(p.OrderBy))
+	for _, it := range p.OrderBy {
+		cloned.OrderBy = append(cloned.OrderBy, it.Clone())
+	}
+	cloned.WindowFuncDescs = make([]*aggregation.WindowFuncDesc, 0, len(p.WindowFuncDescs))
+	for _, it := range p.WindowFuncDescs {
+		cloned.WindowFuncDescs = append(cloned.WindowFuncDescs, it.Clone())
+	}
+	if p.Frame != nil {
+		cloned.Frame = p.Frame.Clone()
+	}
 	return cloned, nil
 }
 
@@ -462,10 +505,29 @@ func ExhaustPhysicalPlans4LogicalWindow(lp base.LogicalPlan, prop *property.Phys
 	var byItems []property.SortItem
 	byItems = append(byItems, lw.PartitionBy...)
 	byItems = append(byItems, lw.OrderBy...)
+	streamChildProperty := &property.PhysicalProperty{
+		ExpectedCnt:       math.MaxFloat64,
+		SortItems:         byItems,
+		CanAddEnforcer:    false,
+		CTEProducerStatus: prop.CTEProducerStatus,
+		NoCopPushDown:     prop.NoCopPushDown,
+	}
+	if canUseStreamWindow(lw) && prop.IsPrefix(streamChildProperty) {
+		streamWindow := PhysicalStreamWindow{
+			PhysicalWindow: PhysicalWindow{
+				WindowFuncDescs: lw.WindowFuncDescs,
+				PartitionBy:     lw.PartitionBy,
+				OrderBy:         lw.OrderBy,
+				Frame:           lw.Frame,
+			},
+		}.Init(lw.SCtx(), lw.StatsInfo().ScaleByExpectCnt(lw.SCtx().GetSessionVars(), prop.ExpectedCnt), lw.QueryBlockOffset(), streamChildProperty)
+		streamWindow.SetSchema(lw.Schema())
+		windows = append(windows, streamWindow)
+	}
 	childProperty := &property.PhysicalProperty{ExpectedCnt: math.MaxFloat64, SortItems: byItems,
 		CanAddEnforcer: true, CTEProducerStatus: prop.CTEProducerStatus, NoCopPushDown: prop.NoCopPushDown}
 	if !prop.IsPrefix(childProperty) {
-		return nil, true, nil
+		return windows, true, nil
 	}
 	window := PhysicalWindow{
 		WindowFuncDescs: lw.WindowFuncDescs,
@@ -477,4 +539,11 @@ func ExhaustPhysicalPlans4LogicalWindow(lp base.LogicalPlan, prop *property.Phys
 
 	windows = append(windows, window)
 	return windows, true, nil
+}
+
+func canUseStreamWindow(lw *logicalop.LogicalWindow) bool {
+	if len(lw.WindowFuncDescs) != 1 {
+		return false
+	}
+	return lw.WindowFuncDescs[0].Name == ast.WindowFuncRowNumber
 }

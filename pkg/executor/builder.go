@@ -324,6 +324,8 @@ func (b *executorBuilder) build(p base.Plan) exec.Executor {
 		return b.buildIndexLookUpReader(v)
 	case *physicalop.PhysicalWindow:
 		return b.buildWindow(v)
+	case *physicalop.PhysicalStreamWindow:
+		return b.buildStreamWindow(v)
 	case *physicalop.PhysicalShuffle:
 		return b.buildShuffle(v)
 	case *physicalop.PhysicalShuffleReceiverStub:
@@ -5544,6 +5546,23 @@ func buildKvRangesForIndexJoin(dctx *distsqlctx.DistSQLContext, pctx *rangerctx.
 }
 
 func (b *executorBuilder) buildWindow(v *physicalop.PhysicalWindow) exec.Executor {
+	return b.buildWindowBase(v, false)
+}
+
+func (b *executorBuilder) buildStreamWindow(v *physicalop.PhysicalStreamWindow) exec.Executor {
+	windowExec := b.buildWindowBase(&v.PhysicalWindow, true)
+	if windowExec == nil || b.err != nil {
+		return nil
+	}
+	pipelinedExec, ok := windowExec.(*PipelinedWindowExec)
+	if !ok {
+		b.err = errors.New("stream window must be built with pipelined window executor")
+		return nil
+	}
+	return &StreamWindowExec{PipelinedWindowExec: pipelinedExec}
+}
+
+func (b *executorBuilder) buildWindowBase(v *physicalop.PhysicalWindow, forcePipelined bool) exec.Executor {
 	childExec := b.build(v.Children()[0])
 	if b.err != nil {
 		return nil
@@ -5575,7 +5594,7 @@ func (b *executorBuilder) buildWindow(v *physicalop.PhysicalWindow) exec.Executo
 	}
 
 	var err error
-	if b.ctx.GetSessionVars().EnablePipelinedWindowExec {
+	if forcePipelined || b.ctx.GetSessionVars().EnablePipelinedWindowExec {
 		exec := &PipelinedWindowExec{
 			BaseExecutor:   base,
 			groupChecker:   vecgroupchecker.NewVecGroupChecker(b.ctx.GetExprCtx().GetEvalCtx(), b.ctx.GetSessionVars().EnableVectorizedExpression, groupByItems),

@@ -77,6 +77,13 @@ type PipelinedWindowExec struct {
 	initializedSlidingWindow bool
 }
 
+// StreamWindowExec is the executor for stream window functions.
+// It reuses the pipelined window implementation and is selected only when the
+// planner has already guaranteed the required partition/order property.
+type StreamWindowExec struct {
+	*PipelinedWindowExec
+}
+
 // Close implements the Executor Close interface.
 func (e *PipelinedWindowExec) Close() error {
 	return errors.Trace(e.BaseExecutor.Close())
