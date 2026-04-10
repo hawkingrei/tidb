@@ -327,6 +327,11 @@ func (p *PhysicalWindow) Attach2Task(tasks ...base.Task) base.Task {
 	return utilfuncp.Attach2Task4PhysicalWindow(p, tasks...)
 }
 
+// Attach2Task implements the PhysicalPlan interface.
+func (p *PhysicalStreamWindow) Attach2Task(tasks ...base.Task) base.Task {
+	return utilfuncp.Attach2Task4PhysicalWindow(p, tasks...)
+}
+
 // ToPB implements PhysicalPlan ToPB interface.
 func (p *PhysicalWindow) ToPB(ctx *base.BuildPBContext, storeType kv.StoreType) (*tipb.Executor, error) {
 	client := ctx.GetClient()
@@ -512,7 +517,8 @@ func ExhaustPhysicalPlans4LogicalWindow(lp base.LogicalPlan, prop *property.Phys
 		CTEProducerStatus: prop.CTEProducerStatus,
 		NoCopPushDown:     prop.NoCopPushDown,
 	}
-	if canUseStreamWindow(lw) && prop.IsPrefix(streamChildProperty) {
+	streamChildProperty = admitIndexJoinProp(streamChildProperty, prop)
+	if CanUseStreamWindow(lw) && prop.IsPrefix(streamChildProperty) {
 		streamWindow := PhysicalStreamWindow{
 			PhysicalWindow: PhysicalWindow{
 				WindowFuncDescs: lw.WindowFuncDescs,
@@ -526,6 +532,7 @@ func ExhaustPhysicalPlans4LogicalWindow(lp base.LogicalPlan, prop *property.Phys
 	}
 	childProperty := &property.PhysicalProperty{ExpectedCnt: math.MaxFloat64, SortItems: byItems,
 		CanAddEnforcer: true, CTEProducerStatus: prop.CTEProducerStatus, NoCopPushDown: prop.NoCopPushDown}
+	childProperty = admitIndexJoinProp(childProperty, prop)
 	if !prop.IsPrefix(childProperty) {
 		return windows, true, nil
 	}
@@ -541,7 +548,7 @@ func ExhaustPhysicalPlans4LogicalWindow(lp base.LogicalPlan, prop *property.Phys
 	return windows, true, nil
 }
 
-func canUseStreamWindow(lw *logicalop.LogicalWindow) bool {
+func CanUseStreamWindow(lw *logicalop.LogicalWindow) bool {
 	if len(lw.WindowFuncDescs) != 1 {
 		return false
 	}

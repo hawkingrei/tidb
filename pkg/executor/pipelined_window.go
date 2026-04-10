@@ -91,11 +91,19 @@ func (e *PipelinedWindowExec) Close() error {
 
 // Open implements the Executor Open interface
 func (e *PipelinedWindowExec) Open(ctx context.Context) (err error) {
+	if err := e.BaseExecutor.Open(ctx); err != nil {
+		return err
+	}
+	return e.OpenSelf()
+}
+
+// OpenSelf initializes the executor state without opening children.
+func (e *PipelinedWindowExec) OpenSelf() error {
 	e.done, e.newPartition, e.whole, e.initializedSlidingWindow = false, false, false, false
 	e.dataIdx, e.curRowIdx, e.dropped, e.rowToConsume, e.accumulated = 0, 0, 0, 0, 0
 	e.lastStartRow, e.lastEndRow, e.stagedStartRow, e.stagedEndRow, e.rowStart, e.rowCnt = 0, 0, 0, 0, 0, 0
 	e.rows, e.data = make([]chunk.Row, 0), make([]dataInfo, 0)
-	return e.BaseExecutor.Open(ctx)
+	return nil
 }
 
 func (e *PipelinedWindowExec) firstResultChunkNotReady() bool {

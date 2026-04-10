@@ -620,7 +620,13 @@ func admitIndexJoinInnerChildPattern(p base.LogicalPlan, indexJoinProp *property
 		if !checkIndexJoinInnerTaskWithAgg(x, indexJoinProp) {
 			return false
 		}
-
+	case *logicalop.LogicalWindow:
+		if !p.SCtx().GetSessionVars().EnableINLJoinInnerMultiPattern {
+			return false
+		}
+		if !physicalop.CanUseStreamWindow(x) {
+			return false
+		}
 	case *logicalop.LogicalUnionScan:
 	default: // index join inner side couldn't allow join, sort, limit, because they are Optimization Fence.
 		return false

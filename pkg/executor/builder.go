@@ -3623,7 +3623,6 @@ func (b *executorBuilder) buildIndexLookUpJoin(v *physicalop.PhysicalIndexJoin) 
 	e.OuterCtx.HashCols = outerHashCols
 	e.InnerCtx.HashCols = innerHashCols
 	e.InnerCtx.HashCollators = hashCollators
-
 	e.JoinResult = exec.TryNewCacheChunk(e)
 	executor_metrics.ExecutorCounterIndexLookUpJoin.Inc()
 	return e
@@ -4946,6 +4945,17 @@ func (builder *dataReaderBuilder) buildExecutorForIndexJoinInternal(ctx context.
 		exec := builder.buildStreamAggFromChildExec(childExec, v)
 		err = exec.OpenSelf()
 		return exec, err
+	case *physicalop.PhysicalStreamWindow:
+		childExec, err := builder.buildExecutorForIndexJoinInternal(ctx, v.Children()[0], lookUpContents, indexRanges, keyOff2IdxOff, cwc, canReorderHandles, memTracker, interruptSignal)
+		if err != nil {
+			return nil, err
+		}
+		exec, err := builder.buildStreamWindowForIndexJoin(ctx, v, childExec)
+		if err != nil {
+			terror.Log(childExec.Close())
+			return nil, err
+		}
+		return exec, nil
 	case *physicalop.PhysicalHashJoin:
 		return builder.buildHashJoinForIndexJoin(ctx, v, lookUpContents, indexRanges, keyOff2IdxOff, cwc, canReorderHandles, memTracker, interruptSignal)
 	case *mockPhysicalIndexReader:
@@ -5425,6 +5435,32 @@ func (builder *dataReaderBuilder) buildProjectionForIndexJoin(
 	return e, nil
 }
 
+func (builder *dataReaderBuilder) buildStreamWindowForIndexJoin(
+	_ context.Context,
+	v *physicalop.PhysicalStreamWindow,
+	childExec exec.Executor,
+) (executor exec.Executor, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = util.GetRecoverError(r)
+		}
+	}()
+	windowExec := builder.executorBuilder.buildWindowExecWithChildExec(&v.PhysicalWindow, childExec, true)
+	if builder.executorBuilder.err != nil {
+		return nil, builder.executorBuilder.err
+	}
+	pipelinedExec, ok := windowExec.(*PipelinedWindowExec)
+	if !ok {
+		return nil, errors.New("stream window for index join must be built with stream window executor")
+	}
+	streamWindowExec := &StreamWindowExec{PipelinedWindowExec: pipelinedExec}
+	err = streamWindowExec.OpenSelf()
+	if err != nil {
+		return nil, err
+	}
+	return streamWindowExec, nil
+}
+
 // buildRangesForIndexJoin builds kv ranges for index join when the inner plan is index scan plan.
 func buildRangesForIndexJoin(rctx *rangerctx.RangerContext, lookUpContents []*join.IndexJoinLookUpContent,
 	ranges []*ranger.Range, keyOff2IdxOff []int, cwc *physicalop.ColWithCmpFuncManager,
@@ -5567,6 +5603,10 @@ func (b *executorBuilder) buildWindowBase(v *physicalop.PhysicalWindow, forcePip
 	if b.err != nil {
 		return nil
 	}
+	return b.buildWindowExecWithChildExec(v, childExec, forcePipelined)
+}
+
+func (b *executorBuilder) buildWindowExecWithChildExec(v *physicalop.PhysicalWindow, childExec exec.Executor, forcePipelined bool) exec.Executor {
 	base := exec.NewBaseExecutor(b.ctx, v.Schema(), v.ID(), childExec)
 	groupByItems := make([]expression.Expression, 0, len(v.PartitionBy))
 	for _, item := range v.PartitionBy {
