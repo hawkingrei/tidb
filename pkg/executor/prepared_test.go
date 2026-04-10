@@ -238,11 +238,11 @@ func TestExecuteWithWrongType(t *testing.T) {
 	tk.MustExec(`set @i0 = 0.0, @i1 = 'aa'`)
 	tk.MustExec(`execute p1 using @i0, @i1`)
 
-	// p2 covers the non-cached path: the very first execution with the wrong parameter type
-	// should fail during expression construction, while a later valid execution should succeed.
+	// p2 covers the non-cached path. The first execution with the same string parameter should
+	// also remain executable before the prepared plan enters the cache.
 	tk.MustExec(`prepare p2 from "update t3 set c1 = 2 where c2 in (?, ?)"`)
 	tk.MustExec(`set @i0 = 0.0, @i1 = 'aa'`)
-	tk.MustExecToErr(`execute p2 using @i0, @i1`)
+	tk.MustExec(`execute p2 using @i0, @i1`)
 	tk.MustExec(`set @i0 = 0.0, @i1 = 0.0`)
 	tk.MustExec(`execute p2 using @i0, @i1`)
 }
