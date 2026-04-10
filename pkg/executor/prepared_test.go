@@ -230,12 +230,17 @@ func TestExecuteWithWrongType(t *testing.T) {
 	tk.MustExec("use test")
 	tk.MustExec("CREATE TABLE t3 (c1 int, c2 decimal(32, 30))")
 
+	// p1 first executes with valid decimal parameters so the prepared plan can be cached.
+	// Re-executing it with a string parameter must still fail instead of silently reusing a
+	// preserved IN expression that skipped decimal validation on the cache-hit path.
 	tk.MustExec(`prepare p1 from "update t3 set c1 = 2 where c2 in (?, ?)"`)
 	tk.MustExec(`set @i0 = 0.0, @i1 = 0.0`)
 	tk.MustExec(`execute p1 using @i0, @i1`)
 	tk.MustExec(`set @i0 = 0.0, @i1 = 'aa'`)
 	tk.MustExecToErr(`execute p1 using @i0, @i1`)
 
+	// p2 covers the non-cached path: the very first execution with the wrong parameter type
+	// should fail during expression construction, while a later valid execution should succeed.
 	tk.MustExec(`prepare p2 from "update t3 set c1 = 2 where c2 in (?, ?)"`)
 	tk.MustExec(`set @i0 = 0.0, @i1 = 'aa'`)
 	tk.MustExecToErr(`execute p2 using @i0, @i1`)
