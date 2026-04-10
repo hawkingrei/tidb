@@ -4918,6 +4918,28 @@ func (builder *dataReaderBuilder) buildExecutorForIndexJoinInternal(ctx context.
 	// Need to support physical selection because after PR 16389, TiDB will push down all the expr supported by TiKV or TiFlash
 	// in predicate push down stage, so if there is an expr which only supported by TiFlash, a physical selection will be added after index read
 	case *physicalop.PhysicalSelection:
+		if streamWindow, limitCount, ok := canUsePartitionTopNWindow(v); ok {
+			childExec, err := builder.buildExecutorForIndexJoinInternal(ctx, streamWindow.Children()[0], lookUpContents, indexRanges, keyOff2IdxOff, cwc, canReorderHandles, memTracker, interruptSignal)
+			if err != nil {
+				return nil, err
+			}
+			partitionTopNExec, err := builder.buildPartitionTopNWindowForIndexJoin(streamWindow, childExec, limitCount)
+			if err != nil {
+				terror.Log(childExec.Close())
+				return nil, err
+			}
+			exec := &SelectionExec{
+				selectionExecutorContext: newSelectionExecutorContext(builder.ctx),
+				BaseExecutorV2:           exec.NewBaseExecutorV2(builder.ctx.GetSessionVars(), v.Schema(), v.ID(), partitionTopNExec),
+				filters:                  v.Conditions,
+			}
+			err = exec.open(ctx)
+			if err != nil {
+				terror.Log(partitionTopNExec.Close())
+				return nil, err
+			}
+			return exec, nil
+		}
 		childExec, err := builder.buildExecutorForIndexJoinInternal(ctx, v.Children()[0], lookUpContents, indexRanges, keyOff2IdxOff, cwc, canReorderHandles, memTracker, interruptSignal)
 		if err != nil {
 			return nil, err
@@ -5459,6 +5481,82 @@ func (builder *dataReaderBuilder) buildStreamWindowForIndexJoin(
 		return nil, err
 	}
 	return streamWindowExec, nil
+}
+
+func canUsePartitionTopNWindow(sel *physicalop.PhysicalSelection) (*physicalop.PhysicalStreamWindow, uint64, bool) {
+	streamWindow, ok := sel.Children()[0].(*physicalop.PhysicalStreamWindow)
+	if !ok {
+		return nil, 0, false
+	}
+	if len(streamWindow.WindowFuncDescs) != 1 || streamWindow.WindowFuncDescs[0].Name != ast.WindowFuncRowNumber {
+		return nil, 0, false
+	}
+	windowResultCol := streamWindow.Schema().Columns[streamWindow.Schema().Len()-1]
+	var (
+		upperBound uint64
+		found      bool
+	)
+	for _, cond := range sel.Conditions {
+		if limit, ok := findRowNumberUpperBound(cond, windowResultCol); ok {
+			if !found || limit < upperBound {
+				upperBound = limit
+			}
+			found = true
+		}
+	}
+	if !found || upperBound == 0 {
+		return nil, 0, false
+	}
+	return streamWindow, upperBound, true
+}
+
+func findRowNumberUpperBound(expr expression.Expression, rowNumberCol *expression.Column) (uint64, bool) {
+	col, limit := expression.FindUpperBound(expr)
+	if col != nil && col.EqualByExprAndID(nil, rowNumberCol) && limit > 0 {
+		return uint64(limit), true
+	}
+	scalarFunction, ok := expr.(*expression.ScalarFunction)
+	if !ok || scalarFunction.FuncName.L != ast.EQ {
+		return 0, false
+	}
+	args := scalarFunction.GetArgs()
+	if len(args) != 2 {
+		return 0, false
+	}
+	col, ok = args[0].(*expression.Column)
+	if !ok || !col.EqualByExprAndID(nil, rowNumberCol) {
+		return 0, false
+	}
+	constant, ok := args[1].(*expression.Constant)
+	if !ok {
+		return 0, false
+	}
+	value, ok := constant.Value.GetValue().(int64)
+	if !ok || value <= 0 {
+		return 0, false
+	}
+	return uint64(value), true
+}
+
+func (builder *dataReaderBuilder) buildPartitionTopNWindowForIndexJoin(
+	v *physicalop.PhysicalStreamWindow,
+	childExec exec.Executor,
+	limitCount uint64,
+) (exec.Executor, error) {
+	groupByItems := make([]expression.Expression, 0, len(v.PartitionBy))
+	for _, item := range v.PartitionBy {
+		groupByItems = append(groupByItems, item.Col)
+	}
+	partitionTopNExec := &PartitionTopNWindowExec{
+		BaseExecutor: exec.NewBaseExecutor(builder.ctx, v.Schema(), v.ID(), childExec),
+		groupChecker: vecgroupchecker.NewVecGroupChecker(builder.ctx.GetExprCtx().GetEvalCtx(), builder.ctx.GetSessionVars().EnableVectorizedExpression, groupByItems),
+		limitCount:   limitCount,
+		resultColIdx: v.Schema().Len() - 1,
+	}
+	if err := partitionTopNExec.OpenSelf(); err != nil {
+		return nil, err
+	}
+	return partitionTopNExec, nil
 }
 
 // buildRangesForIndexJoin builds kv ranges for index join when the inner plan is index scan plan.

@@ -83,3 +83,39 @@ Validation commands used in this step:
 Validation commands used during the demo:
 - `go test ./pkg/planner/core/casetest/windows -run TestWindowPushDownPlans -record --tags=intest`
 - `go test ./pkg/planner/core/casetest/windows -run TestWindowPushDownPlans --tags=intest`
+
+## 2026-04-10: First `row_number() <= K` pruning on index-join inner side
+
+Background:
+- After `IndexJoin + StreamWindow` itself worked, the next tempting step was to replace `Selection(StreamWindow(...))` with a plain `Limit`.
+- That direction is wrong on index-join inner execution because the inner reader is built for a batch of lookup contents, not one outer row at a time.
+
+What failed and why:
+- A plain `Limit 1` on the inner side only keeps the first row of the whole lookup batch.
+- For a batched inner probe over keys like `[1, 2, 3]`, this returns only the first partition's first row instead of one row per partition.
+- The bug is not in `Limit` itself. The mismatch is semantic: ordinary `Limit` is global, while `row_number() <= K` under `partition by join_key` needs a per-partition bound.
+
+Implementation choice for this step:
+- Do not force a planner-wide `PartitionTopN` rollout yet.
+- Keep the physical plan shape unchanged and add a targeted executor-side rewrite in `dataReaderBuilder`.
+- Detect `Selection -> StreamWindow(row_number)` with an upper-bound predicate on the window result column.
+- Replace only the child executor path with a specialized stream executor that:
+  - reads the already ordered child,
+  - emits only the first `K` rows of each partition,
+  - materializes the `row_number` result column for the emitted rows,
+  - still leaves the original `SelectionExec` on top so equality predicates like `rn = 2` remain correct.
+
+Why keep `SelectionExec`:
+- `rn <= K` can be satisfied entirely by the specialized executor, but `rn = K` cannot.
+- Leaving `SelectionExec` above the new child keeps the rewrite local and correct for both `rn <= K` and `rn = K`.
+- The new executor only reduces the amount of data and window work; it does not try to change the logical predicate semantics.
+
+Development takeaways:
+- On index-join inner paths, "per-partition" almost always means "per lookup key group in one batched execution", not "per query".
+- A local executor fusion is a safer first step than forcing a planner-wide partition-aware `TopN` contract before root/coprocessor semantics are aligned.
+- Cross-chunk correctness matters here. Tests must force tiny chunk sizes; otherwise a bug that resets partition rank at chunk boundaries can pass accidentally.
+
+Validation commands used in this step:
+- `go test ./pkg/executor/join/test/indexjoin -run TestIndexJoinWithStreamWindowInner --tags=intest`
+- `go test ./pkg/planner/core/casetest/windows -run TestWindowPushDownPlans --tags=intest`
+- `go test ./pkg/planner/core/casetest/rule -run TestPushDerivedTopnFlash --tags=intest`
