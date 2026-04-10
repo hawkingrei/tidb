@@ -2128,10 +2128,7 @@ func (er *expressionRewriter) inToExpression(lLen int, not bool, tp *types.Field
 	}
 	var function expression.Expression
 	if allSameType && l == 1 && lLen > 1 {
-		function, er.err = er.buildPreservedInFunction(not, tp, args, leftEt)
-		if er.err != nil {
-			return
-		}
+		function = er.notToExpression(not, ast.In, tp, er.ctxStack[stkLen-lLen-1:]...)
 	} else if allSameCmpType && hasCommonCmpType && l == 1 && lLen > 1 {
 		preserveArgs := args
 		if !not && leftEt == types.ETInt && (commonCmpType == types.ETReal || commonCmpType == types.ETDecimal) {
