@@ -4918,6 +4918,10 @@ func (builder *dataReaderBuilder) buildExecutorForIndexJoinInternal(ctx context.
 	// Need to support physical selection because after PR 16389, TiDB will push down all the expr supported by TiKV or TiFlash
 	// in predicate push down stage, so if there is an expr which only supported by TiFlash, a physical selection will be added after index read
 	case *physicalop.PhysicalSelection:
+		// Keep the Selection on top even after recognizing the upper-bound
+		// row_number filter. The fused child only guarantees "produce at most K
+		// rows per partition"; predicates like rn = K still need the original
+		// filter semantics above it.
 		if streamWindow, limitCount, ok := canUsePartitionTopNWindow(v); ok {
 			childExec, err := builder.buildExecutorForIndexJoinInternal(ctx, streamWindow.Children()[0], lookUpContents, indexRanges, keyOff2IdxOff, cwc, canReorderHandles, memTracker, interruptSignal)
 			if err != nil {

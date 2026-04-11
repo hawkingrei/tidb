@@ -518,6 +518,9 @@ func ExhaustPhysicalPlans4LogicalWindow(lp base.LogicalPlan, prop *property.Phys
 		NoCopPushDown:     prop.NoCopPushDown,
 	}
 	streamChildProperty = admitIndexJoinProp(streamChildProperty, prop)
+	// Prefer the stream variant only when the child already satisfies the full
+	// partition/order requirement. Once an extra sort is needed, the dedicated
+	// stream path no longer has an advantage over the general window path.
 	if CanUseStreamWindow(lw) && prop.IsPrefix(streamChildProperty) {
 		streamWindow := PhysicalStreamWindow{
 			PhysicalWindow: PhysicalWindow{
@@ -560,6 +563,9 @@ func CanUseStreamWindow(lw *logicalop.LogicalWindow) bool {
 	if lw.Frame == nil {
 		return false
 	}
+	// Keep the admission rule aligned with the current execution contract: the
+	// stream path only handles the default row_number frame and should fall back
+	// to the generic window executor for explicit frame variants.
 	return lw.Frame.Type == ast.Rows &&
 		lw.Frame.Start != nil && lw.Frame.Start.Type == ast.CurrentRow && !lw.Frame.Start.UnBounded &&
 		lw.Frame.End != nil && lw.Frame.End.Type == ast.CurrentRow && !lw.Frame.End.UnBounded
