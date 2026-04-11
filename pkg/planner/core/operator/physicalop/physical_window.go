@@ -570,3 +570,62 @@ func CanUseStreamWindow(lw *logicalop.LogicalWindow) bool {
 		lw.Frame.Start != nil && lw.Frame.Start.Type == ast.CurrentRow && !lw.Frame.Start.UnBounded &&
 		lw.Frame.End != nil && lw.Frame.End.Type == ast.CurrentRow && !lw.Frame.End.UnBounded
 }
+
+// CanUsePartitionTopNStreamWindow reports whether the physical selection is an
+// upper-bound filter on the result column of a stream row_number window. The
+// returned limit is the largest row_number value that still needs to be
+// produced per partition before the original selection applies.
+func CanUsePartitionTopNStreamWindow(sel *PhysicalSelection) (*PhysicalStreamWindow, uint64, bool) {
+	streamWindow, ok := sel.Children()[0].(*PhysicalStreamWindow)
+	if !ok {
+		return nil, 0, false
+	}
+	if len(streamWindow.WindowFuncDescs) != 1 || streamWindow.WindowFuncDescs[0].Name != ast.WindowFuncRowNumber {
+		return nil, 0, false
+	}
+	windowResultCol := streamWindow.Schema().Columns[streamWindow.Schema().Len()-1]
+	var (
+		upperBound uint64
+		found      bool
+	)
+	for _, cond := range sel.Conditions {
+		if limit, ok := findRowNumberUpperBound(cond, windowResultCol); ok {
+			if !found || limit < upperBound {
+				upperBound = limit
+			}
+			found = true
+		}
+	}
+	if !found || upperBound == 0 {
+		return nil, 0, false
+	}
+	return streamWindow, upperBound, true
+}
+
+func findRowNumberUpperBound(expr expression.Expression, rowNumberCol *expression.Column) (uint64, bool) {
+	col, limit := expression.FindUpperBound(expr)
+	if col != nil && col.EqualByExprAndID(nil, rowNumberCol) && limit > 0 {
+		return uint64(limit), true
+	}
+	scalarFunction, ok := expr.(*expression.ScalarFunction)
+	if !ok || scalarFunction.FuncName.L != ast.EQ {
+		return 0, false
+	}
+	args := scalarFunction.GetArgs()
+	if len(args) != 2 {
+		return 0, false
+	}
+	col, ok = args[0].(*expression.Column)
+	if !ok || !col.EqualByExprAndID(nil, rowNumberCol) {
+		return 0, false
+	}
+	constant, ok := args[1].(*expression.Constant)
+	if !ok {
+		return 0, false
+	}
+	value, ok := constant.Value.GetValue().(int64)
+	if !ok || value <= 0 {
+		return 0, false
+	}
+	return uint64(value), true
+}

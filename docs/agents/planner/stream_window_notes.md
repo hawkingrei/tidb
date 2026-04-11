@@ -119,3 +119,26 @@ Validation commands used in this step:
 - `go test ./pkg/executor/join/test/indexjoin -run TestIndexJoinWithStreamWindowInner --tags=intest`
 - `go test ./pkg/planner/core/casetest/windows -run TestWindowPushDownPlans --tags=intest`
 - `go test ./pkg/planner/core/casetest/rule -run TestPushDerivedTopnFlash --tags=intest`
+
+## TODO: Unify `StreamWindow` pruning with partition-aware `TopN/Limit`
+
+Background:
+- Commit `e8ae09d88e8b990e999f3474152c2d642de9bf61` added a more general partition-aware `TopN/Limit` path for rank-like semantics.
+- The current `StreamWindow` work still uses a local executor-side fusion in `dataReaderBuilder` via `PartitionTopNWindowExec`.
+
+What should be optimized later:
+- Move the current `Selection -> StreamWindow(row_number)` upper-bound recognition into a planner-visible physical contract instead of keeping it as a builder-only rewrite.
+- Reuse the partition-aware `TopN/Limit` machinery where possible so `rank()` / `dense_rank()` can share the same pruning primitive, especially for tie-preserving boundaries.
+- Keep the distinction clear:
+  - `row_number() <= K` can be pruned by a hard per-partition row bound,
+  - `rank() <= K` needs tie-aware pruning and cannot reuse the same executor blindly.
+
+Why this is not merged yet:
+- `PartitionTopNWindowExec` currently materializes the window result column while pruning, which is necessary to preserve predicates such as `rn = K` above the executor.
+- The existing rank-topn path is primarily a partition-aware `TopN/Limit` capability and does not by itself produce window result columns.
+- A direct replacement would therefore lose logical information even if the pruning direction is similar.
+
+Expected end state:
+- Planner recognizes `Selection(rn/rank upper bound) -> StreamWindow -> ordered child`.
+- Planner inserts an explicit partition-aware pruning operator rather than relying on a local `dataReaderBuilder` special case.
+- Executor keeps window result materialization and pruning responsibilities separated cleanly enough that `row_number`, `rank`, and `dense_rank` can evolve on one shared contract.
