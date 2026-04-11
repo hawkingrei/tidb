@@ -554,5 +554,13 @@ func CanUseStreamWindow(lw *logicalop.LogicalWindow) bool {
 	if len(lw.WindowFuncDescs) != 1 {
 		return false
 	}
-	return lw.WindowFuncDescs[0].Name == ast.WindowFuncRowNumber
+	if lw.WindowFuncDescs[0].Name != ast.WindowFuncRowNumber {
+		return false
+	}
+	if lw.Frame == nil {
+		return false
+	}
+	return lw.Frame.Type == ast.Rows &&
+		lw.Frame.Start != nil && lw.Frame.Start.Type == ast.CurrentRow && !lw.Frame.Start.UnBounded &&
+		lw.Frame.End != nil && lw.Frame.End.Type == ast.CurrentRow && !lw.Frame.End.UnBounded
 }
