@@ -548,6 +548,8 @@ func ExhaustPhysicalPlans4LogicalWindow(lp base.LogicalPlan, prop *property.Phys
 	return windows, true, nil
 }
 
+// CanUseStreamWindow reports whether the logical window can be executed by the
+// ordered-input stream window path.
 func CanUseStreamWindow(lw *logicalop.LogicalWindow) bool {
 	if len(lw.WindowFuncDescs) != 1 {
 		return false
