@@ -2214,6 +2214,20 @@ func (er *expressionRewriter) buildPreservedInFunction(
 	return er.notToExpression(not, ast.In, tp, normalizedArgs...), nil
 }
 
+// pruneImpossibleIntInList removes constant RHS elements that can never match an integer left operand
+// under EQ semantics before we preserve a single IN.
+//
+// Example:
+//   int_col IN (0.12, 3.47, 5)
+// becomes
+//   int_col IN (5)
+// because 0.12 = int_col and 3.47 = int_col are impossible after integer comparison refinement.
+//
+// This matters for the preserved-IN path because:
+//   int_col IN (0.12, 3.47)
+// would otherwise become
+//   in(cast(int_col as decimal), 0.12, 3.47)
+// and lose the old OR-of-EQ simplification opportunity.
 func (er *expressionRewriter) pruneImpossibleIntInList(leftFt *types.FieldType, args []expression.Expression) ([]expression.Expression, bool) {
 	prunedArgs := make([]expression.Expression, 1, len(args))
 	prunedArgs[0] = args[0]
@@ -2231,9 +2245,9 @@ func (er *expressionRewriter) pruneImpossibleIntInList(leftFt *types.FieldType, 
 		}
 		prunedArgs = append(prunedArgs, arg)
 	}
-	// `nullable_int_col IN (0.12, 3.47)` is not the constant `false`: it evaluates to NULL for NULL input rows.
-	// So when every RHS element is impossible, we only collapse to an empty list for NOT NULL columns.
-	// For nullable columns, keep the original expression and let normal execution preserve SQL NULL semantics.
+	// `nullable_int_col IN (0.12, 3.47)` is not the constant `false`: when `nullable_int_col` is NULL,
+	// the expression still evaluates to NULL rather than FALSE. So if pruning would leave only the LHS,
+	// keep the original expression for nullable columns and let normal execution preserve NULL semantics.
 	if len(prunedArgs) == 1 && !mysql.HasNotNullFlag(leftFt.GetFlag()) {
 		return args, false
 	}
