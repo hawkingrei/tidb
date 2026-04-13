@@ -2218,15 +2218,23 @@ func (er *expressionRewriter) buildPreservedInFunction(
 // under EQ semantics before we preserve a single IN.
 //
 // Example:
-//   int_col IN (0.12, 3.47, 5)
+//
+//	int_col IN (0.12, 3.47, 5)
+//
 // becomes
-//   int_col IN (5)
+//
+//	int_col IN (5)
+//
 // because 0.12 = int_col and 3.47 = int_col are impossible after integer comparison refinement.
 //
 // This matters for the preserved-IN path because:
-//   int_col IN (0.12, 3.47)
+//
+//	int_col IN (0.12, 3.47)
+//
 // would otherwise become
-//   in(cast(int_col as decimal), 0.12, 3.47)
+//
+//	in(cast(int_col as decimal), 0.12, 3.47)
+//
 // and lose the old OR-of-EQ simplification opportunity.
 func (er *expressionRewriter) pruneImpossibleIntInList(leftFt *types.FieldType, args []expression.Expression) ([]expression.Expression, bool) {
 	prunedArgs := make([]expression.Expression, 1, len(args))
