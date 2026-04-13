@@ -231,21 +231,27 @@ func TestExecuteWithWrongType(t *testing.T) {
 	tk.MustExec("CREATE TABLE t3 (c1 int, c2 decimal(32, 30))")
 	tk.MustExec("INSERT INTO t3 VALUES (3, 0), (4, 1)")
 
-	// p1 covers the cache-hit path. After the first successful execution, re-executing the same
-	// prepared statement with a string parameter should remain executable with the cached plan.
+	// p1 covers the cache-warm path. Re-executing the same prepared statement with a string
+	// parameter should remain executable after the first execution, even though it does not reuse
+	// the cached plan because the parameter types change.
 	tk.MustExec(`prepare p1 from "select c1, c2 from t3 where c2 in (?, ?) order by c1"`)
 	tk.MustExec(`set @i0 = 0.0, @i1 = 0.0`)
 	tk.MustQuery(`execute p1 using @i0, @i1`).Check(testkit.Rows("3 0.000000000000000000000000000000"))
+	tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))
 	tk.MustExec(`set @i0 = 0.0, @i1 = 'aa'`)
 	tk.MustQuery(`execute p1 using @i0, @i1`).Check(testkit.Rows("3 0.000000000000000000000000000000"))
+	tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))
 
-	// p2 covers the non-cached path. The first execution with the same string parameter should
-	// also remain executable before the prepared plan enters the cache.
-	tk.MustExec(`prepare p2 from "select c1, c2 from t3 where c2 in (?, ?) order by c1"`)
+	// p2 covers the cold-plan path. Starting from a fresh prepared statement with the same string
+	// parameter should also remain executable, and the statement should continue bypassing the
+	// cached plan because the parameter types differ from the cacheable shape.
+	tk.MustExec(`prepare p2 from "select c1, c2 from t3 where c2 in (?, ?) order by c1 /* p2 */"`)
 	tk.MustExec(`set @i0 = 0.0, @i1 = 'aa'`)
 	tk.MustQuery(`execute p2 using @i0, @i1`).Check(testkit.Rows("3 0.000000000000000000000000000000"))
+	tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))
 	tk.MustExec(`set @i0 = 0.0, @i1 = 0.0`)
 	tk.MustQuery(`execute p2 using @i0, @i1`).Check(testkit.Rows("3 0.000000000000000000000000000000"))
+	tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))
 }
 
 func TestIssue58870(t *testing.T) {
