@@ -51,4 +51,29 @@ func TestCTEWithDifferentSchema(t *testing.T) {
 		"CTE_0 root  Non-Recursive CTE",
 		"└─TableReader(Seed Part) root  data:TableFullScan",
 		"  └─TableFullScan cop[tikv] table:otn keep order:false, stats:pseudo"))
+
+	tk.MustExec("use test")
+	tk.MustExec("drop table if exists t_cte_predicate_pushdown")
+	tk.MustExec("create table t_cte_predicate_pushdown(a int, b int, c int, key(a), key(b), key(c))")
+	tk.MustExec("set @@tidb_opt_force_inline_cte = 0")
+	tk.MustQuery(`
+		explain format = 'plan_tree'
+		with cte as (
+			select * from t_cte_predicate_pushdown
+		)
+		select *
+		from cte c1
+		join cte c2 on c1.a = c2.a
+		where c1.b > 1 and c2.b > 1 and c1.c = 1 and c2.c = 2
+	`).Check(testkit.Rows(
+		"HashJoin root  inner join, equal:[eq(test.t_cte_predicate_pushdown.a, test.t_cte_predicate_pushdown.a)]",
+		"├─Selection(Build) root  eq(test.t_cte_predicate_pushdown.c, 2)",
+		"│ └─CTEFullScan root CTE:cte AS c2 data:CTE_0",
+		"└─Selection(Probe) root  eq(test.t_cte_predicate_pushdown.c, 1)",
+		"  └─CTEFullScan root CTE:cte AS c1 data:CTE_0",
+		"CTE_0 root  Non-Recursive CTE",
+		"└─IndexLookUp(Seed Part) root  ",
+		"  ├─IndexRangeScan(Build) cop[tikv] table:t_cte_predicate_pushdown, index:c(c) range:[1,1], [2,2], keep order:false, stats:pseudo",
+		"  └─Selection(Probe) cop[tikv]  gt(test.t_cte_predicate_pushdown.b, 1), not(isnull(test.t_cte_predicate_pushdown.a))",
+		"    └─TableRowIDScan cop[tikv] table:t_cte_predicate_pushdown keep order:false, stats:pseudo"))
 }
