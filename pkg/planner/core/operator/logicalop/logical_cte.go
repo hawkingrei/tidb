@@ -74,6 +74,9 @@ type CTEClass struct {
 	LimitBeg  uint64
 	LimitEnd  uint64
 	IsInApply bool
+	// PushDownPredicates stores one CNF branch per consumer for the shared-execution path.
+	// It preserves the original branch semantics used by Sequence-based MPP shared CTE.
+	PushDownPredicates []expression.Expression
 	// ConsumerPushDownPredicates stores one pushed CNF predicate group per CTE consumer.
 	ConsumerPushDownPredicates []expression.CNFExprs
 	// PredicatePushDownCounter tracks how many times each predicate is pushed from CTE consumers.
@@ -106,6 +109,9 @@ func (cc *CTEClass) MemoryUsage() (sum int64) {
 		for _, expr := range exprs {
 			sum += expr.MemoryUsage()
 		}
+	}
+	for _, expr := range cc.PushDownPredicates {
+		sum += expr.MemoryUsage()
 	}
 	for _, expr := range cc.CommonPushDownPredicates {
 		sum += expr.MemoryUsage()
@@ -147,6 +153,19 @@ func (p *LogicalCTE) PredicatePushDown(predicates []expression.Expression) ([]ex
 			}
 			pushedPredicates = append(pushedPredicates[0:i], pushedPredicates[i+1:]...)
 		}
+	}
+	if p.SCtx().GetSessionVars().EnableMPPSharedCTEExecution {
+		if len(pushedPredicates) == 0 {
+			p.Cte.PushDownPredicates = append(p.Cte.PushDownPredicates, expression.NewOne())
+			return predicates, p.Self(), nil
+		}
+		newPred := make([]expression.Expression, 0, len(pushedPredicates))
+		for _, predicate := range pushedPredicates {
+			resolved := ruleutil.ResolveExprAndReplace(predicate.Clone(), p.Cte.ColumnMap)
+			newPred = append(newPred, resolved)
+		}
+		p.Cte.PushDownPredicates = append(p.Cte.PushDownPredicates, expression.ComposeCNFCondition(p.SCtx().GetExprCtx(), newPred...))
+		return predicates, p.Self(), nil
 	}
 	newPred := make(expression.CNFExprs, 0, len(pushedPredicates))
 	seen := make(map[string]struct{}, len(pushedPredicates))
@@ -275,6 +294,9 @@ func (p *LogicalCTE) DeriveStats(_ []*property.StatsInfo, selfSchema *expression
 
 // GetPushDownCondition builds the effective pushed predicate list for the CTE producer.
 func (cc *CTEClass) GetPushDownCondition(ctx base.PlanContext) []expression.Expression {
+	if len(cc.PushDownPredicates) > 0 {
+		return []expression.Expression{expression.ComposeDNFCondition(ctx.GetExprCtx(), cc.PushDownPredicates...)}
+	}
 	conditions := make([]expression.Expression, 0, len(cc.CommonPushDownPredicates)+1)
 	for _, expr := range cc.CommonPushDownPredicates {
 		conditions = append(conditions, expr)

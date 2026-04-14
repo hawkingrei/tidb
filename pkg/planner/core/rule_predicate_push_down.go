@@ -58,6 +58,13 @@ func (*PPDSolver) Name() string {
 
 // Optimize implements base.LogicalOptRule.<0th> interface.
 func (*CommonCTEPredicatePushDownSolver) Optimize(_ context.Context, lp base.LogicalPlan) (base.LogicalPlan, bool, error) {
+	if containsLogicalSequence(lp) {
+		// LogicalSequence encodes the dependency order among shared CTE producers.
+		// The current common-predicate extraction only reasons about consumer-local
+		// pushed CNF groups, so applying it before sequence-aware optimization can
+		// break MPP shared CTE planning.
+		return lp, false, nil
+	}
 	lp, planChanged := extractCommonCTEPredicates(lp)
 	return lp, planChanged, nil
 }
@@ -65,6 +72,26 @@ func (*CommonCTEPredicatePushDownSolver) Optimize(_ context.Context, lp base.Log
 // Name implements base.LogicalOptRule.<1st> interface.
 func (*CommonCTEPredicatePushDownSolver) Name() string {
 	return "common_cte_predicate_push_down"
+}
+
+func containsLogicalSequence(lp base.LogicalPlan) bool {
+	if _, ok := lp.(*logicalop.LogicalSequence); ok {
+		return true
+	}
+	for _, child := range lp.Children() {
+		if containsLogicalSequence(child) {
+			return true
+		}
+	}
+	if cteReader, ok := lp.(*logicalop.LogicalCTE); ok {
+		if containsLogicalSequence(cteReader.Cte.SeedPartLogicalPlan) {
+			return true
+		}
+		if cteReader.Cte.RecursivePartLogicalPlan != nil && containsLogicalSequence(cteReader.Cte.RecursivePartLogicalPlan) {
+			return true
+		}
+	}
+	return false
 }
 
 func extractCommonCTEPredicates(lp base.LogicalPlan) (base.LogicalPlan, bool) {

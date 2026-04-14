@@ -4801,6 +4801,7 @@ func (b *PlanBuilder) tryBuildCTE(ctx context.Context, tn *ast.TableName, asName
 					HasLimit:                   hasLimit,
 					LimitBeg:                   limitBeg,
 					LimitEnd:                   limitEnd,
+					PushDownPredicates:         make([]expression.Expression, 0),
 					ConsumerPushDownPredicates: make([]expression.CNFExprs, 0),
 					PredicatePushDownCounter:   make(map[string]*logicalop.CTEPredicateCounter),
 					CommonPushDownPredicates:   make(expression.CNFExprs, 0),
