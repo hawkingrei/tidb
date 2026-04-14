@@ -2131,19 +2131,30 @@ func (er *expressionRewriter) inToExpression(lLen int, not bool, tp *types.Field
 		function = er.notToExpression(not, ast.In, tp, er.ctxStack[stkLen-lLen-1:]...)
 	} else if allSameCmpType && hasCommonCmpType && l == 1 && lLen > 1 {
 		preserveArgs := args
-		if !not && leftEt == types.ETInt && (commonCmpType == types.ETReal || commonCmpType == types.ETDecimal) {
-			// For integer columns, preserving a single IN over a shared decimal/real comparison type can hide
-			// the old OR-of-EQ simplification path. Example: `int_col IN (0.12, 3.47)` would become
-			// `in(cast(int_col as decimal), 0.12, 3.47)`, even though every RHS constant is impossible to match.
-			// Prune those impossible constants first so we can still return `false` / `eq(...)` for the degenerate cases.
+		if leftEt == types.ETInt && (commonCmpType == types.ETReal || commonCmpType == types.ETDecimal) {
+			// For integer columns, preserving a single IN/NOT IN over a shared decimal/real comparison type can hide
+			// the old OR-of-EQ simplification path. Prune impossible RHS constants first so degenerate cases can still
+			// collapse to `false` / `true` / `eq(...)` / `ne(...)` / `not(isnull(...))` as appropriate.
 			var pruned bool
-			preserveArgs, pruned = er.pruneImpossibleIntInList(leftFt, args)
+			preserveArgs, pruned = er.pruneImpossibleIntInList(leftFt, args, not)
 			if pruned {
 				switch len(preserveArgs) {
 				case 1:
-					function = expression.NewZero()
+					if not {
+						if mysql.HasNotNullFlag(leftFt.GetFlag()) {
+							function = expression.NewOne()
+						} else {
+							function = er.notToExpression(true, ast.IsNull, tp, preserveArgs[0])
+						}
+					} else {
+						function = expression.NewZero()
+					}
 				case 2:
-					function, er.err = er.constructBinaryOpFunction(preserveArgs[0], preserveArgs[1], ast.EQ)
+					op := ast.EQ
+					if not {
+						op = ast.NE
+					}
+					function, er.err = er.constructBinaryOpFunction(preserveArgs[0], preserveArgs[1], op)
 					if er.err != nil {
 						return
 					}
@@ -2215,7 +2226,7 @@ func (er *expressionRewriter) buildPreservedInFunction(
 }
 
 // pruneImpossibleIntInList removes constant RHS elements that can never match an integer left operand
-// under EQ semantics before we preserve a single IN.
+// under EQ semantics before we preserve a single IN/NOT IN.
 //
 // Example:
 //
@@ -2236,7 +2247,7 @@ func (er *expressionRewriter) buildPreservedInFunction(
 //	in(cast(int_col as decimal), 0.12, 3.47)
 //
 // and lose the old OR-of-EQ simplification opportunity.
-func (er *expressionRewriter) pruneImpossibleIntInList(leftFt *types.FieldType, args []expression.Expression) ([]expression.Expression, bool) {
+func (er *expressionRewriter) pruneImpossibleIntInList(leftFt *types.FieldType, args []expression.Expression, not bool) ([]expression.Expression, bool) {
 	prunedArgs := make([]expression.Expression, 1, len(args))
 	prunedArgs[0] = args[0]
 	changed := false
@@ -2255,9 +2266,14 @@ func (er *expressionRewriter) pruneImpossibleIntInList(leftFt *types.FieldType, 
 	}
 	// `nullable_int_col IN (0.12, 3.47)` is not the constant `false`: when `nullable_int_col` is NULL,
 	// the expression still evaluates to NULL rather than FALSE. So if pruning would leave only the LHS,
-	// keep the original expression for nullable columns and let normal execution preserve NULL semantics.
+	// keep the original expression for nullable IN and let normal execution preserve NULL semantics.
+	//
+	// `nullable_int_col NOT IN (0.12, 3.47)` does simplify to `not(isnull(nullable_int_col))`, so the
+	// caller can still fold that degenerate NOT IN case after we return a single LHS expression here.
 	if len(prunedArgs) == 1 && !mysql.HasNotNullFlag(leftFt.GetFlag()) {
-		return args, false
+		if !not {
+			return args, false
+		}
 	}
 	if !changed {
 		return args, false
