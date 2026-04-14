@@ -488,6 +488,53 @@ GROUP BY x WITH ROLLUP
 HAVING EXISTS (SELECT 1 FROM t_panic WHERE x IS NULL);`).Check(testkit.Rows("<nil>"))
 	}
 
+	// repeated-derived-union-all-keeps-all-rows
+	{
+		tk := prepareSharedTestKit(t)
+		tk.MustExec("create table t2 (c0 tinyint default null, c2 mediumint unsigned default null, unique key c0 (c0), unique key c2 (c2), key i1 (c0, c2))")
+		tk.MustExec("insert into t2 values (1, null), (0, null), (-128, 0), (null, 1), (null, null)")
+
+		cteQuery := `with t as (
+			select t_lhs_2.c2 as _col_11, t_rhs_2.c0 as _col_12, t_rhs_2.c2 as _col_13
+			from t2 as t_lhs_2 right join t2 as t_rhs_2 on (false)
+		)
+		select /* issue:67373 cte */ _col_12 as c0
+		from (
+			select * from t as derived
+			where ((true >= (false in (_col_11, _col_11, _col_13))) <> _col_13)
+			union all
+			select * from t as derived
+			where not ((true >= (false in (_col_11, _col_11, _col_13))) <> _col_13)
+			union all
+			select * from t as derived
+			where (((true >= (false in (_col_11, _col_11, _col_13))) <> _col_13) is null)
+		) as wrapper`
+		derivedQuery := `select /* issue:67373 derived */ _col_12 as c0
+		from (
+				select * from (
+					select t_lhs_2.c2 as _col_11, t_rhs_2.c0 as _col_12, t_rhs_2.c2 as _col_13
+					from t2 as t_lhs_2 right join t2 as t_rhs_2 on (false)
+				) as derived
+				where ((true >= (false in (_col_11, _col_11, _col_13))) <> _col_13)
+				union all
+				select * from (
+					select t_lhs_2.c2 as _col_11, t_rhs_2.c0 as _col_12, t_rhs_2.c2 as _col_13
+					from t2 as t_lhs_2 right join t2 as t_rhs_2 on (false)
+				) as derived
+				where not ((true >= (false in (_col_11, _col_11, _col_13))) <> _col_13)
+				union all
+				select * from (
+					select t_lhs_2.c2 as _col_11, t_rhs_2.c0 as _col_12, t_rhs_2.c2 as _col_13
+					from t2 as t_lhs_2 right join t2 as t_rhs_2 on (false)
+				) as derived
+				where (((true >= (false in (_col_11, _col_11, _col_13))) <> _col_13) is null)
+		) as wrapper`
+		cteRows := tk.MustQuery(cteQuery).Sort().Rows()
+		derivedRows := tk.MustQuery(derivedQuery).Sort().Rows()
+		require.Len(t, cteRows, 5)
+		require.Equal(t, cteRows, derivedRows)
+	}
+
 	// merge-join-with-correlated-count
 	{
 		tk := prepareSharedTestKit(t)

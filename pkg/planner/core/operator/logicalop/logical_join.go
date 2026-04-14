@@ -348,6 +348,9 @@ func isNullRejected(ctx planctx.PlanContext, schema *expression.Schema, expr exp
 		if isNullRejectedSpecially(ctx, schema, expr) {
 			return true
 		}
+		if hasNestedIn(cond) {
+			return false
+		}
 
 		result, err := expression.EvaluateExprWithNull(exprCtx, schema, cond, true)
 		if err != nil {
@@ -360,6 +363,23 @@ func isNullRejected(ctx planctx.PlanContext, schema *expression.Schema, expr exp
 		if x.Value.IsNull() {
 			return true
 		} else if isTrue, err := x.Value.ToBool(sc.TypeCtxOrDefault()); err == nil && isTrue == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func hasNestedIn(expr expression.Expression) bool {
+	sf, ok := expr.(*expression.ScalarFunction)
+	if !ok {
+		return false
+	}
+	for _, arg := range sf.GetArgs() {
+		child, ok := arg.(*expression.ScalarFunction)
+		if !ok {
+			continue
+		}
+		if child.FuncName.L == ast.In || hasNestedIn(child) {
 			return true
 		}
 	}
