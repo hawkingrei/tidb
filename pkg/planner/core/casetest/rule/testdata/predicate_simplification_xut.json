@@ -167,8 +167,8 @@
       {
         "SQL": "select * from t1 use index(primary) where id = uuid() or id = uuid();",
         "Plan": [
-          "Selection root  or(eq(test.t1.id, uuid()), eq(test.t1.id, uuid()))",
-          "└─TableReader root  data:TableFullScan",
+          "TableReader root  data:Selection",
+          "└─Selection cop[tikv]  or(eq(test.t1.id, uuid()), eq(test.t1.id, uuid()))",
           "  └─TableFullScan cop[tikv] table:t1 keep order:false, stats:pseudo"
         ],
         "LastPlanFromCache": [
