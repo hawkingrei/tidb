@@ -663,41 +663,28 @@ func tryMergeORListToINList(sctx base.PlanContext, orFunc *expression.ScalarFunc
 		return append(mergedItems, newPredicate), group.disjunctCnt > 1, nil
 	}
 
-	mergedAny := false
-	mergedItems := make([]expression.Expression, 0, len(orList))
+	// Only merge when the whole OR-list is a same-column EQ/IN disjunction.
+	// Partial regrouping like `a = 1 OR a = 2 OR b = 3 -> in(a, 1, 2) OR b = 3`
+	// can change later physical optimization opportunities, for example ordered index-merge paths.
 	var currentGroup *orMergeGroup
 	for _, orItem := range orList {
 		col, predicateTp := FindPredicateType(sctx, orItem)
 		if col == nil || (predicateTp != equalPredicate && predicateTp != inListPredicate) {
-			var merged bool
-			var err error
-			mergedItems, merged, err = appendGroup(mergedItems, currentGroup)
-			if err != nil {
-				return nil, false
-			}
-			mergedAny = mergedAny || merged
-			currentGroup = nil
-			mergedItems = append(mergedItems, orItem)
-			continue
+			return nil, false
 		}
 		scalarFunc, ok := orItem.(*expression.ScalarFunction)
 		intest.Assert(ok, "tryMergeORListToINList expects scalar-function disjuncts once FindPredicateType returns a column")
 		if !ok {
 			return nil, false
 		}
-		if currentGroup == nil || !currentGroup.col.Equals(col) {
-			var merged bool
-			var err error
-			mergedItems, merged, err = appendGroup(mergedItems, currentGroup)
-			if err != nil {
-				return nil, false
-			}
-			mergedAny = mergedAny || merged
+		if currentGroup == nil {
 			currentGroup = &orMergeGroup{
 				col:         col,
 				firstExpr:   orItem,
 				dedupValues: make(map[string]struct{}, len(scalarFunc.GetArgs())-1),
 			}
+		} else if !currentGroup.col.Equals(col) {
+			return nil, false
 		}
 		currentGroup.disjunctCnt++
 
@@ -709,14 +696,11 @@ func tryMergeORListToINList(sctx base.PlanContext, orFunc *expression.ScalarFunc
 			}
 		}
 	}
-	var err error
-	var merged bool
-	mergedItems, merged, err = appendGroup(mergedItems, currentGroup)
+	mergedItems, merged, err := appendGroup(nil, currentGroup)
 	if err != nil {
 		return nil, false
 	}
-	mergedAny = mergedAny || merged
-	if !mergedAny {
+	if !merged {
 		return nil, false
 	}
 	if len(mergedItems) == 1 {
