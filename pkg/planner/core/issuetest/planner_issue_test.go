@@ -535,6 +535,26 @@ HAVING EXISTS (SELECT 1 FROM t_panic WHERE x IS NULL);`).Check(testkit.Rows("<ni
 		require.Equal(t, cteRows, derivedRows)
 	}
 
+	// safe-nested-in-still-allows-outer-to-inner
+	{
+		tk := prepareSharedTestKit(t)
+		tk.MustExec("create table t2 (c0 tinyint default null, c2 mediumint unsigned default null, unique key c0 (c0), unique key c2 (c2), key i1 (c0, c2))")
+		tk.MustExec("insert into t2 values (1, null), (0, null), (-128, 0), (null, 1), (null, null)")
+
+		query := `select /* issue:67373 safe nested in */ _col_12 as c0
+		from (
+				select * from (
+					select t_lhs_2.c2 as _col_11, t_rhs_2.c0 as _col_12
+					from t2 as t_lhs_2 right join t2 as t_rhs_2 on (false)
+				) as derived
+				where ((true >= (false in (_col_11, _col_11, 1))) <> 1)
+		) as wrapper`
+		tk.MustQuery("explain format='plan_tree' " + query).Check(testkit.Rows(
+			"TableDual root  rows:0",
+		))
+		tk.MustQuery(query).Check(testkit.Rows())
+	}
+
 	// merge-join-with-correlated-count
 	{
 		tk := prepareSharedTestKit(t)

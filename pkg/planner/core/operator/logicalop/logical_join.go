@@ -348,7 +348,7 @@ func isNullRejected(ctx planctx.PlanContext, schema *expression.Schema, expr exp
 		if isNullRejectedSpecially(ctx, schema, expr) {
 			return true
 		}
-		if hasNestedIn(cond) {
+		if hasNestedIn(cond) && !util.IsNullRejected(ctx, schema, cond, true) {
 			return false
 		}
 

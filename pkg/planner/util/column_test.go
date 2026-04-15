@@ -23,6 +23,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/types"
+	"github.com/pingcap/tidb/pkg/util/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -77,4 +78,81 @@ func TestIndexInfo2Cols(t *testing.T) {
 	require.True(t, resCols[0].EqualColumn(col0))
 	require.Nil(t, resCols[1])
 	require.True(t, resCols[2].EqualColumn(col2))
+
+	t.Run("null-rejected-nested-in", func(t *testing.T) {
+		ctx := mock.NewContext()
+		tbl := buildNullableNullRejectTestTable()
+		schema, names, err := expression.TableInfo2SchemaAndNames(ctx.GetExprCtx(), ast.NewCIStr(""), tbl)
+		require.NoError(t, err)
+		colE := findColumnByName(t, schema, names, "e")
+		innerSchema := expression.NewSchema(colE)
+
+		safeIn, err := expression.NewFunction(
+			ctx.GetExprCtx(),
+			ast.In,
+			types.NewFieldType(mysql.TypeLonglong),
+			expression.NewOne(),
+			colE,
+			newIntConstant(2),
+		)
+		require.NoError(t, err)
+		safeExpr, err := expression.NewFunction(ctx.GetExprCtx(), ast.NE, types.NewFieldType(mysql.TypeLonglong), safeIn, expression.NewOne())
+		require.NoError(t, err)
+		require.True(t, IsNullRejected(ctx, innerSchema, safeExpr, true))
+
+		unsafeListItem, err := expression.NewFunction(
+			ctx.GetExprCtx(),
+			ast.Ifnull,
+			types.NewFieldType(mysql.TypeLonglong),
+			colE,
+			expression.NewOne(),
+		)
+		require.NoError(t, err)
+		unsafeIn, err := expression.NewFunction(
+			ctx.GetExprCtx(),
+			ast.In,
+			types.NewFieldType(mysql.TypeLonglong),
+			expression.NewOne(),
+			colE,
+			unsafeListItem,
+		)
+		require.NoError(t, err)
+		unsafeExpr, err := expression.NewFunction(ctx.GetExprCtx(), ast.NE, types.NewFieldType(mysql.TypeLonglong), unsafeIn, expression.NewOne())
+		require.NoError(t, err)
+		require.False(t, IsNullRejected(ctx, innerSchema, unsafeExpr, true))
+	})
+}
+
+func buildNullableNullRejectTestTable() *model.TableInfo {
+	return &model.TableInfo{
+		Name: ast.NewCIStr("t"),
+		Columns: []*model.ColumnInfo{
+			{
+				ID:        1,
+				Offset:    0,
+				Name:      ast.NewCIStr("e"),
+				FieldType: *types.NewFieldType(mysql.TypeLonglong),
+				State:     model.StatePublic,
+			},
+		},
+		State: model.StatePublic,
+	}
+}
+
+func newIntConstant(v int64) *expression.Constant {
+	return &expression.Constant{
+		Value:   types.NewIntDatum(v),
+		RetType: types.NewFieldType(mysql.TypeLonglong),
+	}
+}
+
+func findColumnByName(t *testing.T, schema *expression.Schema, names types.NameSlice, colName string) *expression.Column {
+	t.Helper()
+	for i, name := range names {
+		if name.ColName.L == colName {
+			return schema.Columns[i]
+		}
+	}
+	t.Fatalf("column %s not found", colName)
+	return nil
 }
