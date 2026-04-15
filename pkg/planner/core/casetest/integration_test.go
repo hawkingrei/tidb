@@ -122,7 +122,17 @@ func TestVerboseExplain(t *testing.T) {
 		tk.MustQuery("select hex(id) from t_bit where id in (-1, -2)").Check(testkit.Rows())
 		tk.MustQuery("select hex(id) from t_bit where id not in (-1, 2)").Check(testkit.Rows("41"))
 
-		tk.MustExec("drop table if exists t1, t2, t3, t31240, partsupp, supplier, first_range, t_bit")
+		tk.MustExec("drop table if exists t_datetime_in")
+		tk.MustExec("create table t_datetime_in(a datetime, key idx(a))")
+		planRows := testdata.ConvertRowsToStrings(tk.MustQuery(
+			"explain format='brief' select * from t_datetime_in where a in ('2020-01-01 00:00:00', '2020-01-02 00:00:00')",
+		).Rows())
+		planText := strings.Join(planRows, "\n")
+		require.Contains(t, planText, "IndexRangeScan")
+		require.Contains(t, planText, "range:[2020-01-01 00:00:00,2020-01-01 00:00:00], [2020-01-02 00:00:00,2020-01-02 00:00:00]")
+		require.NotContains(t, planText, "or(eq(")
+
+		tk.MustExec("drop table if exists t1, t2, t3, t31240, partsupp, supplier, first_range, t_bit, t_datetime_in")
 	})
 }
 

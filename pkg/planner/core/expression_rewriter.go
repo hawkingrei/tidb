@@ -2210,7 +2210,7 @@ func (er *expressionRewriter) buildPreservedInFunction(
 		}
 	}
 	normalizedArgs := slices.Clone(args)
-	// Preserve a single IN when every element uses the same numeric comparison type with the left operand.
+	// Preserve a single IN when every element uses the same comparison type with the left operand.
 	// The IN builtin will cast the remaining arguments and fold constant casts for us.
 	switch cmpType {
 	case types.ETInt:
@@ -2219,6 +2219,18 @@ func (er *expressionRewriter) buildPreservedInFunction(
 		normalizedArgs[0] = expression.WrapWithCastAsReal(er.sctx, normalizedArgs[0])
 	case types.ETDecimal:
 		normalizedArgs[0] = expression.WrapWithCastAsDecimal(er.sctx, normalizedArgs[0])
+	case types.ETString:
+		normalizedArgs[0] = expression.WrapWithCastAsString(er.sctx, normalizedArgs[0])
+	case types.ETDatetime:
+		normalizedArgs[0] = expression.WrapWithCastAsTime(er.sctx, normalizedArgs[0], types.NewFieldType(mysql.TypeDatetime))
+	case types.ETTimestamp:
+		normalizedArgs[0] = expression.WrapWithCastAsTime(er.sctx, normalizedArgs[0], types.NewFieldType(mysql.TypeTimestamp))
+	case types.ETDuration:
+		normalizedArgs[0] = expression.WrapWithCastAsDuration(er.sctx, normalizedArgs[0])
+	case types.ETJson:
+		normalizedArgs[0] = expression.WrapWithCastAsJSON(er.sctx, normalizedArgs[0])
+	case types.ETVectorFloat32:
+		normalizedArgs[0] = expression.WrapWithCastAsVectorFloat32(er.sctx, normalizedArgs[0])
 	default:
 		return nil, nil
 	}
