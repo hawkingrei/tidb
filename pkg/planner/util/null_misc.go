@@ -125,6 +125,10 @@ func isNullRejectedSimpleExpr(ctx base.PlanContext, schema *expression.Schema, e
 	return false
 }
 
+// hasUnsafeNestedIn finds descendant IN predicates that are not null-rejected by
+// the IN-list semantics. In that case, EvaluateExprWithNull can be too aggressive
+// after substituting inner columns with NULL, so the caller must avoid treating
+// the whole predicate as null-rejected.
 func hasUnsafeNestedIn(
 	ctx base.PlanContext,
 	schema *expression.Schema,

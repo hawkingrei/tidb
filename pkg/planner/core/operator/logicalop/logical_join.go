@@ -348,6 +348,9 @@ func isNullRejected(ctx planctx.PlanContext, schema *expression.Schema, expr exp
 		if isNullRejectedSpecially(ctx, schema, expr) {
 			return true
 		}
+		// Keep the join-local null-reject fast path for top-level IN, but defer to
+		// planner/util once a descendant IN appears because EvaluateExprWithNull
+		// can incorrectly treat some nested IN predicates as null-rejected.
 		if containsNestedInDescendant(cond) && !util.IsNullRejected(ctx, schema, cond, true) {
 			return false
 		}
@@ -369,6 +372,9 @@ func isNullRejected(ctx planctx.PlanContext, schema *expression.Schema, expr exp
 	return false
 }
 
+// containsNestedInDescendant reports whether expr contains an IN below the root
+// node. The join-layer fast path handles top-level IN itself, so only descendant
+// IN nodes need the planner/util null-reject fallback.
 func containsNestedInDescendant(expr expression.Expression) bool {
 	sf, ok := expr.(*expression.ScalarFunction)
 	if !ok {
