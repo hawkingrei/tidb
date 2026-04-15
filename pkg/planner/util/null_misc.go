@@ -19,7 +19,6 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/planner/core/base"
-	"github.com/pingcap/tidb/pkg/planner/planctx"
 )
 
 // allConstants checks if only the expression has only constants.
@@ -100,10 +99,13 @@ func IsNullRejected(ctx base.PlanContext, innerSchema *expression.Schema, predic
 // A condition would be null-rejected in one of following cases:
 // If it is a predicate containing a reference to an inner table (null producing side) that evaluates
 // to UNKNOWN or FALSE when one of its arguments is NULL.
-func isNullRejectedSimpleExpr(ctx planctx.PlanContext, schema *expression.Schema, expr expression.Expression,
+func isNullRejectedSimpleExpr(ctx base.PlanContext, schema *expression.Schema, expr expression.Expression,
 	skipPlanCacheCheck bool) bool {
 	// The expression should reference at least one field in innerSchema or all constants.
 	if !expression.ExprReferenceSchema(expr, schema) && !allConstants(ctx.GetExprCtx(), expr) {
+		return false
+	}
+	if hasUnsafeNestedIn(ctx, schema, expr, skipPlanCacheCheck) {
 		return false
 	}
 	exprCtx := ctx.GetNullRejectCheckExprCtx()
@@ -117,6 +119,35 @@ func isNullRejectedSimpleExpr(ctx planctx.PlanContext, schema *expression.Schema
 		if x.Value.IsNull() {
 			return true
 		} else if isTrue, err := x.Value.ToBool(sc.TypeCtxOrDefault()); err == nil && isTrue == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// hasUnsafeNestedIn finds descendant IN predicates that are not null-rejected by
+// the IN-list semantics. In that case, EvaluateExprWithNull can be too aggressive
+// after substituting inner columns with NULL, so the caller must avoid treating
+// the whole predicate as null-rejected.
+func hasUnsafeNestedIn(
+	ctx base.PlanContext,
+	schema *expression.Schema,
+	expr expression.Expression,
+	skipPlanCacheCheck bool,
+) bool {
+	sf, ok := expr.(*expression.ScalarFunction)
+	if !ok {
+		return false
+	}
+	for _, arg := range sf.GetArgs() {
+		child, ok := arg.(*expression.ScalarFunction)
+		if !ok {
+			continue
+		}
+		if child.FuncName.L == ast.In && !isNullRejectedInList(ctx, child, schema, skipPlanCacheCheck) {
+			return true
+		}
+		if hasUnsafeNestedIn(ctx, schema, child, skipPlanCacheCheck) {
 			return true
 		}
 	}
