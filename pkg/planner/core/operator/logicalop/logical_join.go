@@ -348,7 +348,7 @@ func isNullRejected(ctx planctx.PlanContext, schema *expression.Schema, expr exp
 		if isNullRejectedSpecially(ctx, schema, expr) {
 			return true
 		}
-		if hasNestedIn(cond) && !util.IsNullRejected(ctx, schema, cond, true) {
+		if containsNestedInDescendant(cond) && !util.IsNullRejected(ctx, schema, cond, true) {
 			return false
 		}
 
@@ -369,7 +369,7 @@ func isNullRejected(ctx planctx.PlanContext, schema *expression.Schema, expr exp
 	return false
 }
 
-func hasNestedIn(expr expression.Expression) bool {
+func containsNestedInDescendant(expr expression.Expression) bool {
 	sf, ok := expr.(*expression.ScalarFunction)
 	if !ok {
 		return false
@@ -379,7 +379,7 @@ func hasNestedIn(expr expression.Expression) bool {
 		if !ok {
 			continue
 		}
-		if child.FuncName.L == ast.In || hasNestedIn(child) {
+		if child.FuncName.L == ast.In || containsNestedInDescendant(child) {
 			return true
 		}
 	}

@@ -125,7 +125,12 @@ func isNullRejectedSimpleExpr(ctx base.PlanContext, schema *expression.Schema, e
 	return false
 }
 
-func hasUnsafeNestedIn(ctx base.PlanContext, schema *expression.Schema, expr expression.Expression, skipPlanCacheCheck bool) bool {
+func hasUnsafeNestedIn(
+	ctx base.PlanContext,
+	schema *expression.Schema,
+	expr expression.Expression,
+	skipPlanCacheCheck bool,
+) bool {
 	sf, ok := expr.(*expression.ScalarFunction)
 	if !ok {
 		return false
