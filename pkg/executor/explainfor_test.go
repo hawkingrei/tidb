@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pingcap/tidb/pkg/parser/auth"
 	"github.com/pingcap/tidb/pkg/session/sessmgr"
@@ -92,6 +93,37 @@ func TestExplainFor(t *testing.T) {
 	ps = []*sessmgr.ProcessInfo{tkRootProcess}
 	tkRoot.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
 	tkRoot.MustExec(fmt.Sprintf("explain for connection %d", tkRootProcess.ID))
+
+	tkRoot.MustExec("set @@tidb_enable_collect_execution_info=0")
+	tkRoot.MustExec("set tidb_enable_non_prepared_plan_cache=1")
+	tkRoot.MustExec("drop table if exists t_explain_for_nonprep")
+	tkRoot.MustExec("create table t_explain_for_nonprep(status int)")
+	tkRoot.MustExec("insert into t_explain_for_nonprep values (1)")
+	tkExplain := testkit.NewTestKit(t, store)
+	tkExplain.MustExec("use test")
+
+	// The cached non-prepared plan keeps parameterized predicates in the recorded ProcessInfo plan.
+	queryDone := make(chan error, 1)
+	querySQL := "select status, sleep(1) from t_explain_for_nonprep where status=1"
+	go func() {
+		queryDone <- tkRoot.QueryToErr(querySQL)
+	}()
+	require.Eventually(t, func() bool {
+		pi := tkRoot.Session().ShowProcess()
+		return pi != nil && strings.Contains(pi.Info, "sleep(1)")
+	}, 5*time.Second, 50*time.Millisecond)
+
+	tkRootProcess = tkRoot.Session().ShowProcess()
+	ps = []*sessmgr.ProcessInfo{tkRootProcess}
+	tkExplain.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
+	tkExplain.MustQuery(fmt.Sprintf("explain for connection %d", tkRootProcess.ID))
+
+	require.NoError(t, <-queryDone)
+
+	tkRootProcess = tkRoot.Session().ShowProcess()
+	ps = []*sessmgr.ProcessInfo{tkRootProcess}
+	tkExplain.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
+	tkExplain.MustQuery(fmt.Sprintf("explain for connection %d", tkRootProcess.ID))
 }
 
 func TestExplainForVerbose(t *testing.T) {
