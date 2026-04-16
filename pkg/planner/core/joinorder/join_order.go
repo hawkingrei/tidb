@@ -177,7 +177,6 @@ func extractJoinGroup(p base.LogicalPlan) (resJoinGroup *joinGroup) {
 
 	var leftHasHint, rightHasHint bool
 	var vertexHints map[int]*JoinMethodHint
-	preserveHintedJoinEdge := false
 	if p.SCtx().GetSessionVars().EnableAdvancedJoinHint && join.PreferJoinType > uint(0) {
 		vertexHints = make(map[int]*JoinMethodHint)
 		if join.LeftPreferJoinType > uint(0) {
@@ -194,11 +193,6 @@ func extractJoinGroup(p base.LogicalPlan) (resJoinGroup *joinGroup) {
 			}
 			rightHasHint = true
 		}
-		// Side-specific index join hints belong to the current join edge. If only the hinted side is
-		// preserved and the opposite subtree is still expanded into the reorder group, the hint may be
-		// rebound onto a different join edge after reorder.
-		preserveHintedJoinEdge = join.LeftPreferJoinType&(hint.PreferINLJ|hint.PreferINLHJ|hint.PreferINLMJ) > 0 ||
-			join.RightPreferJoinType&(hint.PreferINLJ|hint.PreferINLHJ|hint.PreferINLMJ) > 0
 	}
 
 	resJoinGroup = &joinGroup{
@@ -210,7 +204,7 @@ func extractJoinGroup(p base.LogicalPlan) (resJoinGroup *joinGroup) {
 
 	leftShouldPreserve := curLeadingHint != nil && IsDerivedTableInLeadingHint(join.Children()[0], curLeadingHint)
 	var leftJoinGroup, rightJoinGroup *joinGroup
-	if !leftHasHint && !leftShouldPreserve && !preserveHintedJoinEdge {
+	if !leftHasHint && !leftShouldPreserve {
 		leftJoinGroup = extractJoinGroup(join.Children()[0])
 	} else {
 		leftJoinGroup = makeSingleGroup(join.Children()[0])
@@ -218,7 +212,7 @@ func extractJoinGroup(p base.LogicalPlan) (resJoinGroup *joinGroup) {
 	resJoinGroup.merge(leftJoinGroup)
 
 	rightShouldPreserve := curLeadingHint != nil && IsDerivedTableInLeadingHint(join.Children()[1], curLeadingHint)
-	if !rightHasHint && !rightShouldPreserve && !preserveHintedJoinEdge {
+	if !rightHasHint && !rightShouldPreserve {
 		rightJoinGroup = extractJoinGroup(join.Children()[1])
 	} else {
 		rightJoinGroup = makeSingleGroup(join.Children()[1])
