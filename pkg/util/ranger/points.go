@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"unsafe"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/pkg/expression"
@@ -31,6 +32,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/dbterror/plannererrors"
 	"github.com/pingcap/tidb/pkg/util/hack"
 	rangerctx "github.com/pingcap/tidb/pkg/util/ranger/context"
+	"github.com/pingcap/tidb/pkg/util/size"
 )
 
 // RangeType is alias for int.
@@ -48,6 +50,12 @@ type point struct {
 	value types.Datum
 	excl  bool // exclude
 	start bool
+}
+
+const emptyPointSize = int64(unsafe.Sizeof(point{}))
+
+func estimateMemUsageForBuildFromIn(points []*point) int64 {
+	return int64(cap(points))*size.SizeOfPointer + int64(len(points))*emptyPointSize + getPointsTotalDatumSize(points)
 }
 
 func (rp *point) String() string {
@@ -714,6 +722,8 @@ func (r *builder) buildFromIn(
 		curPos++
 	}
 	rangePoints = rangePoints[:curPos]
+	releaseTrackedMem := consumeTrackedMem(r.sctx.MemTracker, estimateMemUsageForBuildFromIn(rangePoints))
+	defer releaseTrackedMem()
 	cutPrefixForPoints(rangePoints, prefixLen, ft)
 	var err error
 	if convertToSortKey {
