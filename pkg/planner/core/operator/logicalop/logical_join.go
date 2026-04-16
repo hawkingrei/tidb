@@ -1511,11 +1511,8 @@ func (p *LogicalJoin) ExtractOnCondition(
 			continue
 		}
 		if expression.IsMutableEffectsExpr(expr) {
-			sf, ok := expr.(*expression.ScalarFunction)
-			if !ok || (sf.FuncName.L != ast.EQ && sf.FuncName.L != ast.NullEQ) {
-				otherCond = append(otherCond, expr)
-				continue
-			}
+			otherCond = append(otherCond, expr)
+			continue
 		}
 		allFromLeft, allFromRight := true, true
 		for _, col := range columns {

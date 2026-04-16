@@ -433,11 +433,10 @@ func TestDupRandJoinCondsPushDown(t *testing.T) {
 	require.True(t, ok, comment)
 	join, ok = proj.Children()[0].(*logicalop.LogicalJoin)
 	require.True(t, ok, comment)
-	selection, ok := join.Children()[0].(*logicalop.LogicalSelection)
-	require.True(t, ok, comment)
-	leftCond := expression.StringifyExpressionsWithCtx(s.GetCtx().GetExprCtx().GetEvalCtx(), selection.Conditions)
-	require.Equal(t, "[eq(cast(test.t.a, double BINARY), rand())]", leftCond, comment)
-	require.Empty(t, join.OtherConditions, comment)
+	_, ok = join.Children()[0].(*logicalop.LogicalSelection)
+	require.False(t, ok, comment)
+	otherCond = expression.StringifyExpressionsWithCtx(s.GetCtx().GetExprCtx().GetEvalCtx(), join.OtherConditions)
+	require.Equal(t, "[eq(cast(test.t.a, double BINARY), rand())]", otherCond, comment)
 }
 
 func TestTablePartition(t *testing.T) {
