@@ -177,6 +177,7 @@ func extractJoinGroup(p base.LogicalPlan) (resJoinGroup *joinGroup) {
 
 	var leftHasHint, rightHasHint bool
 	var vertexHints map[int]*JoinMethodHint
+	preserveHintedJoinEdge := false
 	if p.SCtx().GetSessionVars().EnableAdvancedJoinHint && join.PreferJoinType > uint(0) {
 		vertexHints = make(map[int]*JoinMethodHint)
 		if join.LeftPreferJoinType > uint(0) {
@@ -193,6 +194,11 @@ func extractJoinGroup(p base.LogicalPlan) (resJoinGroup *joinGroup) {
 			}
 			rightHasHint = true
 		}
+		// Side-specific index join hints belong to the current join edge. If only the hinted side is
+		// preserved and the opposite subtree is still expanded into the reorder group, the hint may be
+		// rebound onto a different join edge after reorder.
+		preserveHintedJoinEdge = join.LeftPreferJoinType&(hint.PreferINLJ|hint.PreferINLHJ|hint.PreferINLMJ) > 0 ||
+			join.RightPreferJoinType&(hint.PreferINLJ|hint.PreferINLHJ|hint.PreferINLMJ) > 0
 	}
 
 	resJoinGroup = &joinGroup{
@@ -204,7 +210,7 @@ func extractJoinGroup(p base.LogicalPlan) (resJoinGroup *joinGroup) {
 
 	leftShouldPreserve := curLeadingHint != nil && IsDerivedTableInLeadingHint(join.Children()[0], curLeadingHint)
 	var leftJoinGroup, rightJoinGroup *joinGroup
-	if !leftHasHint && !leftShouldPreserve {
+	if !leftHasHint && !leftShouldPreserve && !preserveHintedJoinEdge {
 		leftJoinGroup = extractJoinGroup(join.Children()[0])
 	} else {
 		leftJoinGroup = makeSingleGroup(join.Children()[0])
@@ -212,7 +218,7 @@ func extractJoinGroup(p base.LogicalPlan) (resJoinGroup *joinGroup) {
 	resJoinGroup.merge(leftJoinGroup)
 
 	rightShouldPreserve := curLeadingHint != nil && IsDerivedTableInLeadingHint(join.Children()[1], curLeadingHint)
-	if !rightHasHint && !rightShouldPreserve {
+	if !rightHasHint && !rightShouldPreserve && !preserveHintedJoinEdge {
 		rightJoinGroup = extractJoinGroup(join.Children()[1])
 	} else {
 		rightJoinGroup = makeSingleGroup(join.Children()[1])
@@ -278,6 +284,9 @@ func optimizeRecursive(p base.LogicalPlan) (base.LogicalPlan, error) {
 	}
 	if len(vertexMap) > 0 {
 		joinGroup.root = replaceJoinGroupVertexes(joinGroup.root, vertexMap)
+		if len(joinGroup.vertexHints) > 0 {
+			joinGroup.vertexHints = rebindVertexHints(joinGroup.vertexHints, vertexMap)
+		}
 	}
 	if p, err = optimizeForJoinGroup(p.SCtx(), joinGroup); err != nil {
 		return nil, err
@@ -311,6 +320,21 @@ func replaceJoinGroupVertexes(root base.LogicalPlan, vertexMap map[int]base.Logi
 	}
 	root.SetChildren(newChildren...)
 	return root
+}
+
+func rebindVertexHints(vertexHints map[int]*JoinMethodHint, vertexMap map[int]base.LogicalPlan) map[int]*JoinMethodHint {
+	if len(vertexHints) == 0 || len(vertexMap) == 0 {
+		return vertexHints
+	}
+	rebuilt := make(map[int]*JoinMethodHint, len(vertexHints))
+	for oldID, hintInfo := range vertexHints {
+		if optimizedVertex, ok := vertexMap[oldID]; ok {
+			rebuilt[optimizedVertex.ID()] = hintInfo
+			continue
+		}
+		rebuilt[oldID] = hintInfo
+	}
+	return rebuilt
 }
 
 func optimizeForJoinGroup(ctx base.PlanContext, group *joinGroup) (p base.LogicalPlan, err error) {

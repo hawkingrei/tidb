@@ -119,6 +119,7 @@ func extractJoinGroup(p base.LogicalPlan) *joinGroupResult {
 	}
 	// `leftHasHint` and `rightHasHint` are used to record whether the left child and right child are set by the join method hint.
 	leftHasHint, rightHasHint := false, false
+	preserveHintedJoinEdge := false
 	if isJoin && p.SCtx().GetSessionVars().EnableAdvancedJoinHint && join.PreferJoinType > uint(0) {
 		// If the current join node has the join method hint, we should store the hint information and restore it when we have finished the join reorder process.
 		if join.LeftPreferJoinType > uint(0) {
@@ -129,6 +130,11 @@ func extractJoinGroup(p base.LogicalPlan) *joinGroupResult {
 			joinMethodHintInfo[join.Children()[1].ID()] = &joinorder.JoinMethodHint{PreferJoinMethod: join.RightPreferJoinType, HintInfo: join.HintInfo}
 			rightHasHint = true
 		}
+		// Side-specific index join hints are attached to the current join edge. If only one side is
+		// preserved while the opposite subtree is still split into the reorder group, the hint can be
+		// rebound to a different join edge after reorder and suppress the original inapplicable warning.
+		preserveHintedJoinEdge = join.LeftPreferJoinType&(h.PreferINLJ|h.PreferINLHJ|h.PreferINLMJ) > 0 ||
+			join.RightPreferJoinType&(h.PreferINLJ|h.PreferINLHJ|h.PreferINLMJ) > 0
 	}
 	hasOuterJoin = hasOuterJoin || (join.JoinType != base.InnerJoin)
 	// If the left child has the hint, it means there are some join method hints want to specify the join method based on the left child.
@@ -138,7 +144,7 @@ func extractJoinGroup(p base.LogicalPlan) *joinGroupResult {
 	// Check if left child should be preserved due to LEADING hint reference
 	leftShouldPreserve := currentLeadingHint != nil && joinorder.IsDerivedTableInLeadingHint(join.Children()[0], currentLeadingHint)
 
-	if join.JoinType != base.RightOuterJoin && !leftHasHint && !leftShouldPreserve {
+	if join.JoinType != base.RightOuterJoin && !leftHasHint && !leftShouldPreserve && !preserveHintedJoinEdge {
 		lhsJoinGroupResult := extractJoinGroup(join.Children()[0])
 		lhsGroup, lhsEqualConds, lhsOtherConds, lhsJoinTypes, lhsJoinOrderHintInfo, lhsJoinMethodHintInfo, lhsHasOuterJoin := lhsJoinGroupResult.group, lhsJoinGroupResult.eqEdges, lhsJoinGroupResult.otherConds, lhsJoinGroupResult.joinTypes, lhsJoinGroupResult.joinOrderHintInfo, lhsJoinGroupResult.joinMethodHintInfo, lhsJoinGroupResult.hasOuterJoin
 		noExpand := false
@@ -186,7 +192,7 @@ func extractJoinGroup(p base.LogicalPlan) *joinGroupResult {
 	rightShouldPreserve := currentLeadingHint != nil && joinorder.IsDerivedTableInLeadingHint(join.Children()[1], currentLeadingHint)
 
 	// You can see the comments in the upside part which we try to split the left child part. It's the same here.
-	if join.JoinType != base.LeftOuterJoin && !rightHasHint && !rightShouldPreserve {
+	if join.JoinType != base.LeftOuterJoin && !rightHasHint && !rightShouldPreserve && !preserveHintedJoinEdge {
 		rhsJoinGroupResult := extractJoinGroup(join.Children()[1])
 		rhsGroup, rhsEqualConds, rhsOtherConds, rhsJoinTypes, rhsJoinOrderHintInfo, rhsJoinMethodHintInfo, rhsHasOuterJoin := rhsJoinGroupResult.group, rhsJoinGroupResult.eqEdges, rhsJoinGroupResult.otherConds, rhsJoinGroupResult.joinTypes, rhsJoinGroupResult.joinOrderHintInfo, rhsJoinGroupResult.joinMethodHintInfo, rhsJoinGroupResult.hasOuterJoin
 		noExpand := false
@@ -312,11 +318,17 @@ func (s *JoinReOrderSolver) optimizeRecursive(ctx base.PlanContext, p base.Logic
 		result := extractJoinGroup(p)
 		curJoinGroup, joinTypes, joinOrderHintInfo, hasOuterJoin := result.group, result.joinTypes, result.joinOrderHintInfo, result.hasOuterJoin
 		if len(curJoinGroup) > 1 {
+			optimizedVertexMap := make(map[int]base.LogicalPlan, len(curJoinGroup))
 			for i := range curJoinGroup {
+				oldID := curJoinGroup[i].ID()
 				curJoinGroup[i], err = s.optimizeRecursive(ctx, curJoinGroup[i])
 				if err != nil {
 					return nil, err
 				}
+				optimizedVertexMap[oldID] = curJoinGroup[i]
+			}
+			if len(result.joinMethodHintInfo) > 0 {
+				result.joinMethodHintInfo = rebindJoinMethodHints(result.joinMethodHintInfo, optimizedVertexMap)
 			}
 			originalSchema := p.Schema()
 
@@ -401,6 +413,21 @@ func (s *JoinReOrderSolver) optimizeRecursive(ctx base.PlanContext, p base.Logic
 	}
 	p.SetChildren(newChildren...)
 	return p, nil
+}
+
+func rebindJoinMethodHints(hints map[int]*joinorder.JoinMethodHint, optimizedVertexMap map[int]base.LogicalPlan) map[int]*joinorder.JoinMethodHint {
+	if len(hints) == 0 || len(optimizedVertexMap) == 0 {
+		return hints
+	}
+	rebuilt := make(map[int]*joinorder.JoinMethodHint, len(hints))
+	for oldID, hintInfo := range hints {
+		if optimizedVertex, ok := optimizedVertexMap[oldID]; ok {
+			rebuilt[optimizedVertex.ID()] = hintInfo
+			continue
+		}
+		rebuilt[oldID] = hintInfo
+	}
+	return rebuilt
 }
 
 // basicJoinGroupInfo represents basic information for a join group in the join reorder process.
