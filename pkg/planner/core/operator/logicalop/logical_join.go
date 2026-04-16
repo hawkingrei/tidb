@@ -1503,13 +1503,15 @@ func (p *LogicalJoin) ExtractOnCondition(
 			// The IsMutableEffectsExpr check is primarily designed to prevent mutable expressions
 			// like rand() > 0.5 from being pushed down; instead, such expressions should remain
 			// in other conditions.
-			// Checking len(columns) == 0 first is to let filter like rand() > tbl.col
-			// to be able pushdown as left or right condition
 			if expression.IsMutableEffectsExpr(expr) {
 				otherCond = append(otherCond, expr)
 				continue
 			}
 			leftCond, rightCond = p.pushDownConstExpr(expr, leftCond, rightCond, deriveLeft || deriveRight)
+			continue
+		}
+		if expression.IsMutableEffectsExpr(expr) {
+			otherCond = append(otherCond, expr)
 			continue
 		}
 		allFromLeft, allFromRight := true, true

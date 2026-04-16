@@ -415,11 +415,10 @@ func TestDupRandJoinCondsPushDown(t *testing.T) {
 	require.True(t, ok, comment)
 	join, ok := proj.Children()[0].(*logicalop.LogicalJoin)
 	require.True(t, ok, comment)
-	leftPlan, ok := join.Children()[0].(*logicalop.LogicalSelection)
-	require.True(t, ok, comment)
-	leftCond := expression.StringifyExpressionsWithCtx(s.GetCtx().GetExprCtx().GetEvalCtx(), leftPlan.Conditions)
-	// Condition with mutable function cannot be de-duplicated when push down join conds.
-	require.Equal(t, "[gt(cast(test.t.a, double BINARY), rand()) gt(cast(test.t.a, double BINARY), rand())]", leftCond, comment)
+	_, ok = join.Children()[0].(*logicalop.LogicalSelection)
+	require.False(t, ok, comment)
+	otherCond := expression.StringifyExpressionsWithCtx(s.GetCtx().GetExprCtx().GetEvalCtx(), join.OtherConditions)
+	require.Equal(t, "[gt(cast(test.t.a, double BINARY), rand()) gt(cast(test.t.a, double BINARY), rand())]", otherCond, comment)
 }
 
 func TestTablePartition(t *testing.T) {
