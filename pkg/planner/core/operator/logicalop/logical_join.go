@@ -1804,6 +1804,7 @@ func (p *LogicalJoin) updateEQCond() {
 			}
 			for i := range leftKeys {
 				lKey, rKey := leftKeys[i], rightKeys[i]
+				keepAsOtherCond := expression.IsMutableEffectsExpr(lKey) || expression.IsMutableEffectsExpr(rKey)
 				lCastCol, lCasted := extractCastSourceColumn(lKey)
 				rCastCol, rCasted := extractCastSourceColumn(rKey)
 				if lCasted && rCasted {
@@ -1850,6 +1851,10 @@ func (p *LogicalJoin) updateEQCond() {
 					}
 					eqCond = expression.NewFunctionInternal(p.SCtx().GetExprCtx(), ast.EQ, types.NewFieldType(mysql.TypeTiny), lKey, rKey)
 					eqSf = eqCond.(*expression.ScalarFunction)
+				}
+				if keepAsOtherCond {
+					p.OtherConditions = append(p.OtherConditions, eqSf)
+					continue
 				}
 				if isNA {
 					p.NAEQConditions = append(p.NAEQConditions, eqSf)

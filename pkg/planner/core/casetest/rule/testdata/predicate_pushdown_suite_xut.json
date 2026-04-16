@@ -95,16 +95,17 @@
       {
         "SQL": "select * from foo join bar on foo.a=bar.a where foo.a = rand();",
         "Plan": [
-          "HashJoin root  inner join, equal:[eq(test.foo.a, test.bar.a) eq(Column, Column)]",
+          "MergeJoin root  inner join, left key:test.foo.a, right key:test.bar.a, other cond:eq(Column, Column)",
           "├─Projection(Build) root  test.bar.a, test.bar.b, test.bar.c, rand()->Column",
           "│ └─TableReader root  data:TableFullScan",
-          "│   └─TableFullScan cop[tikv] table:bar keep order:false, stats:pseudo",
+          "│   └─TableFullScan cop[tikv] table:bar keep order:true, stats:pseudo",
           "└─Projection(Probe) root  test.foo.a, test.foo.b, test.foo.c, cast(test.foo.a, double BINARY)->Column",
           "  └─TableReader root  data:TableFullScan",
-          "    └─TableFullScan cop[tikv] table:foo keep order:false, stats:pseudo"
+          "    └─TableFullScan cop[tikv] table:foo keep order:true, stats:pseudo"
         ],
         "Result": null,
         "Warning": [
+          "Warning 1105 Scalar function 'rand'(signature: Rand, return type: double) is not supported to push down to tikv now.",
           "Warning 1105 Scalar function 'rand'(signature: Rand, return type: double) is not supported to push down to tikv now.",
           "Warning 1105 Scalar function 'rand'(signature: Rand, return type: double) is not supported to push down to tikv now.",
           "Warning 1105 Scalar function 'rand'(signature: Rand, return type: double) is not supported to push down to tikv now."

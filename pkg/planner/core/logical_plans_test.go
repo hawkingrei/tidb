@@ -435,8 +435,19 @@ func TestDupRandJoinCondsPushDown(t *testing.T) {
 	require.True(t, ok, comment)
 	_, ok = join.Children()[0].(*logicalop.LogicalSelection)
 	require.False(t, ok, comment)
-	otherCond = expression.StringifyExpressionsWithCtx(s.GetCtx().GetExprCtx().GetEvalCtx(), join.OtherConditions)
-	require.Equal(t, "[eq(cast(test.t.a, double BINARY), rand())]", otherCond, comment)
+	leftProj, ok := join.Children()[0].(*logicalop.LogicalProjection)
+	require.True(t, ok, comment)
+	rightProj, ok := join.Children()[1].(*logicalop.LogicalProjection)
+	require.True(t, ok, comment)
+	require.Len(t, join.OtherConditions, 1, comment)
+	require.Len(t, join.EqualConditions, 1, comment)
+	otherFn, ok := join.OtherConditions[0].(*expression.ScalarFunction)
+	require.True(t, ok, comment)
+	require.Equal(t, ast.EQ, otherFn.FuncName.L, comment)
+	require.Same(t, leftProj.Schema().Columns[len(leftProj.Schema().Columns)-1], otherFn.GetArgs()[0], comment)
+	require.Same(t, rightProj.Schema().Columns[len(rightProj.Schema().Columns)-1], otherFn.GetArgs()[1], comment)
+	require.Equal(t, "[cast(test.t.a, double BINARY)]", expression.StringifyExpressionsWithCtx(s.GetCtx().GetExprCtx().GetEvalCtx(), []expression.Expression{leftProj.Exprs[len(leftProj.Exprs)-1]}), comment)
+	require.Equal(t, "[rand()]", expression.StringifyExpressionsWithCtx(s.GetCtx().GetExprCtx().GetEvalCtx(), []expression.Expression{rightProj.Exprs[len(rightProj.Exprs)-1]}), comment)
 }
 
 func TestTablePartition(t *testing.T) {
