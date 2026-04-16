@@ -419,6 +419,25 @@ func TestDupRandJoinCondsPushDown(t *testing.T) {
 	require.False(t, ok, comment)
 	otherCond := expression.StringifyExpressionsWithCtx(s.GetCtx().GetExprCtx().GetEvalCtx(), join.OtherConditions)
 	require.Equal(t, "[gt(cast(test.t.a, double BINARY), rand()) gt(cast(test.t.a, double BINARY), rand())]", otherCond, comment)
+
+	sql = "select * from t as t1 join t t2 on t1.a = t2.a where t1.a = rand()"
+	comment = fmt.Sprintf("for %s", sql)
+	stmt, err = s.GetParser().ParseOneStmt(sql, "", "")
+	require.NoError(t, err, comment)
+	nodeW = resolve.NewNodeW(stmt)
+	p, err = BuildLogicalPlanForTest(context.Background(), s.GetSCtx(), nodeW, s.GetIS())
+	require.NoError(t, err, comment)
+	p, err = logicalOptimize(context.TODO(), rule.FlagPredicatePushDown, p.(base.LogicalPlan))
+	require.NoError(t, err, comment)
+	proj, ok = p.(*logicalop.LogicalProjection)
+	require.True(t, ok, comment)
+	join, ok = proj.Children()[0].(*logicalop.LogicalJoin)
+	require.True(t, ok, comment)
+	selection, ok := join.Children()[0].(*logicalop.LogicalSelection)
+	require.True(t, ok, comment)
+	leftCond := expression.StringifyExpressionsWithCtx(s.GetCtx().GetExprCtx().GetEvalCtx(), selection.Conditions)
+	require.Equal(t, "[eq(cast(test.t.a, double BINARY), rand())]", leftCond, comment)
+	require.Empty(t, join.OtherConditions, comment)
 }
 
 func TestTablePartition(t *testing.T) {
