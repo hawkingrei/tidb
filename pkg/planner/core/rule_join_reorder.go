@@ -415,7 +415,7 @@ func rebindJoinMethodHints(hints map[int]*joinorder.JoinMethodHint, optimizedVer
 	}
 	rebuilt := make(map[int]*joinorder.JoinMethodHint, len(hints))
 	for oldID, hintInfo := range hints {
-		if optimizedVertex, ok := optimizedVertexMap[oldID]; ok {
+		if optimizedVertex, ok := optimizedVertexMap[oldID]; ok && joinorder.ShouldRebindJoinMethodHint(hintInfo.PreferJoinMethod) {
 			rebuilt[optimizedVertex.ID()] = hintInfo
 			continue
 		}

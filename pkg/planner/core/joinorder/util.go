@@ -32,6 +32,14 @@ type JoinMethodHint struct {
 	HintInfo         *hint.PlanHints
 }
 
+// ShouldRebindJoinMethodHint reports whether a join method hint should follow
+// the optimized vertex ID after recursive subtree optimization.
+func ShouldRebindJoinMethodHint(preferJoinMethod uint) bool {
+	indexJoinMask := hint.PreferINLJ | hint.PreferINLHJ | hint.PreferINLMJ |
+		hint.PreferNoIndexJoin | hint.PreferNoIndexHashJoin | hint.PreferNoIndexMergeJoin
+	return preferJoinMethod&indexJoinMask > 0
+}
+
 // CheckAndGenerateLeadingHint used to check and generate the valid leading hint.
 // We are allowed to use at most one leading hint in a join group. When more than one,
 // all leading hints in the current join group will be invalid.
