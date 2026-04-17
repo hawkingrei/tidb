@@ -216,14 +216,41 @@ func (la *LogicalApply) ExtractFD() *fd.FDSet {
 	}
 	switch la.JoinType {
 	case base.InnerJoin:
-		return la.ExtractFDForInnerJoin(equivs)
+		fds := la.ExtractFDForInnerJoin(equivs)
+		la.addCorrelatedInputFDForMaxOneRow(fds)
+		return fds
 	case base.LeftOuterJoin, base.RightOuterJoin:
-		return la.ExtractFDForOuterJoin(equivs)
+		fds := la.ExtractFDForOuterJoin(equivs)
+		la.addCorrelatedInputFDForMaxOneRow(fds)
+		return fds
 	case base.SemiJoin:
 		return la.ExtractFDForSemiJoin(equivs)
 	default:
 		return &fd.FDSet{HashCodeToUniqueID: make(map[string]int)}
 	}
+}
+
+func (la *LogicalApply) addCorrelatedInputFDForMaxOneRow(fds *fd.FDSet) {
+	if fds == nil || !la.Children()[1].MaxOneRow() || len(la.CorCols) == 0 {
+		return
+	}
+
+	determinants := intset.NewFastIntSet()
+	for _, corCol := range la.CorCols {
+		determinants.Insert(int(corCol.UniqueID))
+	}
+	if determinants.IsEmpty() {
+		return
+	}
+
+	dependencies := intset.NewFastIntSet()
+	for _, col := range la.Children()[1].Schema().Columns {
+		dependencies.Insert(int(col.UniqueID))
+	}
+	if dependencies.IsEmpty() {
+		return
+	}
+	fds.AddStrictFunctionalDependency(determinants, dependencies)
 }
 
 // GetBaseLogicalPlan inherits BaseLogicalPlan.LogicalPlan.<23rd> implementation.
