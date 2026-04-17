@@ -55,7 +55,9 @@ type point struct {
 const emptyPointSize = int64(unsafe.Sizeof(point{}))
 
 func estimateMemUsageForBuildFromIn(points []*point) int64 {
-	return int64(cap(points))*size.SizeOfPointer + int64(len(points))*emptyPointSize + getPointsTotalDatumSize(points)
+	// point already embeds an inlined Datum header, so only the extra Datum payload
+	// should be added on top of the point/object footprint.
+	return int64(cap(points))*size.SizeOfPointer + int64(len(points))*emptyPointSize + getPointsTotalDatumSize(points) - int64(len(points))*types.EmptyDatumSize
 }
 
 func (rp *point) String() string {
