@@ -32,6 +32,10 @@ type JoinMethodHint struct {
 	HintInfo         *hint.PlanHints
 }
 
+// indexJoinHintMask is intentionally limited to the index-join family because
+// this fix only restores the inapplicable-warning path carried by those hints.
+// Other join-method hints still need dedicated rebinding semantics and should be
+// handled in follow-up changes instead of being folded into this path implicitly.
 const indexJoinHintMask = hint.PreferINLJ | hint.PreferINLHJ | hint.PreferINLMJ |
 	hint.PreferNoIndexJoin | hint.PreferNoIndexHashJoin | hint.PreferNoIndexMergeJoin
 
@@ -57,6 +61,8 @@ func RebindJoinMethodHints(hints map[int]*JoinMethodHint, vertexMap map[int]base
 				rebuilt[optimizedVertex.ID()] = hintInfo
 				continue
 			}
+			// Keep the original key in non-intest builds so we do not silently drop
+			// the hint if a future caller violates the rebinding invariant.
 		}
 		rebuilt[oldID] = hintInfo
 	}
