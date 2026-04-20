@@ -124,6 +124,40 @@ func TestExplainFor(t *testing.T) {
 	ps = []*sessmgr.ProcessInfo{tkRootProcess}
 	tkExplain.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
 	tkExplain.MustQuery(fmt.Sprintf("explain for connection %d", tkRootProcess.ID))
+
+	tkRoot.MustExec("set tidb_enable_prepared_plan_cache=1")
+	tkRoot.MustExec("drop table if exists t_explain_for_prep")
+	tkRoot.MustExec("create table t_explain_for_prep(status int)")
+	tkRoot.MustExec("insert into t_explain_for_prep values (1)")
+	tkRoot.MustExec("prepare stmt_explain_for_connection from 'select status, sleep(1) from t_explain_for_prep where status = ?'")
+	tkRoot.MustExec("set @status = 1")
+	tkRoot.MustQuery("execute stmt_explain_for_connection using @status").Check(testkit.Rows("1 0"))
+	tkRoot.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("0"))
+
+	// Prepared plan cache also records BriefBinaryPlan through Execute.Plan, so the decode-only path
+	// should stay valid for both running and finished EXPLAIN FOR CONNECTION.
+	queryDone = make(chan error, 1)
+	querySQL = "execute stmt_explain_for_connection using @status"
+	go func() {
+		queryDone <- tkRoot.QueryToErr(querySQL)
+	}()
+	require.Eventually(t, func() bool {
+		pi := tkRoot.Session().ShowProcess()
+		return pi != nil && strings.Contains(pi.Info, "stmt_explain_for_connection")
+	}, 5*time.Second, 50*time.Millisecond)
+
+	tkRootProcess = tkRoot.Session().ShowProcess()
+	ps = []*sessmgr.ProcessInfo{tkRootProcess}
+	tkExplain.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
+	tkExplain.MustQuery(fmt.Sprintf("explain for connection %d", tkRootProcess.ID))
+
+	require.NoError(t, <-queryDone)
+	tkRoot.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("1"))
+
+	tkRootProcess = tkRoot.Session().ShowProcess()
+	ps = []*sessmgr.ProcessInfo{tkRootProcess}
+	tkExplain.Session().SetSessionManager(&testkit.MockSessionManager{PS: ps})
+	tkExplain.MustQuery(fmt.Sprintf("explain for connection %d", tkRootProcess.ID))
 }
 
 func TestExplainForVerbose(t *testing.T) {
