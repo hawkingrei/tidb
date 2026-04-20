@@ -355,7 +355,6 @@ from
     where t1.serialNo = t2.insurantNo
       and t2.insurantNo = '2'
   ) s`
-
 		expectedWarn := "Warning 1815 Optimizer Hint /*+ INL_JOIN(t1) */ or /*+ TIDB_INLJ(t1) */ is inapplicable"
 
 		tk.MustExec("set @@session.tidb_opt_advanced_join_hint=0")

@@ -322,7 +322,7 @@ func (s *JoinReOrderSolver) optimizeRecursive(ctx base.PlanContext, p base.Logic
 				optimizedVertexMap[oldID] = curJoinGroup[i]
 			}
 			if len(result.joinMethodHintInfo) > 0 {
-				result.joinMethodHintInfo = rebindJoinMethodHints(result.joinMethodHintInfo, optimizedVertexMap)
+				result.joinMethodHintInfo = joinorder.RebindJoinMethodHints(result.joinMethodHintInfo, optimizedVertexMap)
 			}
 			originalSchema := p.Schema()
 
@@ -407,21 +407,6 @@ func (s *JoinReOrderSolver) optimizeRecursive(ctx base.PlanContext, p base.Logic
 	}
 	p.SetChildren(newChildren...)
 	return p, nil
-}
-
-func rebindJoinMethodHints(hints map[int]*joinorder.JoinMethodHint, optimizedVertexMap map[int]base.LogicalPlan) map[int]*joinorder.JoinMethodHint {
-	if len(hints) == 0 || len(optimizedVertexMap) == 0 {
-		return hints
-	}
-	rebuilt := make(map[int]*joinorder.JoinMethodHint, len(hints))
-	for oldID, hintInfo := range hints {
-		if optimizedVertex, ok := optimizedVertexMap[oldID]; ok && joinorder.ShouldRebindJoinMethodHint(hintInfo.PreferJoinMethod) {
-			rebuilt[optimizedVertex.ID()] = hintInfo
-			continue
-		}
-		rebuilt[oldID] = hintInfo
-	}
-	return rebuilt
 }
 
 // basicJoinGroupInfo represents basic information for a join group in the join reorder process.

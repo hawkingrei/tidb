@@ -279,7 +279,7 @@ func optimizeRecursive(p base.LogicalPlan) (base.LogicalPlan, error) {
 	if len(vertexMap) > 0 {
 		joinGroup.root = replaceJoinGroupVertexes(joinGroup.root, vertexMap)
 		if len(joinGroup.vertexHints) > 0 {
-			joinGroup.vertexHints = rebindVertexHints(joinGroup.vertexHints, vertexMap)
+			joinGroup.vertexHints = RebindJoinMethodHints(joinGroup.vertexHints, vertexMap)
 		}
 	}
 	if p, err = optimizeForJoinGroup(p.SCtx(), joinGroup); err != nil {
@@ -314,21 +314,6 @@ func replaceJoinGroupVertexes(root base.LogicalPlan, vertexMap map[int]base.Logi
 	}
 	root.SetChildren(newChildren...)
 	return root
-}
-
-func rebindVertexHints(vertexHints map[int]*JoinMethodHint, vertexMap map[int]base.LogicalPlan) map[int]*JoinMethodHint {
-	if len(vertexHints) == 0 || len(vertexMap) == 0 {
-		return vertexHints
-	}
-	rebuilt := make(map[int]*JoinMethodHint, len(vertexHints))
-	for oldID, hintInfo := range vertexHints {
-		if optimizedVertex, ok := vertexMap[oldID]; ok && ShouldRebindJoinMethodHint(hintInfo.PreferJoinMethod) {
-			rebuilt[optimizedVertex.ID()] = hintInfo
-			continue
-		}
-		rebuilt[oldID] = hintInfo
-	}
-	return rebuilt
 }
 
 func optimizeForJoinGroup(ctx base.PlanContext, group *joinGroup) (p base.LogicalPlan, err error) {
