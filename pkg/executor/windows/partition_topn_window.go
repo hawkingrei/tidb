@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package executor
+package windows
 
 import (
 	"context"
@@ -25,6 +25,10 @@ import (
 
 // PartitionTopNWindowExec fuses a row_number stream window with an upper-bound
 // filter and only produces the first K rows of each partition.
+//
+// The executor assumes its child already returns rows ordered by partition keys
+// and row_number order-by keys. That lets it assign row numbers by simple group
+// scanning instead of invoking the generic window state machine.
 type PartitionTopNWindowExec struct {
 	exec.BaseExecutor
 
@@ -83,6 +87,8 @@ func (e *PartitionTopNWindowExec) Next(ctx context.Context, req *chunk.Chunk) er
 			}
 		}
 		if e.groupRank >= e.limitCount {
+			// The current partition already produced K rows, so the remaining rows
+			// in this group can be discarded immediately.
 			e.groupStart = e.groupEnd
 			continue
 		}
@@ -114,6 +120,8 @@ func (e *PartitionTopNWindowExec) loadNextGroup(ctx context.Context) (bool, erro
 			if err != nil {
 				return false, errors.Trace(err)
 			}
+			// A logical partition may span multiple child chunks. In that case the
+			// row_number state must keep counting instead of restarting from 1.
 			e.resumeLastPartition = samePartition
 		}
 		begin, end := e.groupChecker.GetNextGroup()

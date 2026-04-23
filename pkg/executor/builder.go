@@ -53,6 +53,7 @@ import (
 	executor_metrics "github.com/pingcap/tidb/pkg/executor/metrics"
 	"github.com/pingcap/tidb/pkg/executor/sortexec"
 	"github.com/pingcap/tidb/pkg/executor/unionexec"
+	windowexec "github.com/pingcap/tidb/pkg/executor/windows"
 	"github.com/pingcap/tidb/pkg/expression"
 	"github.com/pingcap/tidb/pkg/expression/aggregation"
 	"github.com/pingcap/tidb/pkg/infoschema"
@@ -64,7 +65,6 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/terror"
 	plannercore "github.com/pingcap/tidb/pkg/planner/core"
 	"github.com/pingcap/tidb/pkg/planner/core/base"
-	"github.com/pingcap/tidb/pkg/planner/core/operator/logicalop"
 	"github.com/pingcap/tidb/pkg/planner/core/operator/physicalop"
 	"github.com/pingcap/tidb/pkg/planner/core/rule"
 	plannerutil "github.com/pingcap/tidb/pkg/planner/util"
@@ -5471,15 +5471,7 @@ func (builder *dataReaderBuilder) buildStreamWindowForIndexJoin(
 			err = util.GetRecoverError(r)
 		}
 	}()
-	windowExec := builder.executorBuilder.buildWindowExecWithChildExec(&v.PhysicalWindow, childExec, true)
-	if builder.executorBuilder.err != nil {
-		return nil, builder.executorBuilder.err
-	}
-	pipelinedExec, ok := windowExec.(*PipelinedWindowExec)
-	if !ok {
-		return nil, errors.New("stream window for index join must be built with stream window executor")
-	}
-	streamWindowExec := &StreamWindowExec{PipelinedWindowExec: pipelinedExec}
+	streamWindowExec, err := windowexec.BuildStream(builder.ctx, &v.PhysicalWindow, childExec)
 	err = streamWindowExec.OpenSelf()
 	if err != nil {
 		return nil, err
@@ -5492,17 +5484,8 @@ func (builder *dataReaderBuilder) buildPartitionTopNWindowForIndexJoin(
 	childExec exec.Executor,
 	limitCount uint64,
 ) (exec.Executor, error) {
-	groupByItems := make([]expression.Expression, 0, len(v.PartitionBy))
-	for _, item := range v.PartitionBy {
-		groupByItems = append(groupByItems, item.Col)
-	}
-	partitionTopNExec := &PartitionTopNWindowExec{
-		BaseExecutor: exec.NewBaseExecutor(builder.ctx, v.Schema(), v.ID(), childExec),
-		groupChecker: vecgroupchecker.NewVecGroupChecker(builder.ctx.GetExprCtx().GetEvalCtx(), builder.ctx.GetSessionVars().EnableVectorizedExpression, groupByItems),
-		limitCount:   limitCount,
-		resultColIdx: v.Schema().Len() - 1,
-	}
-	if err := partitionTopNExec.OpenSelf(); err != nil {
+	partitionTopNExec, err := windowexec.NewPartitionTopNExec(builder.ctx, v, childExec, limitCount)
+	if err != nil {
 		return nil, err
 	}
 	return partitionTopNExec, nil
@@ -5629,148 +5612,29 @@ func buildKvRangesForIndexJoin(dctx *distsqlctx.DistSQLContext, pctx *rangerctx.
 }
 
 func (b *executorBuilder) buildWindow(v *physicalop.PhysicalWindow) exec.Executor {
-	return b.buildWindowBase(v, false)
-}
-
-func (b *executorBuilder) buildStreamWindow(v *physicalop.PhysicalStreamWindow) exec.Executor {
-	windowExec := b.buildWindowBase(&v.PhysicalWindow, true)
-	if windowExec == nil || b.err != nil {
-		return nil
-	}
-	pipelinedExec, ok := windowExec.(*PipelinedWindowExec)
-	if !ok {
-		b.err = errors.New("stream window must be built with pipelined window executor")
-		return nil
-	}
-	return &StreamWindowExec{PipelinedWindowExec: pipelinedExec}
-}
-
-func (b *executorBuilder) buildWindowBase(v *physicalop.PhysicalWindow, forcePipelined bool) exec.Executor {
 	childExec := b.build(v.Children()[0])
 	if b.err != nil {
 		return nil
 	}
-	return b.buildWindowExecWithChildExec(v, childExec, forcePipelined)
+	windowExec, err := windowexec.Build(b.ctx, v, childExec, false)
+	if err != nil {
+		b.err = err
+		return nil
+	}
+	return windowExec
 }
 
-func (b *executorBuilder) buildWindowExecWithChildExec(v *physicalop.PhysicalWindow, childExec exec.Executor, forcePipelined bool) exec.Executor {
-	base := exec.NewBaseExecutor(b.ctx, v.Schema(), v.ID(), childExec)
-	groupByItems := make([]expression.Expression, 0, len(v.PartitionBy))
-	for _, item := range v.PartitionBy {
-		groupByItems = append(groupByItems, item.Col)
+func (b *executorBuilder) buildStreamWindow(v *physicalop.PhysicalStreamWindow) exec.Executor {
+	childExec := b.build(v.Children()[0])
+	if b.err != nil {
+		return nil
 	}
-	orderByCols := make([]*expression.Column, 0, len(v.OrderBy))
-	for _, item := range v.OrderBy {
-		orderByCols = append(orderByCols, item.Col)
+	streamWindowExec, err := windowexec.BuildStream(b.ctx, &v.PhysicalWindow, childExec)
+	if err != nil {
+		b.err = err
+		return nil
 	}
-	windowFuncs := make([]aggfuncs.AggFunc, 0, len(v.WindowFuncDescs))
-	partialResults := make([]aggfuncs.PartialResult, 0, len(v.WindowFuncDescs))
-	resultColIdx := v.Schema().Len() - len(v.WindowFuncDescs)
-	exprCtx := b.ctx.GetExprCtx()
-	for _, desc := range v.WindowFuncDescs {
-		aggDesc, err := aggregation.NewAggFuncDescForWindowFunc(exprCtx, desc, false)
-		if err != nil {
-			b.err = err
-			return nil
-		}
-		agg := aggfuncs.BuildWindowFunctions(exprCtx, aggDesc, resultColIdx, orderByCols)
-		windowFuncs = append(windowFuncs, agg)
-		partialResult, _ := agg.AllocPartialResult()
-		partialResults = append(partialResults, partialResult)
-		resultColIdx++
-	}
-
-	var err error
-	if forcePipelined || b.ctx.GetSessionVars().EnablePipelinedWindowExec {
-		exec := &PipelinedWindowExec{
-			BaseExecutor:   base,
-			groupChecker:   vecgroupchecker.NewVecGroupChecker(b.ctx.GetExprCtx().GetEvalCtx(), b.ctx.GetSessionVars().EnableVectorizedExpression, groupByItems),
-			numWindowFuncs: len(v.WindowFuncDescs),
-			windowFuncs:    windowFuncs,
-			partialResults: partialResults,
-		}
-		exec.slidingWindowFuncs = make([]aggfuncs.SlidingWindowAggFunc, len(exec.windowFuncs))
-		for i, windowFunc := range exec.windowFuncs {
-			if slidingWindowAggFunc, ok := windowFunc.(aggfuncs.SlidingWindowAggFunc); ok {
-				exec.slidingWindowFuncs[i] = slidingWindowAggFunc
-			}
-		}
-		if v.Frame == nil {
-			exec.start = &logicalop.FrameBound{
-				Type:      ast.Preceding,
-				UnBounded: true,
-			}
-			exec.end = &logicalop.FrameBound{
-				Type:      ast.Following,
-				UnBounded: true,
-			}
-		} else {
-			exec.start = v.Frame.Start
-			exec.end = v.Frame.End
-			if v.Frame.Type == ast.Ranges {
-				cmpResult := int64(-1)
-				if len(v.OrderBy) > 0 && v.OrderBy[0].Desc {
-					cmpResult = 1
-				}
-				exec.orderByCols = orderByCols
-				exec.expectedCmpResult = cmpResult
-				exec.isRangeFrame = true
-				err = exec.start.UpdateCompareCols(b.ctx, exec.orderByCols)
-				if err != nil {
-					return nil
-				}
-				err = exec.end.UpdateCompareCols(b.ctx, exec.orderByCols)
-				if err != nil {
-					return nil
-				}
-			}
-		}
-		return exec
-	}
-	var processor windowProcessor
-	if v.Frame == nil {
-		processor = &aggWindowProcessor{
-			windowFuncs:    windowFuncs,
-			partialResults: partialResults,
-		}
-	} else if v.Frame.Type == ast.Rows {
-		processor = &rowFrameWindowProcessor{
-			windowFuncs:    windowFuncs,
-			partialResults: partialResults,
-			start:          v.Frame.Start,
-			end:            v.Frame.End,
-		}
-	} else {
-		cmpResult := int64(-1)
-		if len(v.OrderBy) > 0 && v.OrderBy[0].Desc {
-			cmpResult = 1
-		}
-		tmpProcessor := &rangeFrameWindowProcessor{
-			windowFuncs:       windowFuncs,
-			partialResults:    partialResults,
-			start:             v.Frame.Start,
-			end:               v.Frame.End,
-			orderByCols:       orderByCols,
-			expectedCmpResult: cmpResult,
-		}
-
-		err = tmpProcessor.start.UpdateCompareCols(b.ctx, orderByCols)
-		if err != nil {
-			return nil
-		}
-		err = tmpProcessor.end.UpdateCompareCols(b.ctx, orderByCols)
-		if err != nil {
-			return nil
-		}
-
-		processor = tmpProcessor
-	}
-	return &WindowExec{
-		BaseExecutor:   base,
-		processor:      processor,
-		groupChecker:   vecgroupchecker.NewVecGroupChecker(b.ctx.GetExprCtx().GetEvalCtx(), b.ctx.GetSessionVars().EnableVectorizedExpression, groupByItems),
-		numWindowFuncs: len(v.WindowFuncDescs),
-	}
+	return streamWindowExec
 }
 
 func (b *executorBuilder) buildShuffle(v *physicalop.PhysicalShuffle) *ShuffleExec {

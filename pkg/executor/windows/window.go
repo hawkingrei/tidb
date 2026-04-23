@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package executor
+package windows
 
 import (
 	"context"
@@ -28,30 +28,31 @@ import (
 	"github.com/pingcap/tidb/pkg/util/chunk"
 )
 
-// WindowExec is the executor for window functions.
+// WindowExec is the blocking implementation for window functions.
+//
+// Unlike PipelinedWindowExec, this executor materializes each partition before
+// appending window columns back into already-buffered output chunks. That keeps
+// the implementation simple for the generic path while still reusing the same
+// chunk references for pass-through columns.
 type WindowExec struct {
 	exec.BaseExecutor
 
-	groupChecker *vecgroupchecker.VecGroupChecker
-	// childResult stores the child chunk
-	childResult *chunk.Chunk
-	// executed indicates the child executor is drained or something unexpected happened.
-	executed bool
-	// resultChunks stores the chunks to return
-	resultChunks []*chunk.Chunk
-	// remainingRowsInChunk indicates how many rows the resultChunks[i] is not prepared.
+	groupChecker         *vecgroupchecker.VecGroupChecker
+	childResult          *chunk.Chunk
+	executed             bool
+	resultChunks         []*chunk.Chunk
 	remainingRowsInChunk []int
 
 	numWindowFuncs int
 	processor      windowProcessor
 }
 
-// Close implements the Executor Close interface.
-func (e *WindowExec) Close() error {
-	return errors.Trace(e.BaseExecutor.Close())
-}
+// Close releases the executor and all child resources.
+func (e *WindowExec) Close() error { return errors.Trace(e.BaseExecutor.Close()) }
 
-// Next implements the Executor Next interface.
+// Next returns the next chunk whose window columns have already been materialized.
+// The executor may fetch more child chunks internally until a complete partition
+// has been processed and the front buffered chunk is ready to return.
 func (e *WindowExec) Next(ctx context.Context, chk *chunk.Chunk) error {
 	chk.Reset()
 	for !e.executed && !e.preparedChunkAvailable() {
@@ -63,13 +64,16 @@ func (e *WindowExec) Next(ctx context.Context, chk *chunk.Chunk) error {
 	}
 	if len(e.resultChunks) > 0 {
 		chk.SwapColumns(e.resultChunks[0])
-		e.resultChunks[0] = nil // GC it. TODO: Reuse it.
+		e.resultChunks[0] = nil
 		e.resultChunks = e.resultChunks[1:]
 		e.remainingRowsInChunk = e.remainingRowsInChunk[1:]
 	}
 	return nil
 }
 
+// preparedChunkAvailable reports whether the first buffered result chunk already
+// has all its window columns appended. Chunks may be fetched earlier than they
+// can be returned because a partition can span multiple input chunks.
 func (e *WindowExec) preparedChunkAvailable() bool {
 	return len(e.resultChunks) > 0 && e.remainingRowsInChunk[0] == 0
 }
@@ -95,6 +99,9 @@ func (e *WindowExec) consumeOneGroup(ctx context.Context) error {
 		groupRows = append(groupRows, e.childResult.GetRow(i))
 	}
 
+	// If the current group reaches the end of the chunk, the same partition may
+	// continue in the next child chunk. Keep fetching until the partition boundary
+	// is certain, then hand the whole partition to the processor.
 	for meetLastGroup := end == e.childResult.NumRows(); meetLastGroup; {
 		meetLastGroup = false
 		eof, err := e.fetchChild(ctx)
@@ -105,12 +112,10 @@ func (e *WindowExec) consumeOneGroup(ctx context.Context) error {
 			e.executed = true
 			return e.consumeGroupRows(groupRows)
 		}
-
 		isFirstGroupSameAsPrev, err := e.groupChecker.SplitIntoGroups(e.childResult)
 		if err != nil {
 			return errors.Trace(err)
 		}
-
 		if isFirstGroupSameAsPrev {
 			begin, end = e.groupChecker.GetNextGroup()
 			for i := begin; i < end; i++ {
@@ -128,13 +133,12 @@ func (e *WindowExec) consumeGroupRows(groupRows []chunk.Row) (err error) {
 		return nil
 	}
 	for i := range e.resultChunks {
+		// resultChunks and remainingRowsInChunk are aligned FIFO queues. We keep
+		// subtracting rows from the front until the current partition has been fully
+		// written back to every buffered chunk it spans.
 		remained := min(e.remainingRowsInChunk[i], remainingRowsInGroup)
 		e.remainingRowsInChunk[i] -= remained
 		remainingRowsInGroup -= remained
-
-		// TODO: Combine these three methods.
-		// The old implementation needs the processor has these three methods
-		// but now it does not have to.
 		groupRows, err = e.processor.consumeGroupRows(e.Ctx(), groupRows)
 		if err != nil {
 			return errors.Trace(err)
@@ -157,12 +161,10 @@ func (e *WindowExec) fetchChild(ctx context.Context) (eof bool, err error) {
 	if err != nil {
 		return false, errors.Trace(err)
 	}
-	// No more data.
 	numRows := childResult.NumRows()
 	if numRows == 0 {
 		return true, nil
 	}
-
 	resultChk := e.AllocPool.Alloc(e.RetFieldTypes(), 0, numRows)
 	err = e.copyChk(childResult, resultChk)
 	if err != nil {
@@ -170,7 +172,6 @@ func (e *WindowExec) fetchChild(ctx context.Context) (eof bool, err error) {
 	}
 	e.resultChunks = append(e.resultChunks, resultChk)
 	e.remainingRowsInChunk = append(e.remainingRowsInChunk, numRows)
-
 	e.childResult = childResult
 	return false, nil
 }
@@ -185,18 +186,14 @@ func (e *WindowExec) copyChk(src, dst *chunk.Chunk) error {
 	return nil
 }
 
-// windowProcessor is the interface for processing different kinds of windows.
 type windowProcessor interface {
-	// consumeGroupRows updates the result for an window function using the input rows
-	// which belong to the same partition.
 	consumeGroupRows(ctx sessionctx.Context, rows []chunk.Row) ([]chunk.Row, error)
-	// appendResult2Chunk appends the final results to chunk.
-	// It is called when there are no more rows in current partition.
 	appendResult2Chunk(ctx sessionctx.Context, rows []chunk.Row, chk *chunk.Chunk, remained int) ([]chunk.Row, error)
-	// resetPartialResult resets the partial result to the original state for a specific window function.
 	resetPartialResult()
 }
 
+// aggWindowProcessor handles the whole-partition case where every row in the
+// partition sees the same frame result.
 type aggWindowProcessor struct {
 	windowFuncs    []aggfuncs.AggFunc
 	partialResults []aggfuncs.PartialResult
@@ -204,7 +201,6 @@ type aggWindowProcessor struct {
 
 func (p *aggWindowProcessor) consumeGroupRows(ctx sessionctx.Context, rows []chunk.Row) ([]chunk.Row, error) {
 	for i, windowFunc := range p.windowFuncs {
-		// @todo Add memory trace
 		_, err := windowFunc.UpdatePartialResult(ctx.GetExprCtx().GetEvalCtx(), rows, p.partialResults[i])
 		if err != nil {
 			return nil, err
@@ -217,9 +213,7 @@ func (p *aggWindowProcessor) consumeGroupRows(ctx sessionctx.Context, rows []chu
 func (p *aggWindowProcessor) appendResult2Chunk(ctx sessionctx.Context, rows []chunk.Row, chk *chunk.Chunk, remained int) ([]chunk.Row, error) {
 	for remained > 0 {
 		for i, windowFunc := range p.windowFuncs {
-			// TODO: We can extend the agg func interface to avoid the `for` loop  here.
-			err := windowFunc.AppendFinalResult2Chunk(ctx.GetExprCtx().GetEvalCtx(), p.partialResults[i], chk)
-			if err != nil {
+			if err := windowFunc.AppendFinalResult2Chunk(ctx.GetExprCtx().GetEvalCtx(), p.partialResults[i], chk); err != nil {
 				return nil, err
 			}
 		}
@@ -261,7 +255,6 @@ func (p *rowFrameWindowProcessor) getStartOffset(numRows uint64) uint64 {
 	case ast.CurrentRow:
 		return p.curRowIdx
 	}
-	// It will never reach here.
 	return 0
 }
 
@@ -284,7 +277,6 @@ func (p *rowFrameWindowProcessor) getEndOffset(numRows uint64) uint64 {
 	case ast.CurrentRow:
 		return p.curRowIdx + 1
 	}
-	// It will never reach here.
 	return 0
 }
 
@@ -294,16 +286,8 @@ func (*rowFrameWindowProcessor) consumeGroupRows(_ sessionctx.Context, rows []ch
 
 func (p *rowFrameWindowProcessor) appendResult2Chunk(ctx sessionctx.Context, rows []chunk.Row, chk *chunk.Chunk, remained int) ([]chunk.Row, error) {
 	numRows := uint64(len(rows))
-	var (
-		err                      error
-		initializedSlidingWindow bool
-		start                    uint64
-		end                      uint64
-		lastStart                uint64
-		lastEnd                  uint64
-		shiftStart               uint64
-		shiftEnd                 uint64
-	)
+	var initializedSlidingWindow bool
+	var start, end, lastStart, lastEnd, shiftStart, shiftEnd uint64
 	slidingWindowAggFuncs := make([]aggfuncs.SlidingWindowAggFunc, len(p.windowFuncs))
 	for i, windowFunc := range p.windowFuncs {
 		if slidingWindowAggFunc, ok := windowFunc.(aggfuncs.SlidingWindowAggFunc); ok {
@@ -321,32 +305,25 @@ func (p *rowFrameWindowProcessor) appendResult2Chunk(ctx sessionctx.Context, row
 			for i, windowFunc := range p.windowFuncs {
 				slidingWindowAggFunc := slidingWindowAggFuncs[i]
 				if slidingWindowAggFunc != nil && initializedSlidingWindow {
-					err = slidingWindowAggFunc.Slide(ctx.GetExprCtx().GetEvalCtx(), func(u uint64) chunk.Row {
-						return rows[u]
-					}, lastStart, lastEnd, shiftStart, shiftEnd, p.partialResults[i])
-					if err != nil {
+					if err := slidingWindowAggFunc.Slide(ctx.GetExprCtx().GetEvalCtx(), func(u uint64) chunk.Row { return rows[u] }, lastStart, lastEnd, shiftStart, shiftEnd, p.partialResults[i]); err != nil {
 						return nil, err
 					}
 				}
-				err = windowFunc.AppendFinalResult2Chunk(ctx.GetExprCtx().GetEvalCtx(), p.partialResults[i], chk)
-				if err != nil {
+				if err := windowFunc.AppendFinalResult2Chunk(ctx.GetExprCtx().GetEvalCtx(), p.partialResults[i], chk); err != nil {
 					return nil, err
 				}
 			}
 			continue
 		}
-
 		for i, windowFunc := range p.windowFuncs {
 			slidingWindowAggFunc := slidingWindowAggFuncs[i]
+			var err error
 			if slidingWindowAggFunc != nil && initializedSlidingWindow {
-				err = slidingWindowAggFunc.Slide(ctx.GetExprCtx().GetEvalCtx(), func(u uint64) chunk.Row {
-					return rows[u]
-				}, lastStart, lastEnd, shiftStart, shiftEnd, p.partialResults[i])
+				// ROWS frames move monotonically, so sliding implementations can update
+				// the previous partial result by evicting/adding only delta rows.
+				err = slidingWindowAggFunc.Slide(ctx.GetExprCtx().GetEvalCtx(), func(u uint64) chunk.Row { return rows[u] }, lastStart, lastEnd, shiftStart, shiftEnd, p.partialResults[i])
 			} else {
-				// For MinMaxSlidingWindowAggFuncs, it needs the absolute value of each start of window, to compare
-				// whether elements inside deque are out of current window.
 				if minMaxSlidingWindowAggFunc, ok := windowFunc.(aggfuncs.MaxMinSlidingWindowAggFunc); ok {
-					// Store start inside MaxMinSlidingWindowAggFunc.windowInfo
 					minMaxSlidingWindowAggFunc.SetWindowStart(start)
 				}
 				_, err = windowFunc.UpdatePartialResult(ctx.GetExprCtx().GetEvalCtx(), rows[start:end], p.partialResults[i])
@@ -354,8 +331,7 @@ func (p *rowFrameWindowProcessor) appendResult2Chunk(ctx sessionctx.Context, row
 			if err != nil {
 				return nil, err
 			}
-			err = windowFunc.AppendFinalResult2Chunk(ctx.GetExprCtx().GetEvalCtx(), p.partialResults[i], chk)
-			if err != nil {
+			if err := windowFunc.AppendFinalResult2Chunk(ctx.GetExprCtx().GetEvalCtx(), p.partialResults[i], chk); err != nil {
 				return nil, err
 			}
 			if slidingWindowAggFunc == nil {
@@ -372,20 +348,17 @@ func (p *rowFrameWindowProcessor) appendResult2Chunk(ctx sessionctx.Context, row
 	return rows, nil
 }
 
-func (p *rowFrameWindowProcessor) resetPartialResult() {
-	p.curRowIdx = 0
-}
+func (p *rowFrameWindowProcessor) resetPartialResult() { p.curRowIdx = 0 }
 
 type rangeFrameWindowProcessor struct {
-	windowFuncs     []aggfuncs.AggFunc
-	partialResults  []aggfuncs.PartialResult
-	start           *logicalop.FrameBound
-	end             *logicalop.FrameBound
-	curRowIdx       uint64
-	lastStartOffset uint64
-	lastEndOffset   uint64
-	orderByCols     []*expression.Column
-	// expectedCmpResult is used to decide if one value is included in the frame.
+	windowFuncs       []aggfuncs.AggFunc
+	partialResults    []aggfuncs.PartialResult
+	start             *logicalop.FrameBound
+	end               *logicalop.FrameBound
+	curRowIdx         uint64
+	lastStartOffset   uint64
+	lastEndOffset     uint64
+	orderByCols       []*expression.Column
 	expectedCmpResult int64
 }
 
@@ -394,6 +367,8 @@ func (p *rangeFrameWindowProcessor) getStartOffset(ctx sessionctx.Context, rows 
 		return 0, nil
 	}
 	numRows := uint64(len(rows))
+	// RANGE frames scan offsets monotonically as the current row advances. Reusing
+	// lastStartOffset avoids re-checking rows already known to stay inside the frame.
 	for ; p.lastStartOffset < numRows; p.lastStartOffset++ {
 		var res int64
 		var err error
@@ -406,8 +381,6 @@ func (p *rangeFrameWindowProcessor) getStartOffset(ctx sessionctx.Context, rows 
 				break
 			}
 		}
-		// For asc, break when the current value is greater or equal to the calculated result;
-		// For desc, break when the current value is less or equal to the calculated result.
 		if res != p.expectedCmpResult {
 			break
 		}
@@ -420,6 +393,8 @@ func (p *rangeFrameWindowProcessor) getEndOffset(ctx sessionctx.Context, rows []
 	if p.end.UnBounded {
 		return numRows, nil
 	}
+	// The end pointer follows the same monotonic property as start, so the processor
+	// amortizes RANGE frame boundary lookup across the whole partition.
 	for ; p.lastEndOffset < numRows; p.lastEndOffset++ {
 		var res int64
 		var err error
@@ -432,8 +407,6 @@ func (p *rangeFrameWindowProcessor) getEndOffset(ctx sessionctx.Context, rows []
 				break
 			}
 		}
-		// For asc, break when the calculated result is greater than the current value.
-		// For desc, break when the calculated result is less than the current value.
 		if res == p.expectedCmpResult {
 			break
 		}
@@ -442,16 +415,8 @@ func (p *rangeFrameWindowProcessor) getEndOffset(ctx sessionctx.Context, rows []
 }
 
 func (p *rangeFrameWindowProcessor) appendResult2Chunk(ctx sessionctx.Context, rows []chunk.Row, chk *chunk.Chunk, remained int) ([]chunk.Row, error) {
-	var (
-		err                      error
-		initializedSlidingWindow bool
-		start                    uint64
-		end                      uint64
-		lastStart                uint64
-		lastEnd                  uint64
-		shiftStart               uint64
-		shiftEnd                 uint64
-	)
+	var initializedSlidingWindow bool
+	var start, end, lastStart, lastEnd, shiftStart, shiftEnd uint64
 	slidingWindowAggFuncs := make([]aggfuncs.SlidingWindowAggFunc, len(p.windowFuncs))
 	for i, windowFunc := range p.windowFuncs {
 		if slidingWindowAggFunc, ok := windowFunc.(aggfuncs.SlidingWindowAggFunc); ok {
@@ -459,6 +424,7 @@ func (p *rangeFrameWindowProcessor) appendResult2Chunk(ctx sessionctx.Context, r
 		}
 	}
 	for ; remained > 0; lastStart, lastEnd = start, end {
+		var err error
 		start, err = p.getStartOffset(ctx, rows)
 		if err != nil {
 			return nil, err
@@ -475,27 +441,20 @@ func (p *rangeFrameWindowProcessor) appendResult2Chunk(ctx sessionctx.Context, r
 			for i, windowFunc := range p.windowFuncs {
 				slidingWindowAggFunc := slidingWindowAggFuncs[i]
 				if slidingWindowAggFunc != nil && initializedSlidingWindow {
-					err = slidingWindowAggFunc.Slide(ctx.GetExprCtx().GetEvalCtx(), func(u uint64) chunk.Row {
-						return rows[u]
-					}, lastStart, lastEnd, shiftStart, shiftEnd, p.partialResults[i])
-					if err != nil {
+					if err := slidingWindowAggFunc.Slide(ctx.GetExprCtx().GetEvalCtx(), func(u uint64) chunk.Row { return rows[u] }, lastStart, lastEnd, shiftStart, shiftEnd, p.partialResults[i]); err != nil {
 						return nil, err
 					}
 				}
-				err = windowFunc.AppendFinalResult2Chunk(ctx.GetExprCtx().GetEvalCtx(), p.partialResults[i], chk)
-				if err != nil {
+				if err := windowFunc.AppendFinalResult2Chunk(ctx.GetExprCtx().GetEvalCtx(), p.partialResults[i], chk); err != nil {
 					return nil, err
 				}
 			}
 			continue
 		}
-
 		for i, windowFunc := range p.windowFuncs {
 			slidingWindowAggFunc := slidingWindowAggFuncs[i]
 			if slidingWindowAggFunc != nil && initializedSlidingWindow {
-				err = slidingWindowAggFunc.Slide(ctx.GetExprCtx().GetEvalCtx(), func(u uint64) chunk.Row {
-					return rows[u]
-				}, lastStart, lastEnd, shiftStart, shiftEnd, p.partialResults[i])
+				err = slidingWindowAggFunc.Slide(ctx.GetExprCtx().GetEvalCtx(), func(u uint64) chunk.Row { return rows[u] }, lastStart, lastEnd, shiftStart, shiftEnd, p.partialResults[i])
 			} else {
 				if minMaxSlidingWindowAggFunc, ok := windowFunc.(aggfuncs.MaxMinSlidingWindowAggFunc); ok {
 					minMaxSlidingWindowAggFunc.SetWindowStart(start)
@@ -505,8 +464,7 @@ func (p *rangeFrameWindowProcessor) appendResult2Chunk(ctx sessionctx.Context, r
 			if err != nil {
 				return nil, err
 			}
-			err = windowFunc.AppendFinalResult2Chunk(ctx.GetExprCtx().GetEvalCtx(), p.partialResults[i], chk)
-			if err != nil {
+			if err := windowFunc.AppendFinalResult2Chunk(ctx.GetExprCtx().GetEvalCtx(), p.partialResults[i], chk); err != nil {
 				return nil, err
 			}
 			if slidingWindowAggFunc == nil {
