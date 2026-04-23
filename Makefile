@@ -729,7 +729,7 @@ bazel_ci_test_ddlargsv1: bazel-failpoint-enable bazel_ci_simple_prepare
 
 .PHONY: bazel_coverage_test
 bazel_coverage_test: bazel-failpoint-enable bazel_ci_simple_prepare
-	bazel $(BAZEL_GLOBAL_CONFIG) --nohome_rc coverage $(BAZEL_CMD_CONFIG) $(BAZEL_INSTRUMENTATION_FILTER) --jobs=35 --build_tests_only --test_keep_going=false \
+	bazel $(BAZEL_GLOBAL_CONFIG) --nohome_rc coverage $(BAZEL_CMD_CONFIG) $(BAZEL_INSTRUMENTATION_FILTER) --jobs=HOST_CPUS*0.9 --build_tests_only --test_keep_going=false \
 		--combined_report=lcov \
 		--define gotags=$(UNIT_TEST_TAGS) \
 		-- //... -//cmd/... -//tests/graceshutdown/... \
@@ -737,7 +737,7 @@ bazel_coverage_test: bazel-failpoint-enable bazel_ci_simple_prepare
 
 .PHONY: bazel_coverage_test_ddlargsv1
 bazel_coverage_test_ddlargsv1: bazel-failpoint-enable bazel_ci_simple_prepare
-	bazel $(BAZEL_GLOBAL_CONFIG) --nohome_rc coverage $(BAZEL_CMD_CONFIG) $(BAZEL_INSTRUMENTATION_FILTER) --jobs=35 --build_tests_only --test_keep_going=false \
+	bazel $(BAZEL_GLOBAL_CONFIG) --nohome_rc coverage $(BAZEL_CMD_CONFIG) $(BAZEL_INSTRUMENTATION_FILTER) --jobs=HOST_CPUS*0.9 --build_tests_only --test_keep_going=false \
 		--combined_report=lcov \
 		--define gotags=$(UNIT_TEST_TAGS),ddlargsv1 \
 		-- //... -//cmd/... -//tests/graceshutdown/... \
