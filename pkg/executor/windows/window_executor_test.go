@@ -18,13 +18,9 @@ import (
 	"fmt"
 	"testing"
 
-	windows "github.com/pingcap/tidb/pkg/executor/windows"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/testkit"
 )
-
-// Keep a direct reference to the package under test so Bazel/go_test must build it.
-var _ = windows.Build
 
 func TestWindowExecutorsBasic(t *testing.T) {
 	store := testkit.CreateMockStore(t)
