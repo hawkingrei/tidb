@@ -458,6 +458,9 @@ func TestDupRandJoinCondsPushDown(t *testing.T) {
 	require.NoError(t, err, comment)
 	p, err = logicalOptimize(context.TODO(), rule.FlagPredicatePushDown, p.(base.LogicalPlan))
 	require.NoError(t, err, comment)
+	if proj, isProj := p.(*logicalop.LogicalProjection); isProj {
+		p = proj.Children()[0]
+	}
 	join, ok = p.(*logicalop.LogicalJoin)
 	require.True(t, ok, comment)
 	_, ok = join.Children()[1].(*logicalop.LogicalSelection)
