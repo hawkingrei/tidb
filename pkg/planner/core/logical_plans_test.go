@@ -448,6 +448,22 @@ func TestDupRandJoinCondsPushDown(t *testing.T) {
 	require.Same(t, rightProj.Schema().Columns[len(rightProj.Schema().Columns)-1], otherFn.GetArgs()[1], comment)
 	require.Equal(t, "[cast(test.t.a, double BINARY)]", expression.StringifyExpressionsWithCtx(s.GetCtx().GetExprCtx().GetEvalCtx(), []expression.Expression{leftProj.Exprs[len(leftProj.Exprs)-1]}), comment)
 	require.Equal(t, "[rand()]", expression.StringifyExpressionsWithCtx(s.GetCtx().GetExprCtx().GetEvalCtx(), []expression.Expression{rightProj.Exprs[len(rightProj.Exprs)-1]}), comment)
+
+	sql = "select * from t as t1 left join t t2 on t1.a = t2.a and t2.a < @var1"
+	comment = fmt.Sprintf("for %s", sql)
+	stmt, err = s.GetParser().ParseOneStmt(sql, "", "")
+	require.NoError(t, err, comment)
+	nodeW = resolve.NewNodeW(stmt)
+	p, err = BuildLogicalPlanForTest(context.Background(), s.GetSCtx(), nodeW, s.GetIS())
+	require.NoError(t, err, comment)
+	p, err = logicalOptimize(context.TODO(), rule.FlagPredicatePushDown, p.(base.LogicalPlan))
+	require.NoError(t, err, comment)
+	join, ok = p.(*logicalop.LogicalJoin)
+	require.True(t, ok, comment)
+	_, ok = join.Children()[1].(*logicalop.LogicalSelection)
+	require.False(t, ok, comment)
+	require.Empty(t, join.RightConditions, comment)
+	require.Equal(t, "[lt(cast(test.t.a, double BINARY), cast(getvar(\"var1\"), double BINARY))]", expression.StringifyExpressionsWithCtx(s.GetCtx().GetExprCtx().GetEvalCtx(), join.OtherConditions), comment)
 }
 
 func TestTablePartition(t *testing.T) {

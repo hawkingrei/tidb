@@ -2181,6 +2181,9 @@ func DeriveOtherConditions(
 	ctx := p.SCtx()
 	exprCtx := ctx.GetExprCtx()
 	for _, expr := range p.OtherConditions {
+		if expression.IsMutableEffectsExpr(expr) {
+			continue
+		}
 		if deriveLeft {
 			leftRelaxedCond := expression.DeriveRelaxedFiltersFromDNF(exprCtx, expr, leftSchema)
 			if leftRelaxedCond != nil {
