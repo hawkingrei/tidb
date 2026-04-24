@@ -466,7 +466,7 @@ func TestDupRandJoinCondsPushDown(t *testing.T) {
 	_, ok = join.Children()[1].(*logicalop.LogicalSelection)
 	require.False(t, ok, comment)
 	require.Empty(t, join.RightConditions, comment)
-	require.Equal(t, "[lt(cast(test.t.a, double BINARY), cast(getvar(\"var1\"), double BINARY))]", expression.StringifyExpressionsWithCtx(s.GetCtx().GetExprCtx().GetEvalCtx(), join.OtherConditions), comment)
+	require.Equal(t, "[lt(cast(test.t.a, double BINARY), cast(getvar(var1), double BINARY))]", expression.StringifyExpressionsWithCtx(s.GetCtx().GetExprCtx().GetEvalCtx(), join.OtherConditions), comment)
 }
 
 func TestTablePartition(t *testing.T) {
