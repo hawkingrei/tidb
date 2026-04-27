@@ -706,15 +706,27 @@ func (c *ifFunctionClass) getFunction(ctx BuildContext, args []Expression) (sig 
 	if err = c.verifyArgs(args); err != nil {
 		return nil, err
 	}
-	retTp, err := InferType4ControlFuncs(ctx, c.funcName, args[1], args[2])
-	if err != nil {
-		return nil, err
-	}
-	evalTps := retTp.EvalType()
 	args[0], err = wrapWithIsTrue(ctx, true, args[0], false)
 	if err != nil {
 		return nil, err
 	}
+	retTp, err := InferType4ControlFuncs(ctx, c.funcName, args[1], args[2])
+	if err != nil {
+		return nil, err
+	}
+	if selectedBranchIdx := constantIfSelectedBranchIdx(ctx, args[0]); selectedBranchIdx != -1 {
+		selectedBranch := args[selectedBranchIdx]
+		if selectedBranch.GetType(ctx.GetEvalCtx()).GetType() != mysql.TypeNull {
+			retTp = selectedBranch.GetType(ctx.GetEvalCtx()).Clone()
+			deadBranchIdx := 1
+			if selectedBranchIdx == 1 {
+				deadBranchIdx = 2
+			}
+			// Do not let an unreachable branch force casts or warnings on the selected branch.
+			args[deadBranchIdx] = NewNullWithFieldType(retTp.Clone())
+		}
+	}
+	evalTps := retTp.EvalType()
 
 	bf, err := newBaseBuiltinFuncWithFieldTypes(ctx, c.funcName, args, evalTps, args[0].GetType(ctx.GetEvalCtx()).Clone(), retTp.Clone(), retTp.Clone())
 	if err != nil {
@@ -751,6 +763,21 @@ func (c *ifFunctionClass) getFunction(ctx BuildContext, args []Expression) (sig 
 		return nil, errors.Errorf("%s is not supported for IF()", evalTps)
 	}
 	return sig, nil
+}
+
+func constantIfSelectedBranchIdx(ctx BuildContext, condition Expression) int {
+	constCondition, ok := condition.(*Constant)
+	if !ok || constCondition.DeferredExpr != nil || constCondition.ParamMarker != nil {
+		return -1
+	}
+	conditionValue, isNull, err := constCondition.EvalInt(ctx.GetEvalCtx(), chunk.Row{})
+	if err != nil {
+		return -1
+	}
+	if !isNull && conditionValue != 0 {
+		return 1
+	}
+	return 2
 }
 
 type builtinIfIntSig struct {
