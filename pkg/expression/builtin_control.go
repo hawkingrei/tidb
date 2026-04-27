@@ -343,9 +343,15 @@ func (c *caseWhenFunctionClass) getFunction(ctx BuildContext, args []Expression)
 		if args[i], err = wrapWithIsTrue(ctx, true, args[i], false); err != nil {
 			return nil, err
 		}
+		if tp == types.ETString {
+			args[i+1] = wrapCaseWhenStringResult(ctx, args[i+1], fieldTp)
+		}
 		argTps = append(argTps, args[i].GetType(ctx.GetEvalCtx()), fieldTp.Clone())
 	}
 	if l%2 == 1 {
+		if tp == types.ETString {
+			args[l-1] = wrapCaseWhenStringResult(ctx, args[l-1], fieldTp)
+		}
 		argTps = append(argTps, fieldTp.Clone())
 	}
 	bf, err := newBaseBuiltinFuncWithFieldTypes(ctx, c.funcName, args, tp, argTps...)
@@ -387,6 +393,16 @@ func (c *caseWhenFunctionClass) getFunction(ctx BuildContext, args []Expression)
 		return nil, errors.Errorf("%s is not supported for CASE WHEN", tp)
 	}
 	return sig, nil
+}
+
+func wrapCaseWhenStringResult(ctx BuildContext, arg Expression, targetTp *types.FieldType) Expression {
+	arg = WrapWithCastAsString(ctx, arg)
+	argTp := arg.GetType(ctx.GetEvalCtx())
+	if argTp.GetCharset() == targetTp.GetCharset() && argTp.GetCollate() == targetTp.GetCollate() {
+		return arg
+	}
+	// Cast only the CASE result arm copy so shared column expressions keep their own collation.
+	return BuildCastFunction(ctx, arg, targetTp.Clone())
 }
 
 type builtinCaseWhenIntSig struct {
