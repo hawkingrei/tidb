@@ -716,8 +716,13 @@ func (c *ifFunctionClass) getFunction(ctx BuildContext, args []Expression) (sig 
 	}
 	if selectedBranchIdx := constantIfSelectedBranchIdx(ctx, args[0]); selectedBranchIdx != -1 {
 		selectedBranch := args[selectedBranchIdx]
-		if selectedBranch.GetType(ctx.GetEvalCtx()).GetType() != mysql.TypeNull {
-			retTp = selectedBranch.GetType(ctx.GetEvalCtx()).Clone()
+		selectedBranchTp := selectedBranch.GetType(ctx.GetEvalCtx())
+		_, selectedBranchIsConstant := selectedBranch.(*Constant)
+		if retTp.EvalType() == types.ETString &&
+			selectedBranchTp.EvalType() != types.ETString &&
+			selectedBranchTp.GetType() != mysql.TypeNull &&
+			!selectedBranchIsConstant {
+			retTp = selectedBranchTp.Clone()
 			deadBranchIdx := 1
 			if selectedBranchIdx == 1 {
 				deadBranchIdx = 2
