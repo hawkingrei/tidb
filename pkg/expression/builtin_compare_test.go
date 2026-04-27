@@ -171,10 +171,19 @@ func TestCompare(t *testing.T) {
 	require.Equal(t, mysql.TypeJSON, args[0].GetType(ctx).GetType())
 	require.Equal(t, mysql.TypeJSON, args[1].GetType(ctx).GetType())
 
-	// test binary string <cmp> BIT
+	// Normal binary string <cmp> BIT preserves the existing numeric comparison rule.
 	bitCol := &Column{RetType: types.NewFieldType(mysql.TypeBit)}
 	binaryStringCol := &Column{RetType: types.NewFieldTypeWithCollation(mysql.TypeString, charset.CollationBin, 1)}
 	bf, err = funcs[ast.EQ].getFunction(ctx, []Expression{binaryStringCol, bitCol})
+	require.NoError(t, err)
+	args = bf.getArgs()
+	require.Equal(t, mysql.TypeDouble, args[0].GetType(ctx).GetType())
+	require.Equal(t, mysql.TypeDouble, args[1].GetType(ctx).GetType())
+
+	// IN-subquery comparison uses string comparison to avoid treating binary bytes as numbers.
+	inBitCol := bitCol.Clone().(*Column)
+	inBitCol.InOperand = true
+	bf, err = funcs[ast.EQ].getFunction(ctx, []Expression{binaryStringCol, inBitCol})
 	require.NoError(t, err)
 	args = bf.getArgs()
 	require.True(t, types.IsBinaryStr(args[0].GetType(ctx)))

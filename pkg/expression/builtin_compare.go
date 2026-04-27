@@ -1412,9 +1412,6 @@ func getBaseCmpType(lhs, rhs types.EvalType, lft, rft *types.FieldType) types.Ev
 			rhs = lhs
 		}
 	}
-	if isBinaryStringAndBitCmp(lft, rft) {
-		return types.ETString
-	}
 	if lhs.IsStringKind() && rhs.IsStringKind() {
 		return types.ETString
 	} else if (lhs == types.ETInt || (lft != nil && lft.Hybrid())) && (rhs == types.ETInt || (rft != nil && rft.Hybrid())) {
@@ -1431,7 +1428,8 @@ func getBaseCmpType(lhs, rhs types.EvalType, lft, rft *types.FieldType) types.Ev
 	return types.ETReal
 }
 
-func isBinaryStringAndBitCmp(lft, rft *types.FieldType) bool {
+// IsBinaryStringAndBitCmp reports whether a comparison crosses a binary string and BIT.
+func IsBinaryStringAndBitCmp(lft, rft *types.FieldType) bool {
 	if lft == nil || rft == nil {
 		return false
 	}
@@ -1445,6 +1443,9 @@ func GetAccurateCmpType(ctx EvalContext, lhs, rhs Expression) types.EvalType {
 	lhsFieldType, rhsFieldType := lhs.GetType(ctx), rhs.GetType(ctx)
 	lhsEvalType, rhsEvalType := lhsFieldType.EvalType(), rhsFieldType.EvalType()
 	cmpType := getBaseCmpType(lhsEvalType, rhsEvalType, lhsFieldType, rhsFieldType)
+	if IsBinaryStringAndBitCmp(lhsFieldType, rhsFieldType) && (containsInOperand(lhs) || containsInOperand(rhs)) {
+		cmpType = types.ETString
+	}
 	if lhsEvalType == types.ETVectorFloat32 || rhsEvalType == types.ETVectorFloat32 {
 		cmpType = types.ETVectorFloat32
 	} else if (lhsEvalType.IsStringKind() && lhsFieldType.GetType() == mysql.TypeJSON) || (rhsEvalType.IsStringKind() && rhsFieldType.GetType() == mysql.TypeJSON) {
@@ -1494,6 +1495,20 @@ func GetAccurateCmpType(ctx EvalContext, lhs, rhs Expression) types.EvalType {
 		}
 	}
 	return cmpType
+}
+
+func containsInOperand(expr Expression) bool {
+	switch x := expr.(type) {
+	case *Column:
+		return x.InOperand
+	case *ScalarFunction:
+		for _, arg := range x.GetArgs() {
+			if containsInOperand(arg) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // GetCmpFunction get the compare function according to two arguments.

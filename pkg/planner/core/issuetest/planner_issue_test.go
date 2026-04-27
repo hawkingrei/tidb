@@ -489,10 +489,9 @@ GROUP BY field1;`).Check(testkit.Rows("0"))
 
 		// issue:65307
 		tk.MustQuery("select hex(c1) from t_bin where c1 in (select c1 from t_bit)").Check(testkit.Rows())
-		tk.MustQuery("select hex(t_bin.c1) from t_bin join t_bit on t_bin.c1 = t_bit.c1").Check(testkit.Rows())
-		tk.MustQuery("select hex(c1) from t_bin where c1 = (select c1 from t_bit)").Check(testkit.Rows())
 
-		// Preserve the existing numeric coercion behavior for non-binary strings.
+		// Preserve the existing numeric coercion behavior outside the binary string IN-subquery path.
+		tk.MustQuery("select hex(t_bin.c1) from t_bin join t_bit on t_bin.c1 = t_bit.c1").Sort().Check(testkit.Rows("45", "6F"))
 		tk.MustQuery("select hex(c1) from t_varchar where c1 in (select c1 from t_bit)").Sort().Check(testkit.Rows("45", "6F"))
 	}
 
