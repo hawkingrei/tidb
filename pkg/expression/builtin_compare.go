@@ -1412,6 +1412,9 @@ func getBaseCmpType(lhs, rhs types.EvalType, lft, rft *types.FieldType) types.Ev
 			rhs = lhs
 		}
 	}
+	if isBinaryStringAndBitCmp(lft, rft) {
+		return types.ETString
+	}
 	if lhs.IsStringKind() && rhs.IsStringKind() {
 		return types.ETString
 	} else if (lhs == types.ETInt || (lft != nil && lft.Hybrid())) && (rhs == types.ETInt || (rft != nil && rft.Hybrid())) {
@@ -1426,6 +1429,14 @@ func getBaseCmpType(lhs, rhs types.EvalType, lft, rft *types.FieldType) types.Ev
 		return types.ETDatetime
 	}
 	return types.ETReal
+}
+
+func isBinaryStringAndBitCmp(lft, rft *types.FieldType) bool {
+	if lft == nil || rft == nil {
+		return false
+	}
+	return (lft.GetType() == mysql.TypeBit && types.IsBinaryStr(rft)) ||
+		(rft.GetType() == mysql.TypeBit && types.IsBinaryStr(lft))
 }
 
 // GetAccurateCmpType uses a more complex logic to decide the EvalType of the two args when compare with each other than
