@@ -1274,6 +1274,9 @@ func extractFiltersFromDNF(ctx BuildContext, dnfFunc *ScalarFunction) ([]Express
 	for _, expr := range hashcode2Expr {
 		extractedExpr = append(extractedExpr, expr)
 	}
+	slices.SortFunc(extractedExpr, func(a, b Expression) int {
+		return bytes.Compare(a.HashCode(), b.HashCode())
+	})
 	if onlyNeedExtracted {
 		return extractedExpr, nil
 	}
