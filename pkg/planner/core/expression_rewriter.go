@@ -2543,8 +2543,8 @@ func (er *expressionRewriter) rewriteFuncCall(v *ast.FuncCallExpr) bool {
 		// NULLIF returns the first argument when the comparison is false, otherwise NULL.
 		// Keep the NULL branch as TypeNull so IF inherits the return type from the
 		// value branch instead of aggregating it with a typed NULL and rewriting metadata.
-		valueBranch := param1.Clone()
-		retTp := valueBranch.GetType(er.sctx.GetEvalCtx()).Clone()
+		valueBranch := param1
+		retTp := valueBranch.GetType(er.sctx.GetEvalCtx())
 		retTp.DelFlag(mysql.NotNullFlag)
 		if !retTp.EvalType().IsStringKind() {
 			retTp.SetCharset(charset.CharsetBin)
