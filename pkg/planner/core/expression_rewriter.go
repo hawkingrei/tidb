@@ -2540,18 +2540,13 @@ func (er *expressionRewriter) rewriteFuncCall(v *ast.FuncCallExpr) bool {
 			er.err = err
 			return true
 		}
-		// NULL
-		nullTp := types.NewFieldType(mysql.TypeNull)
-		flen, decimal := mysql.GetDefaultFieldLengthAndDecimal(mysql.TypeNull)
-		nullTp.SetFlen(flen)
-		nullTp.SetDecimal(decimal)
+		// NULLIF returns the first argument when the comparison is false, otherwise NULL.
+		retTp := v.Type.DeepCopy()
+		retTp.DelFlag(mysql.NotNullFlag)
 		paramNull := &expression.Constant{
 			Value:   types.NewDatum(nil),
-			RetType: nullTp,
+			RetType: retTp.Clone(),
 		}
-		// NULLIF returns the first argument when the comparison is false, otherwise NULL.
-		retTp := param1.GetType(er.sctx.GetEvalCtx()).Clone()
-		retTp.DelFlag(mysql.NotNullFlag)
 		funcIf, err := er.newFunction(ast.If, retTp, funcCompare, paramNull, param1)
 		if err != nil {
 			er.err = err
