@@ -553,6 +553,9 @@ func (a *ExecStmt) Exec(ctx context.Context) (_ sqlexec.RecordSet, err error) {
 		r := recover()
 		if r == nil {
 			if err == nil && a.isPreparedStmt && a.Ctx.GetSessionVars().EnablePreparedPlanCache {
+				// Prepared plan-cache execution can append the same invalid TIME conversion
+				// warning through repeated plan/build/metadata paths; keep the first
+				// semantic warning while preserving distinct warning messages.
 				deduplicatePreparedPlanCacheTruncatedWrongValueWarnings(a.Ctx.GetSessionVars().StmtCtx)
 			}
 			if a.retryCount > 0 {
