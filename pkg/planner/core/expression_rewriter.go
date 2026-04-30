@@ -2541,15 +2541,22 @@ func (er *expressionRewriter) rewriteFuncCall(v *ast.FuncCallExpr) bool {
 			return true
 		}
 		// NULLIF returns the first argument when the comparison is false, otherwise NULL.
-		// Keep the NULL branch typed; the IF builtin infers its return type from both branches.
-		// A bare NULL type would make the result fall back to param1 and lose NULLIF's inferred metadata.
-		retTp := v.Type.DeepCopy()
+		// Keep the NULL branch as TypeNull so IF inherits the return type from the
+		// value branch instead of aggregating it with a typed NULL and rewriting metadata.
+		valueBranch := param1.Clone()
+		retTp := valueBranch.GetType(er.sctx.GetEvalCtx()).Clone()
 		retTp.DelFlag(mysql.NotNullFlag)
+		if !retTp.EvalType().IsStringKind() {
+			retTp.SetCharset(charset.CharsetBin)
+			retTp.SetCollate(charset.CollationBin)
+		}
+		valueBranch.GetType(er.sctx.GetEvalCtx()).SetCharset(retTp.GetCharset())
+		valueBranch.GetType(er.sctx.GetEvalCtx()).SetCollate(retTp.GetCollate())
 		paramNull := &expression.Constant{
 			Value:   types.NewDatum(nil),
-			RetType: retTp.Clone(),
+			RetType: types.NewFieldType(mysql.TypeNull),
 		}
-		funcIf, err := er.newFunction(ast.If, retTp, funcCompare, paramNull, param1)
+		funcIf, err := er.newFunction(ast.If, retTp, funcCompare, paramNull, valueBranch)
 		if err != nil {
 			er.err = err
 			return true
