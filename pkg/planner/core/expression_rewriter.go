@@ -2534,7 +2534,9 @@ func (er *expressionRewriter) rewriteFuncCall(v *ast.FuncCallExpr) bool {
 		stackLen := len(er.ctxStack)
 		param1 := er.ctxStack[stackLen-2]
 		param2 := er.ctxStack[stackLen-1]
-		// param1 = param2
+		// Build the comparison with cloned operands. The comparison branch may refine
+		// argument types or wrap casts, while NULLIF must still return the original
+		// first-argument semantics when the comparison is false.
 		funcCompare, err := er.constructBinaryOpFunction(param1.Clone(), param2.Clone(), ast.EQ)
 		if err != nil {
 			er.err = err
