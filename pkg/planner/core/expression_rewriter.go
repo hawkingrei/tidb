@@ -2535,7 +2535,7 @@ func (er *expressionRewriter) rewriteFuncCall(v *ast.FuncCallExpr) bool {
 		param1 := er.ctxStack[stackLen-2]
 		param2 := er.ctxStack[stackLen-1]
 		// param1 = param2
-		funcCompare, err := er.constructBinaryOpFunction(param1, param2, ast.EQ)
+		funcCompare, err := er.constructBinaryOpFunction(param1.Clone(), param2.Clone(), ast.EQ)
 		if err != nil {
 			er.err = err
 			return true
@@ -2549,8 +2549,10 @@ func (er *expressionRewriter) rewriteFuncCall(v *ast.FuncCallExpr) bool {
 			Value:   types.NewDatum(nil),
 			RetType: nullTp,
 		}
-		// if(param1 = param2, NULL, param1)
-		funcIf, err := er.newFunction(ast.If, v.Type.DeepCopy(), funcCompare, paramNull, param1)
+		// NULLIF returns the first argument when the comparison is false, otherwise NULL.
+		retTp := param1.GetType(er.sctx.GetEvalCtx()).Clone()
+		retTp.DelFlag(mysql.NotNullFlag)
+		funcIf, err := er.newFunction(ast.If, retTp, funcCompare, paramNull, param1)
 		if err != nil {
 			er.err = err
 			return true
