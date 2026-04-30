@@ -279,6 +279,7 @@ func TestPreparedPlanCacheWarningRegressions(t *testing.T) {
 	runPreparedPlanCacheLimitWarning(t, tk)
 	runPreparedPlanCacheTypeConversionWarning(t, tk)
 	runPreparedPlanCacheIndexRangeTypeWarning(t, tk)
+	runPreparedPlanCacheTimeParamWarning(t, tk)
 	runPreparedPlanCacheConvFunction(t, tk)
 	runPreparedPlanCacheForUpdateInTxn(t, tk)
 }
@@ -622,6 +623,25 @@ func runPreparedPlanCacheIndexRangeTypeWarning(t *testing.T, tk *testkit.TestKit
 
 	tk.MustExec("execute st using @a1")
 	tk.MustQuery("show warnings").Check(testkit.Rows("Warning 1105 skip prepared plan-cache: '1.1' may be converted to INT"))
+	tk.MustExec("deallocate prepare st")
+}
+
+func runPreparedPlanCacheTimeParamWarning(t *testing.T, tk *testkit.TestKit) {
+	tk.MustExec("use test")
+	tableName := "t_time_param_warning"
+	tk.MustExec(fmt.Sprintf("drop table if exists %s", tableName))
+	tk.MustExec(fmt.Sprintf("create table %s (c time(6))", tableName))
+	tk.MustExec(fmt.Sprintf("insert into %s values ('02:59:59.000000')", tableName))
+	tk.MustExec(fmt.Sprintf("prepare st from 'select c from %s where c in (?, ?)'", tableName))
+	tk.MustExec("set @a='NULL', @b='02:59:59.000000'")
+
+	tk.MustQuery("execute st using @a, @b").Check(testkit.Rows("02:59:59.000000"))
+	tk.MustQuery("show warnings").Check(testkit.Rows("Warning 1292 Truncated incorrect time value: 'NULL'"))
+
+	tk.MustExec(fmt.Sprintf("prepare st_eq from 'select c from %s where c = ?'", tableName))
+	tk.MustQuery("execute st_eq using @a").Check(testkit.Rows())
+	tk.MustQuery("show warnings").Check(testkit.Rows("Warning 1292 Truncated incorrect time value: 'NULL'"))
+	tk.MustExec("deallocate prepare st_eq")
 	tk.MustExec("deallocate prepare st")
 }
 

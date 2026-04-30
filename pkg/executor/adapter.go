@@ -552,6 +552,9 @@ func (a *ExecStmt) Exec(ctx context.Context) (_ sqlexec.RecordSet, err error) {
 	defer func() {
 		r := recover()
 		if r == nil {
+			if err == nil && a.isPreparedStmt && a.Ctx.GetSessionVars().EnablePreparedPlanCache {
+				deduplicatePreparedPlanCacheTruncatedWrongValueWarnings(a.Ctx.GetSessionVars().StmtCtx)
+			}
 			if a.retryCount > 0 {
 				metrics.StatementPessimisticRetryCount.Observe(float64(a.retryCount))
 			}
@@ -741,6 +744,39 @@ func (a *ExecStmt) Exec(ctx context.Context) (_ sqlexec.RecordSet, err error) {
 		txnStartTS: txnStartTS,
 		traceID:    traceID,
 	}, nil
+}
+
+func deduplicatePreparedPlanCacheTruncatedWrongValueWarnings(stmtCtx *stmtctx.StatementContext) {
+	warnings := stmtCtx.GetWarnings()
+	if len(warnings) <= 1 {
+		return
+	}
+
+	deduplicated := make([]stmtctx.SQLWarn, 0, len(warnings))
+	seenTruncatedWrongValue := make(map[string]struct{})
+	for _, warning := range warnings {
+		terr, ok := errors.Cause(warning.Err).(*terror.Error)
+		if warning.Level != "Warning" || !ok {
+			deduplicated = append(deduplicated, warning)
+			continue
+		}
+		sqlErr := terror.ToSQLError(terr)
+		if sqlErr.Code != mysql.ErrTruncatedWrongValue ||
+			!strings.HasPrefix(sqlErr.Message, "Truncated incorrect time value") {
+			deduplicated = append(deduplicated, warning)
+			continue
+		}
+
+		key := sqlErr.Message
+		if _, ok := seenTruncatedWrongValue[key]; ok {
+			continue
+		}
+		seenTruncatedWrongValue[key] = struct{}{}
+		deduplicated = append(deduplicated, warning)
+	}
+	if len(deduplicated) != len(warnings) {
+		stmtCtx.SetWarnings(deduplicated)
+	}
 }
 
 func (a *ExecStmt) inheritContextFromExecuteStmt() {
