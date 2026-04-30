@@ -2541,6 +2541,8 @@ func (er *expressionRewriter) rewriteFuncCall(v *ast.FuncCallExpr) bool {
 			return true
 		}
 		// NULLIF returns the first argument when the comparison is false, otherwise NULL.
+		// Keep the NULL branch typed; the IF builtin infers its return type from both branches.
+		// A bare NULL type would make the result fall back to param1 and lose NULLIF's inferred metadata.
 		retTp := v.Type.DeepCopy()
 		retTp.DelFlag(mysql.NotNullFlag)
 		paramNull := &expression.Constant{
